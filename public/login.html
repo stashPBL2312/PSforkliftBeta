@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Login - Forklift Service</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin:0; background:#f4f6f8; }
+    .container { max-width:360px; margin:10vh auto; background:#fff; padding:24px; border-radius:8px; box-shadow:0 2px 10px rgba(0,0,0,.08); }
+    h1 { font-size:20px; margin:0 0 12px; }
+    label { display:block; font-size:12px; color:#555; margin-top:12px; }
+    input { width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:6px; margin-top:6px; }
+    button { width:100%; padding:10px 12px; background:#1e88e5; color:white; border:0; border-radius:6px; margin-top:16px; cursor:pointer; }
+    .error { color:#d32f2f; margin-top:10px; font-size:13px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Forklift Service Login</h1>
+    <form id="loginForm">
+      <label>Email</label>
+      <input id="email" type="email" required />
+      <label>Password</label>
+      <input id="password" type="password" required />
+      <button type="submit">Login</button>
+      <div id="msg" class="error"></div>
+    </form>
+  </div>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value.trim();
+      const r = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, password }) });
+      const data = await r.json();
+      if (!r.ok) {
+        document.getElementById('msg').textContent = data.error || 'Login gagal';
+      } else {
+        location.href = '/dashboard.html';
+      }
+    });
+  </script>
+</body>
+</html>

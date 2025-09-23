@@ -1,0 +1,322 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Forklifts</title>
+  <script src="/common.js"></script>
+  <!-- Export libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin:0; }
+    .wrap { max-width:1100px; margin:20px auto; padding:0 16px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding:8px; border-bottom:1px solid #eee; }
+    th { background:#fafafa; }
+    input, select, button { padding:6px 8px; }
+    .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+    /* Dark mode: modal */
+    [data-theme="dark"] #modal > div { background:#0f172a !important; color:#e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.6); }
+    [data-theme="dark"] #modal h3 { color:#e5e7eb; }
+    [data-theme="dark"] #modal div[style*='color:#666'],
+    [data-theme="dark"] #modal div[style*='color:#777'] { color:#e5e7eb !important; }
+    [data-theme="dark"] #modal input,
+    [data-theme="dark"] #modal select,
+    [data-theme="dark"] #modal textarea { background:#0b1220; border-color:#334155; color:#e5e7eb; }
+    [data-theme="dark"] input::placeholder, [data-theme="dark"] textarea::placeholder { color:#e5e7eb !important; opacity:1 !important; }
+  </style>
+</head>
+<body>
+  <div id="header"></div>
+  <div class="wrap">
+    <h2>Forklifts</h2>
+    <div class="toolbar">
+      <input id="search" placeholder="Cari..." />
+      <select id="rowsPerPage"><option>10</option><option>15</option><option>25</option></select>
+      <button id="addBtn">Tambah</button>
+      <button id="bulkDeleteBtn">Hapus Terpilih</button>
+      <button id="exportExcel">Export Excel</button>
+      <button id="exportPDF">Export PDF</button>
+    </div>
+    <div id="table"></div>
+    <div id="pagination" style="margin-top:8px;"></div>
+  </div>
+
+  <div id="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.3); align-items:center; justify-content:center;">
+    <div style="background:#fff; padding:16px; border-radius:8px; width:520px; max-width:95vw;">
+      <h3 id="modalTitle" style="margin-top:0;">Tambah Forklift</h3>
+      <div id="form"></div>
+      <div style="text-align:right; margin-top:10px;">
+        <button id="cancelBtn">Batal</button>
+        <button id="saveBtn">Simpan</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (async function(){
+    const user = await ensureAuthedAndRenderNav(); if (!user) return;
+    let data = await api('/api/forklifts');
+    let selected = new Set();
+
+    const columns = [
+      { key:'__sel', label:'Sel' },
+      { key:'brand', label:'Brand' },
+      { key:'type', label:'Type' },
+      { key:'eq_no', label:'EQ No' },
+      { key:'serial', label:'Serial' },
+      { key:'location', label:'Location' },
+      { key:'powertrain', label:'Powertrain' },
+      { key:'owner', label:'Owner' },
+      { key:'tahun', label:'Tahun' },
+      { key:'status', label:'Status' },
+      { key:'__act', label:'Aksi' },
+    ];
+
+    let page = 1; let rows = 10;
+   let currentRows = [];
+
+    // helper untuk kapitalisasi status saat ditampilkan
+    function ucFirst(s){
+      s = String(s||'');
+      return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
+    }
+
+    function formHtml(item={}){
+      const powertrainList = ['Electric','Diesel','LPG','Manual','Instruments & Tools'];
+      const statusList = ['Active','Retired','Maintenance'];
+      let ptSelected = null;
+      if (item.powertrain){
+        const found = powertrainList.find(v=>String(v).toLowerCase()===String(item.powertrain).toLowerCase());
+        ptSelected = found || null;
+      }
+      let stSelected = null;
+      if (item.status){
+        const foundSt = statusList.find(v=>String(v).toLowerCase()===String(item.status).toLowerCase());
+        stSelected = foundSt || null;
+      }
+      // Build opsi powertrain (tambahkan opsi lama bila tidak ada di list)
+      const ptOptions = [ptSelected?null:(item.powertrain?{v:item.powertrain, t:item.powertrain}:null), ...powertrainList.map(v=>({v,t:v}))]
+        .filter(Boolean)
+        .map(o=>`<option value="${o.v}" ${ptSelected? (String(o.v).toLowerCase()===String(ptSelected).toLowerCase()? 'selected':'') : (item.powertrain && String(o.v).toLowerCase()===String(item.powertrain).toLowerCase() ? 'selected':'' )}>${o.t}</option>`)
+        .join('');
+      // Build opsi status (tambahkan opsi lama bila tidak ada di list)
+      const stOptions = [stSelected?null:(item.status?{v:item.status, t:item.status}:null), ...statusList.map(v=>({v,t:v}))]
+        .filter(Boolean)
+        .map(o=>`<option value="${o.v}" ${stSelected? (String(o.v).toLowerCase()===String(stSelected).toLowerCase()? 'selected':'') : (item.status && String(o.v).toLowerCase()===String(item.status).toLowerCase() ? 'selected':'' )}>${o.t}</option>`)
+        .join('');
+      const ownerVal = item.owner && String(item.owner).toLowerCase()==='customer own' ? 'Customer Own' : 'PS Own';
+
+      return `
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>BRAND</div><input id='f_brand' value='${item.brand??''}' /></div>
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>TYPE</div><input id='f_type' value='${item.type??''}' /></div>
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>EQ NO</div><input id='f_eq_no' value='${item.eq_no??''}' /></div>
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>SERIAL</div><input id='f_serial' value='${item.serial??''}' /></div>
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>LOCATION</div><input id='f_location' value='${item.location??''}' /></div>
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>POWERTRAIN</div>
+          <select id='f_powertrain'>${ptOptions}</select>
+        </div>
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>OWNER</div>
+          <label style='margin-right:12px;'><input type='radio' name='f_owner_group' value='PS Own' ${ownerVal==='PS Own'?'checked':''}/> PS Own</label>
+          <label><input type='radio' name='f_owner_group' value='Customer Own' ${ownerVal==='Customer Own'?'checked':''}/> Customer Own</label>
+        </div>
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>TAHUN</div><input id='f_tahun' type='number' value='${item.tahun??''}' /></div>
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>STATUS</div>
+          <select id='f_status'>${stOptions}</select>
+        </div>
+      `;
+    }
+
+    function render(){
+      const q = document.getElementById('search').value;
+      const filtered = filterData(data, q);
+      const start = (page-1)*rows; const end = start+rows;
+      const rowsData = filtered.slice(start,end).map(x=>Object.assign({}, x));
+      currentRows = rowsData;
+      const header = '<thead><tr>' + columns.map(c=>{
+        if (c.key==='__sel') return `<th class="sel-header" style="cursor:pointer" title="Pilih semua di halaman">Sel</th>`;
+        return `<th>${c.label}</th>`;
+      }).join('') + '</tr></thead>';
+      const body = '<tbody>' + rowsData.map(row=>{
+        const cb = `<input type='checkbox' data-id='${row.id}' ${selected.has(row.id)?'checked':''}/>`;
+        const actions = (user.role==='admin'||user.role==='supervisor') ? `<button data-edit='${row.id}'>Edit</button> <button data-del='${row.id}'>Hapus</button>` : '';
+        return `<tr>
+          <td>${cb}</td>
+          <td>${row.brand||''}</td>
+          <td>${row.type||''}</td>
+          <td>${row.eq_no||''}</td>
+          <td>${row.serial||''}</td>
+          <td>${row.location||''}</td>
+          <td>${row.powertrain||''}</td>
+          <td>${row.owner||''}</td>
+          <td>${row.tahun||''}</td>
+          <td>${ucFirst(row.status)||''}</td>
+          <td>${actions}</td>
+        </tr>`;
+      }).join('') + '</tbody>';
+      document.getElementById('table').innerHTML = `<table>${header}${body}</table>`;
+      
+      // Select-all per halaman saat klik header "Sel"
+      const selHeader = document.querySelector('th.sel-header');
+      if (selHeader) selHeader.onclick = ()=>{
+        const allSelected = currentRows.length>0 && currentRows.every(r=> selected.has(r.id));
+        if (allSelected) { currentRows.forEach(r=> selected.delete(r.id)); } else { currentRows.forEach(r=> selected.add(r.id)); }
+        render();
+      };
+
+      document.querySelectorAll("input[type='checkbox'][data-id]").forEach(cb=>cb.onchange = ()=>{ const id=+cb.getAttribute('data-id'); if(cb.checked) selected.add(id); else selected.delete(id);});
+      document.querySelectorAll('button[data-edit]').forEach(b=>b.onclick = ()=>openModal('Edit Forklift', data.find(x=>x.id==b.getAttribute('data-edit'))));
+      document.querySelectorAll('button[data-del]').forEach(b=>b.onclick = async ()=>{
+        if (!confirm('Hapus Data Berikut ?')) return;
+        try {
+          b.disabled = true;
+          await api('/api/forklifts/'+b.getAttribute('data-del'), { method:'DELETE' });
+          data = await api('/api/forklifts');
+          render();
+        } catch (e) {
+          console.error('Delete forklift error:', e);
+          const msg = (e && e.error) ? e.error : 'Gagal menghapus data';
+          alert(msg);
+        } finally {
+          b.disabled = false;
+        }
+      });
+      const pages = Math.max(1, Math.ceil(filtered.length/rows));
+      document.getElementById('pagination').innerHTML = Array.from({length: pages}, (_,i)=>`<button data-p='${i+1}' ${i+1===page?'style="font-weight:700"':''}>${i+1}</button>`).join(' ');
+      document.querySelectorAll('#pagination button').forEach(b=>b.onclick = ()=>{ page = parseInt(b.getAttribute('data-p')); render();});
+    }
+
+    document.getElementById('search').oninput = render;
+    document.getElementById('rowsPerPage').onchange = (e)=>{ rows = parseInt(e.target.value); page=1; render(); };
+    document.getElementById('addBtn').onclick = ()=> openModal('Tambah Forklift', {});
+    document.getElementById('bulkDeleteBtn').onclick = async ()=>{
+      if (!(user.role==='admin'||user.role==='supervisor')) return alert('Tidak punya akses');
+      if (selected.size===0) return alert('Tidak ada yang dipilih');
+      if (!confirm('Hapus data yang terpilih ?')) return;
+      try {
+        const ids = Array.from(selected);
+        await api('/api/forklifts/bulk-delete', { method:'POST', body: { ids } });
+        selected.clear();
+        data = await api('/api/forklifts');
+        render();
+        alert('Bulk delete sukses');
+      } catch (e) {
+        console.error('Bulk delete forklifts error:', e);
+        const msg = (e && e.error) ? e.error : 'Gagal menghapus data';
+        alert(msg);
+      }
+    };
+
+    // Export helpers & handlers
+    function downloadBlob(filename, blob){
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url; link.download = filename;
+      document.body.appendChild(link); link.click();
+      setTimeout(()=>{ URL.revokeObjectURL(url); document.body.removeChild(link); }, 0);
+    }
+
+    document.getElementById('exportExcel').onclick = async ()=>{
+      try {
+        if (!window.ExcelJS) { alert('Library ExcelJS tidak tersedia.'); return; }
+        const exportCols = columns.filter(c=> c.key !== '__sel' && c.key !== '__act');
+
+        const q = document.getElementById('search')?.value || '';
+        const filteredAll = (typeof filterData==='function') ? (filterData(data, q) || []) : (data || []);
+        const useSelected = selected && selected.size>0;
+        const idSet = useSelected ? new Set(Array.from(selected)) : null;
+        const rowsSource = useSelected ? filteredAll.filter(r=> idSet.has(r.id)) : filteredAll;
+        const rowsArr = rowsSource.map(row => exportCols.map(c => String(row[c.key] ?? '')));
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet('Forklifts');
+        ws.columns = exportCols.map(c=>({ header: c.label, key: c.key, width: c.key==='brand'||c.key==='type'?24: (c.key==='eq_no'||c.key==='serial'?18:16) }));
+        ws.addRows(rowsArr);
+        // Bold header
+        if (ws.getRow(1)) ws.getRow(1).font = { bold: true };
+        const buffer = await wb.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        downloadBlob('forklifts.xlsx', blob);
+      } catch(e){
+        console.error('Export Excel error:', e);
+        alert('Gagal mengekspor Excel.');
+      }
+    };
+
+    document.getElementById('exportPDF').onclick = ()=>{
+      try {
+        if (window.jspdf && window.jspdf.jsPDF){
+          const { jsPDF } = window.jspdf;
+          const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'A4' });
+          const exportCols = columns.filter(c=> c.key !== '__sel' && c.key !== '__act');
+          const head = [exportCols.map(c => c.label)];
+
+          const q = document.getElementById('search')?.value || '';
+          const filteredAll = (typeof filterData==='function') ? (filterData(data, q) || []) : (data || []);
+          const useSelected = selected && selected.size>0;
+          const idSet = useSelected ? new Set(Array.from(selected)) : null;
+          const rowsSource = useSelected ? filteredAll.filter(r=> idSet.has(r.id)) : filteredAll;
+          const body = rowsSource.map(row => exportCols.map(c => String(row[c.key] ?? '')));
+          if (doc.autoTable) {
+            doc.autoTable({
+              head, body,
+              styles: { fontSize: 8, cellPadding: 3 },
+              headStyles: { fillColor: [13,71,161], textColor: 255 },
+              margin: { top: 20, left: 15, right: 15 },
+            });
+          }
+          doc.save('forklifts.pdf');
+        } else {
+          window.print();
+        }
+      } catch(e){
+        console.error('Export PDF error:', e);
+        alert('Gagal mengekspor PDF.');
+      }
+    };
+
+    function openModal(title, item){
+      if (!(user.role==='admin'||user.role==='supervisor')) return alert('Tidak punya akses');
+      document.getElementById('modalTitle').textContent = title;
+      document.getElementById('form').innerHTML = formHtml(item);
+      document.getElementById('modal').style.display = 'flex';
+      document.getElementById('cancelBtn').onclick = ()=> document.getElementById('modal').style.display = 'none';
+      document.getElementById('saveBtn').onclick = async ()=>{
+        try {
+          const ownerChecked = document.querySelector("input[name='f_owner_group']:checked");
+          const payload = {
+            brand: document.getElementById('f_brand').value,
+            type: document.getElementById('f_type').value,
+            eq_no: document.getElementById('f_eq_no').value,
+            serial: document.getElementById('f_serial').value,
+            location: document.getElementById('f_location').value,
+            powertrain: document.getElementById('f_powertrain').value,
+            owner: ownerChecked ? ownerChecked.value : '',
+            tahun: parseInt(document.getElementById('f_tahun').value||0),
+            status: String(document.getElementById('f_status').value||'').toLowerCase(),
+          };
+          if (item.id) {
+            await api('/api/forklifts/'+item.id, { method:'PUT', body: payload });
+            alert('Data forklift berhasil diperbarui');
+          } else {
+            await api('/api/forklifts', { method:'POST', body: payload });
+            alert('Forklift baru berhasil ditambahkan');
+          }
+          document.getElementById('modal').style.display='none';
+          data = await api('/api/forklifts'); render();
+        } catch (e) {
+          console.error('Forklift save error:', e);
+          const msg = (e && e.error) ? e.error : 'Gagal menyimpan forklift';
+          alert(msg);
+        }
+      };
+    }
+
+    // Hapus event listener yang memanggil load() karena fungsi load tidak ada di forklift.html
+    // (tidak ada perubahan lain)
+    render();
+  })();
+  </script>
+</body>
+</html>

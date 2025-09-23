@@ -1,0 +1,458 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Jobs</title>
+  <script src="/common.js"></script>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin:0; }
+    .wrap { max-width:1000px; margin:20px auto; padding:0 16px; }
+    input, select, textarea, button { padding:6px 8px; }
+    textarea { width:100%; min-height:80px; }
+    .row { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .card { background:#fff; padding:12px; border:1px solid #eee; border-radius:8px; margin-bottom:12px; }
+    [data-theme="dark"] .card label, [data-theme="dark"] .card, [data-theme="dark"] .card .muted { color:#e5e7eb !important; }
+    label { font-size:12px; color:#555; }
+    /* Rich text area mimic textarea */
+    .rte { width:100%; min-height:80px; border:1px solid #eee; border-radius:6px; padding:6px; outline:none; }
+    .rte:focus { border-color:#c5d9fd; box-shadow:0 0 0 2px #e8f0fe; }
+    /* RTE toolbar */
+    .rte-toolbar { display:flex; gap:6px; margin:4px 0 6px; }
+    .rte-toolbar button { padding:4px 6px; border:1px solid #ddd; background:#f7f7f7; border-radius:4px; cursor:pointer; }
+    .rte-toolbar button:hover { background:#eee; }
+    .rte-toolbar button.active { background:#e0e0e0; border-color:#ccc; }
+    /* Chips + Suggest */
+    .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
+    .chip { display:inline-flex; align-items:center; gap:6px; background:#f0f0f0; border:1px solid #e0e0e0; border-radius:16px; padding:2px 8px; font-size:12px; }
+    .chip .x { border:none; background:transparent; cursor:pointer; font-size:12px; color:#666; }
+    .chip .x:hover { color:#000; }
+    /* Batasi lebar khusus untuk input forklift agar dropdown tidak terlalu lebar di desktop */
+    .input-suggest-wrap.fk { max-width: 320px; }
+    .suggest { position:absolute; z-index:1000; top: calc(100% + 4px); left:0; width:100%; border:1px solid #e0e0e0; border-radius:6px; max-height:96px; overflow:auto; background:#fff; box-shadow:0 6px 16px rgba(0,0,0,0.12); }
+    .suggest .item { padding:6px 8px; cursor:pointer; border-bottom:1px solid #f5f5f5; }
+    .suggest .item:hover { background:#f6f9ff; }
+    /* Dark mode: tone down suggest dropdown contrast */
+    [data-theme="dark"] .suggest { background:#0f172a; border-color:#334155; box-shadow:0 6px 16px rgba(0,0,0,0.6); }
+    [data-theme="dark"] .suggest .item { color:#e5e7eb; border-bottom:1px solid #1f2937; }
+    [data-theme="dark"] .suggest .item:hover { background:#1f2937; }
+    
+    .muted { font-size:11px; color:#777; }
+     [data-theme="dark"] .muted { color:#fff; }
+     [data-theme="dark"] input::placeholder, [data-theme="dark"] textarea::placeholder { color:#e5e7eb !important; opacity:1 !important; }
+
+    /* Responsive */
+    @media (max-width: 768px){
+      .wrap { margin:12px auto; padding:0 12px; }
+      .row { grid-template-columns: 1fr; }
+      .rte-toolbar { flex-wrap: wrap; }
+      .input-suggest-wrap { width:100%; }
+      /* Tinggikan suggest dan buat lebih mudah discroll di mobile */
+      .suggest { max-height: 35vh; -webkit-overflow-scrolling: touch; }
+       #itemList { max-height: 50vh !important; overflow: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="header"></div>
+  <div class="wrap">
+    <h2>Buat Job</h2>
+    <div class="card">
+      <div class="row">
+        <div>
+          <label>Jenis Pekerjaan</label>
+          <select id="jenis">
+            <option>PM</option>
+            <option>Lapangan</option>
+            <option>Workshop</option>
+          </select>
+        </div>
+        <div>
+          <label>Tanggal</label>
+          <input id="tanggal" type="date" required />
+        </div>
+        <div>
+          <label>Forklift</label>
+          <div class="input-suggest-wrap fk" style="position:relative;">
+             <input id="fk_input" placeholder="Ketik untuk cari forklift..." autocomplete="off" />
+             <div id="fkSuggest" class="suggest" style="display:none;"></div>
+           </div>
+        </div>
+        <div>
+          <label>Teknisi</label>
+          <div id="teknisi_tags" class="chips"></div>
+          <div class="input-suggest-wrap" style="position:relative;">
+            <input id="teknisi_input" placeholder="Ketik untuk cari teknisi..." autocomplete="off" />
+            <div id="techSuggest" class="suggest" style="display:none;"></div>
+          </div>
+          <div class="muted">Klik pada hasil untuk menambahkan. Hapus dengan klik tanda × pada chip.</div>
+        </div>
+        <div>
+          <label>Report No</label>
+          <input id="report_no" placeholder="W/Z + 5 digit (auto untuk Workshop, bisa diedit)" />
+        </div>
+        <div id="nextPmWrap" style="display:none;">
+          <label>Next PM</label>
+          <select id="next_pm_opt">
+            <option value="+1 month">+1 bulan</option>
+            <option value="+2 month">+2 bulan</option>
+            <option value="+3 month">+3 bulan</option>
+            <option value="custom">Custom</option>
+          </select>
+          <input id="next_pm_date" type="date" style="display:none;" />
+        </div>
+      </div>
+      <div>
+        <label>Deskripsi</label>
+        <div class="rte-toolbar">
+          <button type="button" data-target="description" data-cmd="bold"><b>B</b></button>
+          <button type="button" data-target="description" data-cmd="italic"><i>I</i></button>
+          <button type="button" data-target="description" data-cmd="underline"><u>U</u></button>
+          <button type="button" data-target="description" data-cmd="insertUnorderedList">• List</button>
+          <button type="button" data-target="description" data-cmd="insertOrderedList">1. List</button>
+        </div>
+        <div id="description" class="rte" contenteditable="true"></div>
+      </div>
+      <div>
+        <label>Recommendation</label>
+        <div class="rte-toolbar">
+          <button type="button" data-target="recommendation" data-cmd="bold"><b>B</b></button>
+          <button type="button" data-target="recommendation" data-cmd="italic"><i>I</i></button>
+          <button type="button" data-target="recommendation" data-cmd="underline"><u>U</u></button>
+          <button type="button" data-target="recommendation" data-cmd="insertUnorderedList">• List</button>
+          <button type="button" data-target="recommendation" data-cmd="insertOrderedList">1. List</button>
+        </div>
+        <div id="recommendation" class="rte" contenteditable="true"></div>
+      </div>
+      <div id="itemsUsedWrap">
+        <label>Item dipakai (pilih dari katalog)</label>
+        <input id="itemSearch" placeholder="Cari item..." />
+        <div id="itemList" style="max-height:150px; overflow:auto; border:1px solid #eee; padding:6px; border-radius:6px; margin-top:6px;"></div>
+        <div id="chosenItems" style="margin-top:6px;"></div>
+      </div>
+      <div id="itemsFreeWrap" style="display:none;">
+        <label>Item dipakai (free text)</label>
+        <div id="items_free" class="rte" contenteditable="true"></div>
+      </div>
+      <div style="text-align:right; margin-top:10px;">
+        <button id="saveBtn">Simpan Job</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (async function(){
+    const user = await ensureAuthedAndRenderNav(); if (!user) return;
+    const forklifts = await api('/api/forklifts');
+    const items = await api('/api/items');
+    // Hasil pencarian teknisi via AJAX
+    let lastTechResults = [];
+    let techReqSeq = 0;
+
+    // Forklift input + suggest (searchable, single-select)
+    const fkCache = Array.isArray(forklifts) ? forklifts : [];
+    const fkInput = document.getElementById('fk_input');
+    const fkSuggest = document.getElementById('fkSuggest');
+    let jobForkliftId = null;
+    function fkLabel(f){ return [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - '); }
+    function filterFk(q){
+      const s = String(q||'').toLowerCase();
+      if (!s) return fkCache;
+      return fkCache.filter(f=> [f.location, f.eq_no, f.brand, f.type, f.powertrain].some(v=> String(v||'').toLowerCase().includes(s)) );
+    }
+    function renderFkSuggest(){
+      if (!fkInput || !fkSuggest) return;
+      const list = filterFk(fkInput.value);
+      if (!Array.isArray(list) || list.length===0){ fkSuggest.style.display='none'; fkSuggest.innerHTML=''; return; }
+      fkSuggest.innerHTML = list.map(f=>`<div class="item" data-id="${f.id}">${fkLabel(f)}</div>`).join('');
+      fkSuggest.style.display='block';
+      // drag guard: cegah tap saat pengguna sedang scroll di dalam suggest
+      if (!fkSuggest._dragGuardAttached){
+        let startY = 0, dragging = false;
+        fkSuggest.addEventListener('pointerdown', (e)=>{ startY = e.clientY||0; dragging = false; }, {passive:true});
+        fkSuggest.addEventListener('pointermove', (e)=>{ if (Math.abs((e.clientY||0)-startY) > 8) dragging = true; }, {passive:true});
+        fkSuggest._isDragging = ()=>dragging;
+        fkSuggest._dragGuardAttached = true;
+      }
+      fkSuggest.querySelectorAll('.item').forEach(it=>{
+        it.onclick = (ev)=>{
+          if (fkSuggest._isDragging && fkSuggest._isDragging()) { ev.preventDefault(); return; }
+          const id = +it.getAttribute('data-id');
+          const f = fkCache.find(x=>x.id===id); if (!f) return;
+          jobForkliftId = f.id;
+          fkInput.value = fkLabel(f);
+          fkSuggest.style.display='none';
+          reportDirty = false; try { if (typeof autofillReport === 'function') { autofillReport(); } } catch(e) {}
+        };
+      });
+    }
+    if (fkInput){
+      const debouncedFk = (fn=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),200); }; })(renderFkSuggest);
+      fkInput.addEventListener('input', ()=>{ jobForkliftId = null; });
+      fkInput.addEventListener('input', debouncedFk);
+      fkInput.addEventListener('focus', ()=> renderFkSuggest());
+      fkInput.addEventListener('click', ()=> renderFkSuggest());
+      fkInput.addEventListener('keydown', (e)=>{
+        if (e.key==='Enter'){
+          const first = fkSuggest && fkSuggest.querySelector('.item');
+          if (first){ first.click(); e.preventDefault(); }
+        }
+        if (e.key==='Escape'){ if (fkSuggest) fkSuggest.style.display='none'; }
+      });
+      document.addEventListener('click', (e)=>{ if (fkSuggest && !fkSuggest.contains(e.target) && e.target!==fkInput){ fkSuggest.style.display='none'; } });
+      // Hapus default auto-select: wajib pilih forklift secara eksplisit
+      // if (fkCache[0]){ jobForkliftId = fkCache[0].id; fkInput.value = fkLabel(fkCache[0]); }
+    }
+    // Teknisi tag-style selector
+    const techInput = document.getElementById('teknisi_input');
+    const techTags = document.getElementById('teknisi_tags');
+    const techSuggest = document.getElementById('techSuggest');
+    let selectedTech = [];
+    // helper debounce
+    const makeDebounce = (fn, delay=250)=>{ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), delay); }; };
+
+    function renderTechTags(){
+      techTags.innerHTML = selectedTech.map(t=>`<span class="chip" data-id="${t.id}">${t.label} <button class="x" title="Hapus" data-rem="${t.id}">×</button></span>`).join('');
+      techTags.querySelectorAll('button[data-rem]').forEach(b=>{
+        b.onclick = ()=>{ const id = +b.getAttribute('data-rem'); selectedTech = selectedTech.filter(x=>x.id!==id); renderTechTags(); };
+      });
+    }
+
+    // fetch & render suggest teknisi via AJAX (show list even when query is empty)
+    const fetchAndRenderTech = async ()=>{
+      const q = (techInput.value||'').trim();
+      const seq = ++techReqSeq;
+      let list = [];
+      try {
+        const url = q ? ('/api/technicians?q='+encodeURIComponent(q)) : '/api/technicians';
+        list = await api(url);
+      } catch(e) { list = []; }
+      if (seq !== techReqSeq) return; // abaikan respon lama
+      lastTechResults = list;
+      if (!Array.isArray(list) || list.length===0){ techSuggest.style.display='none'; techSuggest.innerHTML=''; return; }
+      techSuggest.innerHTML = list.map(t=>{
+        const label = (t.name && t.name.trim()) ? `${t.name} <${t.email}>` : t.email;
+        return `<div class="item" data-id="${t.id}">${label}</div>`;
+      }).join('');
+      techSuggest.style.display='block';
+      if (!techSuggest._dragGuardAttached){
+        let startY = 0, dragging = false;
+        techSuggest.addEventListener('pointerdown', (e)=>{ startY = e.clientY||0; dragging = false; }, {passive:true});
+        techSuggest.addEventListener('pointermove', (e)=>{ if (Math.abs((e.clientY||0)-startY) > 8) dragging = true; }, {passive:true});
+        techSuggest._isDragging = ()=>dragging;
+        techSuggest._dragGuardAttached = true;
+      }
+      techSuggest.querySelectorAll('.item').forEach(it=>{
+        it.onclick = ()=>{
+          if (techSuggest._isDragging && techSuggest._isDragging()) return;
+          const id = +it.getAttribute('data-id');
+          const t = lastTechResults.find(x=>x.id===id);
+          if (!t) return;
+          if (!selectedTech.some(x=>x.id===t.id)){
+            const label = (t.name && t.name.trim()) ? `${t.name} <${t.email}>` : t.email;
+            const value = (t.name && t.name.trim()) ? t.name : t.email;
+            selectedTech.push({ id:t.id, label, value });
+            renderTechTags();
+          }
+          techInput.value = '';
+          techSuggest.style.display='none';
+        };
+      });
+    };
+
+    // input handlers teknisi
+    techInput.addEventListener('keydown', (e)=>{
+      if (e.key==='Enter'){
+        const first = techSuggest.querySelector('.item');
+        if (first){ first.click(); e.preventDefault(); }
+      }
+    });
+
+    const debouncedFetchTech = makeDebounce(fetchAndRenderTech, 250);
+    techInput.addEventListener('input', debouncedFetchTech);
+    techInput.addEventListener('focus', ()=>{ fetchAndRenderTech(); });
+    techInput.addEventListener('click', ()=>{ fetchAndRenderTech(); });
+
+    // klik di luar untuk menutup suggest
+    document.addEventListener('click', (e)=>{
+      if (!techSuggest.contains(e.target) && e.target!==techInput){ techSuggest.style.display='none'; }
+    });
+
+    // Simple sanitize to allow only safe tags
+    function sanitizeHTML(html){
+      const allowed = new Set(['B','I','U','BR','P','UL','OL','LI','STRONG','EM']);
+      const div = document.createElement('div');
+      div.innerHTML = html;
+      const walker = document.createTreeWalker(div, NodeFilter.SHOW_ELEMENT, null);
+      const toRemove = [];
+      let node;
+      while(node = walker.nextNode()){
+        if (!allowed.has(node.tagName)) toRemove.push(node);
+        else {
+          // strip attributes
+          while(node.attributes && node.attributes.length>0){ node.removeAttribute(node.attributes[0].name); }
+        }
+      }
+      toRemove.forEach(n=> n.replaceWith(document.createTextNode(n.textContent || '')));
+      return div.innerHTML
+        .replace(/\u00A0/g, ' ') // nbsp to space
+        .trim();
+    }
+
+    function getRteValue(id){
+      const el = document.getElementById(id);
+      return sanitizeHTML(el.innerHTML || '');
+    }
+
+    // RTE toolbar handlers + toggle state
+    function getActiveRteId(){
+      const sel = document.getSelection();
+      if (!sel || !sel.anchorNode) return null;
+      let n = sel.anchorNode.nodeType===1 ? sel.anchorNode : sel.anchorNode.parentElement;
+      while(n && n !== document){
+        if (n.getAttribute && n.getAttribute('contenteditable')==='true') return n.id;
+        n = n.parentElement;
+      }
+      return null;
+    }
+
+    function updateToolbarState(){
+      const activeId = getActiveRteId();
+      const commands = ['bold','italic','underline','insertUnorderedList','insertOrderedList'];
+      document.querySelectorAll('.rte-toolbar button').forEach(btn=>{
+        const target = btn.dataset.target;
+        const cmd = btn.dataset.cmd;
+        if (target===activeId && commands.includes(cmd)){
+          let on = false; try { on = document.queryCommandState(cmd); } catch (e) {}
+          btn.classList.toggle('active', !!on);
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+    }
+
+    document.querySelectorAll('.rte-toolbar button').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const target = document.getElementById(btn.dataset.target);
+        if (!target) return;
+        target.focus();
+        try { document.execCommand(btn.dataset.cmd, false, null); } catch (e) {}
+        updateToolbarState();
+      });
+    });
+    document.addEventListener('selectionchange', updateToolbarState);
+
+    let chosen = [];
+
+    function renderItems(list){
+      const q = document.getElementById('itemSearch').value.toLowerCase();
+      const filtered = list.filter(i => Object.values(i).some(v=>String(v||'').toLowerCase().includes(q)));
+      document.getElementById('itemList').innerHTML = filtered.map(i=>{
+        const unavailable = String(i.status||'').toLowerCase()==='unavailable';
+        const rowStyle = unavailable ? 'opacity:0.5;' : '';
+        const statusBadge = unavailable ? " <span class='muted'>(unavailable)</span>" : '';
+        const disabledAttr = unavailable ? 'disabled' : '';
+        return `<div class='item-row' style='display:flex; align-items:center; justify-content:space-between; padding:4px 0; border-bottom:1px dashed #eee; ${rowStyle}'>
+          <div class='item-info' style='min-width:0;'>${i.code} - ${i.nama}${statusBadge}</div>
+          <div class='item-ctrl' style='display:flex; align-items:center; gap:6px; flex:0 0 auto;'>
+            <input type='number' min='1' value='1' style='width:64px;' id='qty_${i.id}' ${disabledAttr} />
+            <button data-add='${i.id}' ${disabledAttr}>Tambah</button>
+          </div>
+        </div>`;
+      }).join('');
+      document.querySelectorAll("button[data-add]").forEach(b=>b.onclick = ()=>{
+        const id = +b.getAttribute('data-add');
+        const it = items.find(x=>x.id===id);
+        if (String(it.status||'').toLowerCase()==='unavailable') return; // guard tambahan
+        const qty = parseInt(document.getElementById('qty_'+id).value||1);
+        const exist = chosen.find(c=>c.id===id);
+        if (exist) exist.qty += qty; else chosen.push({ id, code: it.code, nama: it.nama, qty });
+        renderChosen();
+      });
+    }
+
+    function renderChosen(){
+      document.getElementById('chosenItems').innerHTML = chosen.map(c=>`<div class='chosen-row' style='display:flex; align-items:center; justify-content:space-between; gap:8px; padding:4px 0;'><div style='min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'>${c.code} - ${c.nama} x ${c.qty}</div><button data-rem='${c.id}'>X</button></div>`).join('');
+      document.querySelectorAll('button[data-rem]').forEach(b=>b.onclick = ()=>{ const id=+b.getAttribute('data-rem'); chosen = chosen.filter(c=>c.id!==id); renderChosen(); });
+    }
+
+    document.getElementById('itemSearch').oninput = ()=> renderItems(items);
+    renderItems(items);
+
+    const jenisSel = document.getElementById('jenis');
+    function updateJenis(){
+    const j = jenisSel.value;
+    document.getElementById('itemsUsedWrap').style.display = (j==='PM'||j==='Workshop') ? 'block':'none';
+    document.getElementById('itemsFreeWrap').style.display = (j==='Lapangan') ? 'block':'none';
+    document.getElementById('nextPmWrap').style.display = (j==='PM') ? 'block':'none';
+    document.getElementById('report_no').disabled = false;
+    if (j==='Workshop' && !reportDirty) { autofillReport(); }
+    }
+    const reportInput = document.getElementById('report_no');
+    let reportDirty = false; // user has typed manually
+    reportInput.addEventListener('input', ()=>{ reportDirty = true; });
+    
+    async function autofillReport(){
+    const j = jenisSel.value;
+    const fid = parseInt(jobForkliftId||0);
+    if (j==='Workshop' && fid){
+    try {
+    const data = await api('/api/jobs/next-report?forklift_id='+fid);
+    // Only autofill if user hasn't typed or the field is empty
+    if (!reportDirty || !reportInput.value){
+    reportInput.value = data.report_no || '';
+    }
+    } catch (e) { /* ignore */ }
+    }
+    }
+    
+    jenisSel.onchange = updateJenis; updateJenis();
+    
+    // Autofill when forklift changes for Workshop (if not manually edited)
+    // removed: fSel.onchange handler, replaced by suggest selection handler
+    document.getElementById('next_pm_opt').onchange = (e)=>{
+      const v = e.target.value;
+      document.getElementById('next_pm_date').style.display = v==='custom' ? 'block':'none';
+    };
+
+    document.getElementById('saveBtn').onclick = async ()=>{
+      const jenis = jenisSel.value;
+      const tanggal = document.getElementById('tanggal').value;
+      if (!tanggal){ alert('Tanggal wajib diisi.'); document.getElementById('tanggal').focus(); return; }
+      if (!jobForkliftId){ alert('Forklift wajib dipilih dari daftar.'); document.getElementById('fk_input').focus(); return; }
+      const forklift_id = parseInt(jobForkliftId||0);
+      const teknisi = selectedTech.map(o=>o.value).join(', ');
+      const report_no = document.getElementById('report_no').value;
+      const description = getRteValue('description');
+      const recommendation = getRteValue('recommendation');
+      let items_used = '';
+      let next_pm = null;
+      if (jenis==='PM' || jenis==='Workshop') {
+        items_used = chosen.map(c=>`${c.code} ${c.nama} x ${c.qty}`).join(', ');
+        if (jenis==='PM') {
+          const opt = document.getElementById('next_pm_opt').value;
+          if (opt==='custom') next_pm = document.getElementById('next_pm_date').value || null;
+          else {
+            // simple add months by days approximation (30 days)
+            const base = new Date(tanggal || new Date());
+            const add = opt==='+1 month'?30:opt==='+2 month'?60:90;
+            const d = new Date(base.getTime()+add*24*3600*1000);
+            next_pm = d.toISOString().slice(0,10);
+          }
+        }
+      } else if (jenis==='Lapangan') {
+        items_used = getRteValue('items_free');
+      }
+
+      const payload = { jenis, tanggal, forklift_id, teknisi, report_no, description, recommendation, items_used, next_pm };
+      try {
+        const r = await api('/api/jobs', { method:'POST', body: payload });
+        alert('Tersimpan. Report No: '+r.report_no);
+      } catch (e) {
+        alert(e.error || 'Gagal simpan');
+      }
+    };
+  })();
+  </script>
+</body>
+</html>

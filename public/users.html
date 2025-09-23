@@ -1,0 +1,109 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Users</title>
+  <script src="/common.js"></script>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin:0; }
+    .wrap { max-width:800px; margin:20px auto; padding:0 16px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding:8px; border-bottom:1px solid #eee; }
+    th { background:#fafafa; }
+    input, select, button { padding:6px 8px; }
+    .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+    /* Dark mode: modal */
+    [data-theme="dark"] #modal > div { background:#0f172a !important; color:#e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.6); }
+    [data-theme="dark"] #modal h3 { color:#e5e7eb; }
+    [data-theme="dark"] #modal div[style*='color:#666'],
+    [data-theme="dark"] #modal div[style*='color:#777'] { color:#e5e7eb !important; }
+    [data-theme="dark"] #modal input,
+    [data-theme="dark"] #modal select,
+    [data-theme="dark"] #modal textarea { background:#0b1220; border-color:#334155; color:#e5e7eb; }
+    [data-theme="dark"] input::placeholder, [data-theme="dark"] textarea::placeholder { color:#e5e7eb !important; opacity:1 !important; }
+  </style>
+</head>
+<body>
+  <div id="header"></div>
+  <div class="wrap">
+    <h2>Users</h2>
+    <div class="toolbar">
+      <button id="addBtn">Tambah</button>
+    </div>
+    <div id="table"></div>
+  </div>
+
+  <div id="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.3); align-items:center; justify-content:center;">
+    <div style="background:#fff; padding:16px; border-radius:8px; width:420px; max-width:95vw;">
+      <h3 id="modalTitle" style="margin-top:0;">Tambah User</h3>
+      <div id="form"></div>
+      <div style="text-align:right; margin-top:10px;">
+        <button id="cancelBtn">Batal</button>
+        <button id="saveBtn">Simpan</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (async function(){
+    const user = await ensureAuthedAndRenderNav(); if (!user) return;
+    if (user.role!=='admin') return alert('Hanya Admin') || (location.href='/dashboard.html');
+
+    async function load(){
+      const rows = await api('/api/users');
+      const columns = [
+        { key:'name', label:'Nama' },
+        { key:'email', label:'Email' },
+        { key:'role', label:'Role' },
+        { key:'__act', label:'Aksi' },
+      ];
+      const html = '<table><thead><tr>'+columns.map(c=>`<th>${c.label}</th>`).join('')+'</tr></thead><tbody>' + rows.map(r=>`<tr>
+        <td>${r.name||''}</td>
+        <td>${r.email}</td>
+        <td>${r.role}</td>
+        <td><button data-edit='${r.id}'>Edit</button> <button data-del='${r.id}'>Hapus</button></td>
+      </tr>`).join('') + '</tbody></table>';
+      document.getElementById('table').innerHTML = html;
+      document.querySelectorAll('button[data-edit]').forEach(b=>b.onclick = ()=> openModal('Edit User', rows.find(x=>x.id==b.getAttribute('data-edit'))));
+      document.querySelectorAll('button[data-del]').forEach(b=>b.onclick = async ()=>{ if(confirm('Hapus?')){ await api('/api/users/'+b.getAttribute('data-del'), { method:'DELETE' }); load(); } });
+    }
+
+    function formHtml(item={}){
+      return `
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>Nama</div><input id='f_name' value='${item.name||''}' /></div>
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>Email</div><input id='f_email' value='${item.email||''}' /></div>
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>Password ${item.id?'(kosongkan jika tidak ganti)':''}</div><input id='f_password' type='password' /></div>
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>Role</div><select id='f_role'>
+          <option ${item.role==='admin'?'selected':''}>admin</option>
+          <option ${item.role==='supervisor'?'selected':''}>supervisor</option>
+          <option ${item.role==='teknisi'?'selected':''}>teknisi</option>
+        </select></div>`;
+    }
+
+    function openModal(title, item){
+      document.getElementById('modalTitle').textContent = title;
+      document.getElementById('form').innerHTML = formHtml(item);
+      document.getElementById('modal').style.display = 'flex';
+      document.getElementById('cancelBtn').onclick = ()=> document.getElementById('modal').style.display = 'none';
+      document.getElementById('saveBtn').onclick = async ()=>{
+        const payload = {
+          name: document.getElementById('f_name').value,
+          email: document.getElementById('f_email').value,
+          password: document.getElementById('f_password').value,
+          role: document.getElementById('f_role').value,
+        };
+        if (item && item.id) await api('/api/users/'+item.id, { method:'PUT', body: payload });
+        else await api('/api/users', { method:'POST', body: payload });
+        document.getElementById('modal').style.display='none';
+        load();
+      };
+    }
+
+    document.getElementById('addBtn').onclick = ()=> openModal('Tambah User', {});
+
+    load();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,317 @@
+// Initialize theme attribute early based on stored preference or system setting
+(function(){
+  try {
+    var saved = localStorage.getItem('theme');
+    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var theme = (saved === 'dark' || saved === 'light') ? saved : (prefersDark ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', theme);
+  } catch (e) {
+    // no-op
+  }
+})();
+
+async function api(path, opts={}){
+  opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers||{});
+  if (opts.body && typeof opts.body !== 'string') opts.body = JSON.stringify(opts.body);
+  const r = await fetch(path, opts);
+  if (r.status === 401) { location.href = '/login.html'; return Promise.reject('Unauthorized'); }
+  const data = await r.json().catch(()=>({}));
+  if (!r.ok) throw data;
+  return data;
+}
+
+// Theme helpers
+function getPreferredTheme(){
+  try {
+    const saved = localStorage.getItem('theme');
+    if (saved === 'light' || saved === 'dark') return saved;
+  } catch {}
+  return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+}
+
+function applyTheme(theme){
+  document.documentElement.setAttribute('data-theme', theme);
+  try { localStorage.setItem('theme', theme); } catch {}
+  const btn = document.getElementById('themeToggle');
+  if (btn){
+    btn.innerHTML = renderThemeIcon(theme);
+    const label = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
+  }
+}
+
+// Minimalist SVG icons for theme toggle
+function renderThemeIcon(theme){
+  // Show the target theme icon: if currently dark, show sun (to switch to light); else show moon
+  if (theme === 'dark'){
+    // Sun icon (Feather-like)
+    return `
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="5"/>
+        <line x1="12" y1="1" x2="12" y2="3"/>
+        <line x1="12" y1="21" x2="12" y2="23"/>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+        <line x1="1" y1="12" x2="3" y2="12"/>
+        <line x1="21" y1="12" x2="23" y2="12"/>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+      </svg>`;
+  }
+  // Moon icon (Feather-like)
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </svg>`;
+}
+
+function toggleTheme(){
+  const current = document.documentElement.getAttribute('data-theme') || getPreferredTheme();
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+function injectThemeStyles(){
+  if (document.getElementById('themeStyles')) return;
+  const css = `
+  /* Global dark theme overrides */
+  [data-theme="dark"] body { background:#0f1115 !important; color:#e2e8f0 !important; }
+  [data-theme="dark"] .wrap { color: inherit; }
+  [data-theme="dark"] .card { background:#111827 !important; color:#e2e8f0 !important; box-shadow:0 2px 8px rgba(0,0,0,.5) !important; }
+  [data-theme="dark"] table { background:transparent !important; }
+  [data-theme="dark"] th { background:#1f2937 !important; color:#e5e7eb !important; }
+  [data-theme="dark"] td { border-bottom:1px solid #374151 !important; color:#e5e7eb !important; }
+  [data-theme="dark"] input, [data-theme="dark"] select, [data-theme="dark"] textarea { background:#111827 !important; color:#e5e7eb !important; border:1px solid #374151 !important; }
+  [data-theme="dark"] input::placeholder, [data-theme="dark"] textarea::placeholder { color:#e5e7eb !important; opacity:1 !important; }
+  [data-theme="dark"] button { background:#1f2937; color:#e5e7eb; border:1px solid #374151; }
+  [data-theme="dark"] .suggest { background:#111827 !important; border-color:#374151 !important; }
+  [data-theme="dark"] .chip { background:#1f2937 !important; border-color:#374151 !important; color:#e5e7eb !important; }
+  [data-theme="dark"] #modal > div, [data-theme="dark"] #editModal > div, [data-theme="dark"] .modal-card { background:#111827 !important; color:#e5e7eb !important; }
+  [data-theme="dark"] a { color:#93c5fd; }
+  [data-theme="dark"] .muted { color:#fff !important; }
+
+  /* Tables borders */
+  [data-theme="dark"] table, [data-theme="dark"] thead, [data-theme="dark"] tbody, [data-theme="dark"] tr, [data-theme="dark"] th, [data-theme="dark"] td { border-color:#374151 !important; }
+
+  /* Toolbar */
+  [data-theme="dark"] .toolbar { color:#e5e7eb; }
+
+  /* Headers in records table specific widths keep readable */
+  [data-theme="dark"] #table table th { background:#1f2937 !important; }
+
+  /* Iconic buttons */
+  button.btn-ico { display:inline-flex; align-items:center; gap:6px; }
+  button.btn-ico svg { width:16px; height:16px; display:inline-block; }
+  `;
+  const style = document.createElement('style');
+  style.id = 'themeStyles';
+  style.textContent = css;
+  document.head.appendChild(style);
+}
+
+// Inject global responsive styles (mobile-first enhancements)
+function injectResponsiveStyles(){
+  if (document.getElementById('responsiveStyles')) return;
+  const css = `
+  /* Generic scroll wrapper for wide tables */
+  .table-scroll { width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+
+  /* Make top bar safe on small screens */
+  .topbar { width:100%; box-sizing:border-box; }
+  .topbar a { white-space: nowrap; }
+
+  @media (max-width: 768px){
+    .wrap { margin:12px auto; padding:0 12px; }
+
+    /* Topbar wraps rather than overflowing */
+    .topbar { flex-wrap: wrap; row-gap:8px; overflow-x:auto; }
+    .topbar .right { margin-left: 0 !important; width: 100%; justify-content: space-between; }
+
+    /* Forms and toolbars stack nicely on mobile */
+    .rte-toolbar { flex-wrap: wrap; }
+    .toolbar { flex-direction: column; align-items: stretch; }
+    .toolbar .toolbar-row { flex-wrap: wrap; align-items: stretch; }
+    .toolbar .filter-group,
+    .toolbar .toolbar-row .q-field,
+    .toolbar .toolbar-row .tech-field { flex: 1 1 100%; min-width: 0; max-width: 100%; }
+    .toolbar .toolbar-row .actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+
+    /* Ensure data sections scroll horizontally if too many columns */
+    #table, #pmTable { overflow-x: auto; }
+    .table-scroll table { min-width: 640px; }
+
+    /* Jobs form: collapse to single column */
+    .row { grid-template-columns: 1fr !important; }
+    .input-suggest-wrap { width: 100%; }
+
+    /* Suggest dropdown more touch-friendly */
+    .suggest { max-height: 50vh; -webkit-overflow-scrolling: touch; }
+  }
+
+  /* Extra-narrow screens: metrics cards can be scrolled horizontally */
+  @media (max-width: 480px){
+    .grid { grid-auto-flow: column; grid-auto-columns: 75%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  }
+  `;
+  const style = document.createElement('style');
+  style.id = 'responsiveStyles';
+  style.textContent = css;
+  document.head.appendChild(style);
+}
+
+// Minimal SVG icon set
+function svgIcon(name){
+  switch(name){
+    case 'plus':
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+    case 'save':
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2 2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>';
+    case 'x':
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+    case 'edit':
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>';
+    case 'trash':
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>';
+    case 'file-excel':
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><rect x="8" y="13" width="8" height="6" rx="1"/><path d="M9.5 14.5l5 3"/><path d="M14.5 14.5l-5 3"/></svg>';
+    case 'file-pdf':
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 17c4-1 6-3 8-6"/><path d="M8 17c1.5-3 2-5 2-7"/><path d="M8 17c3 .5 5 .5 8 0"/></svg>';
+    case 'reset':
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>';
+    case 'logout':
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>';
+    case 'login':
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>';
+    case 'ul':
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/><line x1="8" y1="7" x2="20" y2="7"/><line x1="8" y1="12" x2="20" y2="12"/><line x1="8" y1="17" x2="20" y2="17"/></svg>';
+    case 'ol':
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h2"/><path d="M4 10h2"/><path d="M4 14h2"/><line x1="8" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="20" y2="12"/><line x1="8" y1="18" x2="20" y2="18"/></svg>';
+    default:
+      return '';
+  }
+}
+
+function setButtonIcon(el, icon, keepText=true){
+  if (!el || el.dataset.iconized) return;
+  const svg = svgIcon(icon);
+  if (!svg) return;
+  const text = (el.textContent||'').trim();
+  el.classList.add('btn-ico');
+  if (keepText && text){
+    el.innerHTML = svg + '<span>' + text + '</span>';
+  } else {
+    el.innerHTML = svg;
+  }
+  el.dataset.iconized = '1';
+}
+
+function decorateButtonsOnce(root){
+  try{
+    const r = root || document;
+    // ID-based buttons
+    [['#addBtn','plus'], ['#bulkDeleteBtn','trash'], ['#exportExcel','file-excel'], ['#exportPDF','file-pdf'], ['#saveBtn','save'], ['#btnSaveEdit','save'], ['#cancelBtn','x'], ['#btnCancelEdit','x'], ['#apply','reset'], ['#logoutBtn','logout']].forEach(([sel,icon])=>{
+      r.querySelectorAll(sel).forEach(el=> setButtonIcon(el, icon, true));
+    });
+    // Login submit button only on login page
+    if (location.pathname.endsWith('/login.html')){
+      r.querySelectorAll('button[type="submit"]').forEach(el=> setButtonIcon(el, 'login', true));
+    }
+    // Action buttons in tables
+    r.querySelectorAll('button[data-edit]').forEach(el=> setButtonIcon(el, 'edit', true));
+    r.querySelectorAll('button[data-del]').forEach(el=> setButtonIcon(el, 'trash', true));
+    r.querySelectorAll('button[data-add], button[data-ed-add]').forEach(el=> setButtonIcon(el, 'plus', true));
+    // Chip remove buttons use icon only
+    r.querySelectorAll('button.x').forEach(el=> setButtonIcon(el, 'x', false));
+    // Jobs rich text toolbar
+    r.querySelectorAll('button[data-cmd="insertUnorderedList"]').forEach(el=> setButtonIcon(el, 'ul', true));
+    r.querySelectorAll('button[data-cmd="insertOrderedList"]').forEach(el=> setButtonIcon(el, 'ol', true));
+  }catch(e){ /* noop */ }
+}
+
+// Setup observer for dynamic content
+(function(){
+  try{
+    const run = ()=> decorateButtonsOnce(document);
+    if (!window._btnIconObserver){
+      const obs = new MutationObserver((mutations)=>{
+        for (const m of mutations){
+          if (m.addedNodes && m.addedNodes.length){
+            m.addedNodes.forEach(n=>{
+              if (n.nodeType===1) decorateButtonsOnce(n);
+            });
+          }
+        }
+      });
+      obs.observe(document.documentElement, { childList:true, subtree:true });
+      window._btnIconObserver = obs;
+    }
+    if (document.readyState === 'loading'){
+      document.addEventListener('DOMContentLoaded', run, { once:true });
+    } else {
+      run();
+    }
+  }catch(e){ /* noop */ }
+})();
+
+async function me(){
+  try { return await api('/api/me'); } catch { return { user:null }; }
+}
+
+function nav(user){
+  const label = user ? (user.name ? `${user.name} <${user.email}>` : user.email) : '';
+  return `
+  <div class="topbar" style="display:flex; gap:12px; align-items:center; padding:10px 16px; background:#0d47a1; color:white;">
+    <a href="/dashboard.html" style="color:#fff; text-decoration:none; font-weight:600;">Dashboard</a>
+    <a href="/forklift.html" style="color:#fff; text-decoration:none;">Forklifts</a>
+    <a href="/jobs.html" style="color:#fff; text-decoration:none;">Jobs</a>
+    <a href="/items.html" style="color:#fff; text-decoration:none;">Items</a>
+    <a href="/records.html" style="color:#fff; text-decoration:none;">Records</a>
+    ${user && user.role==='admin' ? '<a href="/users.html" style="color:#fff; text-decoration:none;">Users</a>' : ''}
+    <div class="right" style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+      <button id="themeToggle" aria-label="Toggle theme" title="Toggle theme" style="padding:4px 8px; border-radius:6px; background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.5); cursor:pointer;"></button>
+      <span>${label} (${user?user.role:''})</span>
+      <button id="logoutBtn" style="margin-left:8px; padding:4px 8px;">Logout</button>
+    </div>
+  </div>`;
+}
+
+async function ensureAuthedAndRenderNav(){
+  const m = await me();
+  if (!m.user) { location.href='/login.html'; return null; }
+  // ensure theme styles injected and attribute applied
+  injectThemeStyles();
+  injectResponsiveStyles();
+  const currentTheme = getPreferredTheme();
+  document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme') || currentTheme);
+  const header = document.getElementById('header');
+  if (header) header.innerHTML = nav(m.user);
+  const btn = document.getElementById('logoutBtn');
+  if (btn) btn.onclick = async ()=>{ await api('/api/logout', { method:'POST' }); location.href='/login.html'; };
+  const tbtn = document.getElementById('themeToggle');
+  if (tbtn){
+    const theme = document.documentElement.getAttribute('data-theme') || getPreferredTheme();
+    tbtn.innerHTML = renderThemeIcon(theme);
+    const label = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+    tbtn.setAttribute('aria-label', label);
+    tbtn.title = label;
+    tbtn.onclick = toggleTheme;
+  }
+  return m.user;
+}
+
+function simpleTable(containerId, columns, data){
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const thead = '<thead><tr>' + columns.map(c=>`<th>${c.label}</th>`).join('') + '</tr></thead>';
+  const tbody = '<tbody>' + data.map(row=>'<tr>' + columns.map(c=>{
+    const val = (typeof c.render === 'function') ? c.render(row) : (row[c.key]??'');
+    return `<td>${val}</td>`;
+  }).join('') + '</tr>').join('') + '</tbody>';
+  container.innerHTML = `<div class="table-scroll"><table border="0" cellspacing="0" cellpadding="6" style="width:100%; border-collapse:collapse;">${thead}${tbody}</table></div>`;
+}
+
+function filterData(data, keyword){
+  if (!keyword) return data;
+  const q = keyword.toLowerCase();
+  return data.filter(obj => Object.values(obj).some(v => String(v||'').toLowerCase().includes(q)));
+}

@@ -1,0 +1,967 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Records</title>
+  <script src="/common.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin:0; }
+    .wrap { max-width:1200px; margin:20px auto; padding:0 16px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding:8px; border-bottom:1px solid #eee; }
+    th { background:#fafafa; cursor:pointer; user-select:none; }
+    input, select, button { padding:6px 8px; }
+    /* Late PM date styling */
+    .late-date { color:#dc2626; font-weight:600; }
+    [data-theme="dark"] .late-date { color:#fca5a5; }
+    /* Week/Upcoming date styling */
+    .week-date { color:#ca8a04; font-weight:600; }
+    [data-theme="dark"] .week-date { color:#fde68a; }
+    .upcoming-date { color:#16a34a; font-weight:600; }
+    [data-theme="dark"] .upcoming-date { color:#86efac; }
+     .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
+    .checks { display:flex; gap:8px; align-items:center; }
+    /* Print styles for PDF export */
+    @media print {
+      th, td { border:1px solid #999 !important; }
+      table { border:1px solid #999 !important; border-collapse:collapse; }
+    }
+    [data-theme="dark"] .muted { color:#fff !important; }
+
+    /* Next PM fit konten (nowrap), Description & Recommendation sama lebar, Items Used cukup lega */
+    /* Indeks kolom berubah karena penambahan kolom Location setelah Forklift */
+    #table table th:nth-child(8), #table table td:nth-child(8) { /* Next PM */
+      width: 1%;
+      min-width: 0;
+      white-space: nowrap;
+    }
+    #table table th:nth-child(9), #table table td:nth-child(9) { /* Description */
+      width: 28%;
+      white-space: normal;
+    }
+    #table table th:nth-child(10), #table table td:nth-child(10) { /* Recommendation */
+      width: 28%;
+      white-space: normal;
+    }
+    #table table th:nth-child(11), #table table td:nth-child(11) { /* Items Used */
+      width: 20%;
+      min-width: 180px;
+      white-space: normal;
+      word-break: break-word;
+    }
+    
+    /* Chips + Suggest untuk filter teknisi */
+    .chips { display:flex; flex-wrap:wrap; gap:6px; }
+    .chip { display:inline-flex; align-items:center; gap:6px; background:#f0f0f0; border:1px solid #e0e0e0; border-radius:16px; padding:2px 8px; font-size:12px; white-space:nowrap; }
+    .chip .x { border:none; background:transparent; cursor:pointer; font-size:12px; color:#666; }
+    .chip .x:hover { color:#000; }
+    .suggest { position:absolute; z-index:1000; top: calc(100% + 4px); left:0; width:100%; border:1px solid #e0e0e0; border-radius:6px; max-height:96px; overflow:auto; background:#fff; box-shadow:0 6px 16px rgba(0,0,0,0.12); }
+    .suggest .item { padding:6px 8px; cursor:pointer; border-bottom:1px solid #f5f5f5; }
+    .suggest .item:hover { background:#f6f9ff; }
+    /* Dark mode: tone down suggest + modal edit */
+    [data-theme="dark"] .suggest { background:#0f172a; border-color:#334155; box-shadow:0 6px 16px rgba(0,0,0,0.6); }
+    [data-theme="dark"] .suggest .item { color:#e5e7eb; border-bottom:1px solid #1f2937; }
+    [data-theme="dark"] .suggest .item:hover { background:#1f2937; }
+    [data-theme="dark"] #editModal > div { background:#0f172a !important; color:#e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.6); }
+    [data-theme="dark"] #editModal h3 { color:#e5e7eb; }
+    [data-theme="dark"] #editModal .muted,
+    [data-theme="dark"] #editModal div[style*='color:#666'],
+    [data-theme="dark"] #editModal div[style*='color:#777'] { color:#e5e7eb !important; }
+    [data-theme="dark"] #editModal input,
+    [data-theme="dark"] #editModal select,
+    [data-theme="dark"] #editModal textarea { background:#0b1220; border-color:#334155; color:#e5e7eb; }
+    [data-theme="dark"] input::placeholder, [data-theme="dark"] textarea::placeholder { color:#e5e7eb !important; opacity:1 !important; }
+
+    /* Pastikan layout label di modal rapi (stacked) dan chips terlihat penuh */
+    #editModal label { display:flex; flex-direction:column; gap:6px; }
+    #editModal .teknisi-field { display:flex; flex-direction:column; gap:6px; }
+    #ed_teknisi_tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:2px; align-items:flex-start; }
+    #ed_teknisi_tags .chip { flex:0 0 auto; max-width:100%; }
+    #editModal .input-suggest-wrap { position:relative; width:100%; }
+    /* Batasi lebar wrapper forklift di modal agar dropdown tidak terlalu lebar pada layar lebar */
+    #editModal .input-suggest-wrap.fk { max-width: 480px; }
+    #editModal input#ed_teknisi_input { width:100%; box-sizing:border-box; min-height:32px; }
+    #editModal [id='ed_teknisi_tags'] { min-height: 28px; }
+    #ed_teknisi_tags .chip { pointer-events: none; }
+    #ed_teknisi_tags .chip .x { pointer-events: auto; padding:0; margin-left:6px; width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center; line-height:1; border-radius:50%; }
+    /* Group untuk filter agar label dan input selalu bersama */
+    .toolbar .filter-group { position:relative; display:flex; flex-direction:column; gap:4px; min-width:260px; max-width:460px; }
+    /* Baris kedua toolbar: Keyword + Teknisi + Aksi (optimized untuk 1080p) */
+    .toolbar .toolbar-row { display:flex; gap:12px; align-items:flex-end; width:100%; flex-wrap:nowrap; }
+    .toolbar .field { display:flex; flex-direction:column; gap:4px; }
+    .toolbar .toolbar-row .q-field { flex:0 0 280px; }
+    .toolbar .toolbar-row .tech-field { flex:0 0 280px; }
+    .toolbar .filter-group .label-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .toolbar .filter-group .chips-inline { display:flex; gap:6px; flex-wrap:wrap; max-width: calc(100% - 80px); }
+    .toolbar .filter-group .chips-inline .chip { background:#eee; border-color:#ddd; }
+    .toolbar .filter-group .input-wrap { position:relative; }
+    .toolbar .toolbar-row .actions { display:flex; gap:8px; flex:0 0 auto; }
+
+    /* Responsive */
+    @media (max-width: 768px){
+      .wrap { margin:12px auto; padding:0 12px; }
+      .toolbar { flex-direction: column; align-items: stretch; }
+      .toolbar .toolbar-row { flex-wrap: wrap; }
+      .toolbar .filter-group, .toolbar .toolbar-row .q-field, .toolbar .toolbar-row .tech-field { min-width: 0; width: 100%; max-width: 100%; }
+      #table { overflow-x:auto; }
+      #table table { min-width: 900px; }
+      /* Kecilkan dropdown forklift di modal edit pada mobile */
+      #edFkSuggest { max-height: 30vh !important; -webkit-overflow-scrolling: touch; }
+    }
+  </style>
+</head>
+<body>
+  <div id="header"></div>
+  <div class="wrap">
+    <h2>Service Records</h2>
+    <div class="toolbar">
+      <label>Jenis</label>
+      <div class="checks" id="jenisChecks">
+        <label><input type="checkbox" value="PM" checked /> PM</label>
+        <label><input type="checkbox" value="Lapangan" checked /> Lapangan</label>
+        <label><input type="checkbox" value="Workshop" checked /> Workshop</label>
+      </div>
+      <label>Range</label>
+      <input id="start" type="date" /> s/d <input id="end" type="date" />
+      <!-- Filter Forklift (multi-select chips + suggest) -->
+      <div id="forkliftFilter" class="filter-group">
+        <div class="label-row">
+          <label>Forklift</label>
+          <div id="forklift_tags" class="chips chips-inline"></div>
+        </div>
+        <input id="forklift_input" placeholder="Ketik untuk cari forklift..." autocomplete="off" />
+        <div id="fkSuggest" class="suggest" style="display:none;"></div>
+      </div>
+
+      <div class="toolbar-row">
+        <div class="field q-field">
+          <label for="q">Cari Record</label>
+          <input id="q" placeholder="Cari" />
+        </div>
+
+        <!-- Filter Teknisi (multi-select chips) - chips ditaruh di samping label agar input tidak terdorong -->
+        <div id="teknisiFilter" class="filter-group field tech-field">
+          <div class="label-row">
+            <label>Teknisi</label>
+            <div id="teknisi_tags" class="chips chips-inline"></div>
+          </div>
+          <input id="teknisi_input" placeholder="Ketik untuk cari teknisi..." autocomplete="off" />
+          <div id="techSuggest" class="suggest" style="display:none;"></div>
+        </div>
+        <div class="actions">
+          <label for="rowsPerPage">Rows</label>
+          <select id="rowsPerPage"><option>10</option><option>15</option><option>25</option></select>
+          <button id="apply">Reset</button>
+          <button id="exportExcel">Export Excel</button>
+          <button id="exportPDF">Export PDF</button>
+          <button id="bulkDeleteBtn">Hapus Terpilih</button>
+        </div>
+      </div>
+    </div>
+    <div id="table"></div>
+    <div id="pagination" style="margin-top:8px;"></div>
+
+    <!-- Modal Edit -->
+    <div id="editModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35); align-items:center; justify-content:center;">
+      <div style="background:#fff; padding:16px; width:680px; max-width:95vw; max-height:90vh; overflow:auto; border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,.2);">
+        <h3 style="margin-top:0;">Edit Record</h3>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+          <label>Tanggal <input id="ed_tanggal" type="date" /></label>
+          <label>Report No <input id="ed_report_no" /></label>
+          <label>Forklift
+            <div class="input-suggest-wrap fk" style="position:relative;">
+              <input id="ed_forklift_input" placeholder="Ketik untuk cari forklift..." autocomplete="off" />
+              <div id="edFkSuggest" class="suggest" style="display:none;"></div>
+            </div>
+          </label>
+          <label>Pekerjaan
+            <select id="ed_pekerjaan">
+              <option>PM</option>
+              <option>Lapangan</option>
+              <option>Workshop</option>
+            </select>
+          </label>
+          <label for="ed_teknisi_input" style="grid-column: 1 / -1;">Teknisi</label>
+          <div class="teknisi-field" style="grid-column: 1 / -1;">
+            <div id="ed_teknisi_tags" class="chips"></div>
+            <div class="input-suggest-wrap" style="position:relative;">
+              <input id="ed_teknisi_input" placeholder="Ketik untuk cari teknisi..." autocomplete="off" />
+              <div id="edTechSuggest" class="suggest" style="display:none;"></div>
+            </div>
+            <div class="muted" style="font-size:11px; color:#777;">Klik hasil untuk menambahkan. Hapus dengan tanda × pada chip.</div>
+          </div>
+          <label>Location (Snapshot) <input id="ed_location" placeholder="Lokasi saat service (snapshot)" /></label>
+          <label>Description <textarea id="ed_description" rows="3"></textarea></label>
+          <label>Recommendation <textarea id="ed_recommendation" rows="3"></textarea></label>
+          <div id="ed_itemsChoiceWrap" style="grid-column: 1 / -1; display:none;">
+            <div style="font-size:12px; color:#666; margin-bottom:4px;">Items Used (PM/Workshop)</div>
+            <input id="ed_itemSearch" placeholder="Cari item..." autocomplete="off" />
+            <div id="ed_itemList" style="max-height:180px; overflow:auto; border:1px solid #eee; padding:8px; border-radius:6px; margin-top:6px;"></div>
+            <div id="ed_chosenItems" style="margin-top:8px; max-height:240px; overflow:auto; border:1px solid #eee; padding:8px; border-radius:6px;"></div>
+            <div class="muted" style="font-size:11px; color:#777; margin-top:6px;">Klik Tambah untuk menambahkan item. Anda bisa menghapus item terpilih.</div>
+          </div>
+          <label id="ed_itemsFreeWrap" style="grid-column: 1 / -1;">Items Used <textarea id="ed_items_used" rows="3"></textarea></label>
+        </div>
+        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+          <button id="btnCancelEdit">Batal</button>
+          <button id="btnSaveEdit" style="background:#0d47a1; color:#fff;">Simpan</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (async function(){
+    const user = await ensureAuthedAndRenderNav(); if (!user) return;
+    const forklifts = await api('/api/forklifts');
+    const fkCache = Array.isArray(forklifts) ? forklifts : [];
+    // Tambah: daftar items untuk chooser di modal edit
+    const items = await api('/api/items');
+    let edChosen = [];
+    let edSelectedTech = [];
+    // State: pilihan forklift pada modal edit (single-select)
+    let edForkliftId = null;
+
+    // small utility: debounce
+    function makeDebounce(fn, delay=200){
+      let t;
+      return function(...args){
+        clearTimeout(t);
+        t = setTimeout(()=> fn.apply(this, args), delay);
+      };
+    }
+    // preload ke modal
+
+    // Input + suggest forklift untuk modal edit
+    const edFkInput = document.getElementById('ed_forklift_input');
+    const edFkSuggest = document.getElementById('edFkSuggest');
+    function fkLabel(f){ return [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - '); }
+    function filterFk(q){
+      const s = String(q||'').toLowerCase();
+      if (!s) return fkCache;
+      return fkCache.filter(f=>{
+        const fields = [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=> String(v||'').toLowerCase());
+        return fields.some(v=> v.includes(q));
+      });
+    }
+    function renderEdFkSuggest(){
+      if (!edFkInput || !edFkSuggest) return;
+      const list = filterFk(edFkInput.value);
+      if (!Array.isArray(list) || list.length===0){ edFkSuggest.style.display='none'; edFkSuggest.innerHTML=''; return; }
+      edFkSuggest.innerHTML = list.map(f=>`<div class="item" data-id="${f.id}">${fkLabel(f)}</div>`).join('');
+      edFkSuggest.style.display='block';
+      // Drag guard untuk mencegah accidental tap saat scrolling (lebih ketat di modal edit)
+      if (!edFkSuggest._dragGuardAttached){
+        let startY = 0, dragging = false;
+        edFkSuggest.addEventListener('pointerdown', e=>{ startY = e.clientY || 0; dragging = false; }, { passive:true });
+        edFkSuggest.addEventListener('pointermove', e=>{ if (Math.abs((e.clientY||0) - startY) > 5) dragging = true; }, { passive:true });
+        edFkSuggest._isDragging = ()=>dragging;
+        edFkSuggest._dragGuardAttached = true;
+      }
+      edFkSuggest.querySelectorAll('.item').forEach(it=>{
+        const chooseEdFk = (ev)=>{ // mobile-friendly: click dengan drag guard
+          if (edFkSuggest._isDragging && edFkSuggest._isDragging()) { ev.preventDefault(); return; }
+          const id = +it.getAttribute('data-id');
+          const f = fkCache.find(x=>x.id===id); if (!f) return;
+          edForkliftId = f.id;
+          edFkInput.value = fkLabel(f);
+          // Optional: isi location snapshot default dari forklift terpilih jika kosong
+          const loc = document.getElementById('ed_location');
+          if (loc && !loc.value){ loc.value = String(f.location||''); }
+          edFkSuggest.style.display='none';
+        };
+        // Hanya gunakan click, jangan pointerdown agar tidak mudah terpencet saat scroll
+        it.onclick = chooseEdFk;
+      });
+    }
+    if (edFkInput){
+      const debouncedFkEd = (fn=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),200); }; })(renderEdFkSuggest);
+      edFkInput.addEventListener('input', debouncedFkEd);
+      edFkInput.addEventListener('focus', ()=> renderEdFkSuggest());
+      edFkInput.addEventListener('click', ()=> renderEdFkSuggest());
+    }
+    // Tap outside handler untuk menutup dropdown di modal edit
+    const editModal = document.getElementById('editModal');
+    if (editModal){
+      editModal.addEventListener('pointerdown', (e)=>{
+        const t = e.target;
+        const inEdFk = t.closest && t.closest('#edFkSuggest, #ed_forklift_input');
+        const inEdTech = t.closest && t.closest('#edTechSuggest, #ed_teknisi_input');
+        if (!inEdFk && edFkSuggest){ edFkSuggest.style.display = 'none'; }
+        if (!inEdTech && edTechSuggest){ edTechSuggest.style.display = 'none'; }
+      });
+    }
+
+    // ===== Items chooser untuk modal edit (PM/Workshop) =====
+    function edRenderItems(list){
+      const qEl = document.getElementById('ed_itemSearch');
+      const listEl = document.getElementById('ed_itemList');
+      if (!qEl || !listEl) return;
+      const q = String(qEl.value||'').toLowerCase();
+      const filtered = (Array.isArray(list)?list:[]).filter(i => Object.values(i).some(v=>String(v||'').toLowerCase().includes(q)));
+      listEl.innerHTML = filtered.map(i=>{
+        const disabled = String(i.status||'').toLowerCase()==='unavailable' ? 'disabled' : '';
+        return `<div style='display:flex; align-items:center; justify-content:space-between; padding:4px 0; border-bottom:1px dashed #eee;'>
+          <div style='min-width:0; overflow:hidden; text-overflow:ellipsis;'>${i.code} - ${i.nama}</div>
+          <div style='display:flex; align-items:center; gap:6px;'>
+            <input id='ed_qty_${i.id}' type='number' min='1' value='1' style='width:64px;' ${disabled} />
+            <button data-add='${i.id}' ${disabled}>Tambah</button>
+          </div>
+        </div>`;
+      }).join('');
+      listEl.querySelectorAll('button[data-add]').forEach(btn=>{
+        btn.onclick = ()=>{
+          const id = +btn.getAttribute('data-add');
+          const it = (items||[]).find(x=>x.id===id);
+          if (!it) return;
+          const qty = parseInt((document.getElementById('ed_qty_'+id)?.value)||1) || 1;
+          const exist = (edChosen||[]).find(c=>c.id===id);
+          if (exist) exist.qty += qty; else edChosen.push({ id, code: it.code, nama: it.nama, qty });
+          edRenderChosen();
+        };
+      });
+    }
+    function edRenderChosen(){
+      const chosenEl = document.getElementById('ed_chosenItems'); if (!chosenEl) return;
+      chosenEl.innerHTML = (edChosen||[]).map(c=>`<div>${c.code} - ${c.nama} x ${c.qty} <button data-ed-rem='${c.id}'>X</button></div>`).join('');
+      chosenEl.querySelectorAll('button[data-ed-rem]').forEach(b=> b.onclick = ()=>{ const id=+b.getAttribute('data-ed-rem'); edChosen = (edChosen||[]).filter(c=>c.id!==id); edRenderChosen(); });
+    }
+    const edJenisSel = document.getElementById('ed_pekerjaan');
+    function edUpdateJenisUI(){
+      const j = edJenisSel ? edJenisSel.value : '';
+      const choice = document.getElementById('ed_itemsChoiceWrap');
+      const free = document.getElementById('ed_itemsFreeWrap');
+      if (choice) choice.style.display = (j==='PM'||j==='Workshop') ? 'block' : 'none';
+      if (free) free.style.display = (j==='Lapangan') ? 'block' : 'none';
+    }
+    if (edJenisSel){ edJenisSel.addEventListener('change', ()=>{ edUpdateJenisUI(); }); }
+    const edSearch = document.getElementById('ed_itemSearch');
+    if (edSearch){ edSearch.oninput = ()=> edRenderItems(items); }
+    // (fix) remove erroneous block that referenced techInput/fetchAndRenderTech for modal edit
+    const edTechInput = document.getElementById('ed_teknisi_input');
+    const edTechSuggest = document.getElementById('edTechSuggest');
+    const edTechTags = document.getElementById('ed_teknisi_tags');
+
+    function renderEdTechTags(){
+      if (!edTechTags) return;
+      const esc = (s)=> String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      edTechTags.innerHTML = (edSelectedTech||[]).map((t,i)=>{
+        const lbl = String(t.label||'');
+        const idAttr = (t.id!=null ? t.id : '');
+        return `<span class="chip" data-id="${idAttr}">${esc(lbl)} <button class="x" title="Hapus" data-idx="${i}">×</button></span>`;
+      }).join('');
+      edTechTags.querySelectorAll('button[data-idx]').forEach(b=>{
+        b.onclick = (ev)=>{
+          ev.preventDefault();
+          ev.stopPropagation();
+          const idx = parseInt(b.getAttribute('data-idx'),10);
+          if (!Number.isNaN(idx)){
+            edSelectedTech.splice(idx,1);
+          }
+          renderEdTechTags();
+        };
+      });
+    }
+
+    const fetchAndRenderEdTech = async ()=>{
+      if (!edTechInput || !edTechSuggest) return;
+      const q = (edTechInput.value||'').trim();
+      let list = [];
+      try {
+        const url = q ? ('/api/technicians?q='+encodeURIComponent(q)) : '/api/technicians';
+        list = await api(url);
+      } catch(e) { list = []; }
+      if (!Array.isArray(list) || list.length===0){ edTechSuggest.style.display='none'; edTechSuggest.innerHTML=''; return; }
+      const esc = (s)=> String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      edTechSuggest.innerHTML = list.map(t=>{
+        const label = (t.name && t.name.trim()) ? t.name.trim() : String(t.email||'').trim();
+        return `<div class="item" data-id="${t.id}">${esc(label)}</div>`;
+      }).join('');
+      edTechSuggest.style.display='block';
+      if (!edTechSuggest._dragGuardAttached){
+        let startY=0, dragging=false;
+        edTechSuggest.addEventListener('pointerdown', e=>{ startY = e.clientY||0; dragging=false; }, {passive:true});
+        edTechSuggest.addEventListener('pointermove', e=>{ if (Math.abs((e.clientY||0)-startY) > 8) dragging=true; }, {passive:true});
+        edTechSuggest._isDragging = ()=>dragging;
+        edTechSuggest._dragGuardAttached = true;
+      }
+      edTechSuggest.querySelectorAll('.item').forEach(it=>{
+        const choose = (ev)=>{
+          if (edTechSuggest._isDragging && edTechSuggest._isDragging()) { ev.preventDefault(); return; }
+          const id = +it.getAttribute('data-id');
+          const t = list.find(x=>x.id===id);
+          if (!t) return;
+          const label = (t.name && t.name.trim()) ? t.name.trim() : String(t.email||'').trim();
+          const exists = (edSelectedTech||[]).some(x=> (t.id!=null && x.id!=null) ? String(x.id)===String(t.id) : (String(x.label||'').toLowerCase()===String(label).toLowerCase()));
+          if (!exists){
+            if (!Array.isArray(edSelectedTech)) edSelectedTech = [];
+            edSelectedTech.push({ id:t.id, label });
+            renderEdTechTags();
+          }
+          edTechInput.value = '';
+          edTechSuggest.style.display='none';
+          edTechInput.focus();
+          // Tampilkan lagi dropdown agar user bisa lanjut memilih dengan cepat
+          fetchAndRenderEdTech();
+        };
+        it.onclick = choose;
+      });
+    }
+
+    if (edTechInput){
+      const debouncedEd = makeDebounce(fetchAndRenderEdTech, 250);
+      edTechInput.addEventListener('input', debouncedEd);
+      edTechInput.addEventListener('focus', ()=>{ fetchAndRenderEdTech(); });
+      edTechInput.addEventListener('click', ()=>{ fetchAndRenderEdTech(); });
+      edTechInput.addEventListener('keydown', (e)=>{
+        if (e.key==='Enter'){
+          const first = edTechSuggest && edTechSuggest.querySelector('.item');
+          if (first){ first.click(); e.preventDefault(); }
+        }
+        if (e.key==='Escape'){ if (edTechSuggest) edTechSuggest.style.display='none'; }
+      });
+      document.addEventListener('click', (e)=>{
+        if (edTechSuggest && !edTechSuggest.contains(e.target) && e.target!==edTechInput){ edTechSuggest.style.display='none'; }
+      });
+      // Proteksi: klik pada label/teks bantuan/area field teknisi tidak melakukan apapun pada chips
+      const teknisiField = document.querySelector('.teknisi-field');
+      const teknisiLabel = document.querySelector('label[for="ed_teknisi_input"]');
+      [teknisiField, teknisiLabel].forEach(el=>{
+        if (!el) return;
+        el.addEventListener('click', (ev)=>{
+          // Biarkan default (mis. fokus input) tapi jangan propagasi ke listener global lain
+          if (ev.target && (ev.target.classList && ev.target.classList.contains('x'))) return; // tombol X tetap lanjut
+          ev.stopPropagation();
+        });
+      });
+    }
+
+    // ================= Records Table State & Functions =================
+    // Global/state for records page
+    let data = [];
+    let page = 1;
+    let rowsPerPage = 10;
+    let sortKey = 'tanggal';
+    let sortDir = 'desc';
+    let selected = new Set();
+    let currentRows = [];
+
+    // Columns for table and export (keep keys in sync with export handlers)
+    const columns = [
+      { key: '__sel', label: '' },
+      { key: 'tanggal', label: 'Tanggal' },
+      { key: 'report_no', label: 'Report No' },
+      { key: 'forklift', label: 'Forklift' },
+      { key: 'forklift_location', label: 'Location' },
+      { key: 'pekerjaan', label: 'Pekerjaan' },
+      { key: 'teknisi', label: 'Teknisi' },
+      { key: 'next_pm', label: 'Next PM' },
+      { key: 'description', label: 'Description' },
+      { key: 'recommendation', label: 'Recommendation' },
+      { key: 'items_used', label: 'Items Used' },
+      { key: 'actions', label: 'Actions' },
+    ];
+
+    // Forklift filter UI (multi-select chips + suggest)
+    const fkInput = document.getElementById('forklift_input');
+    const fkTags = document.getElementById('forklift_tags');
+    const fkSuggest = document.getElementById('fkSuggest');
+    let selectedForklifts = [];
+
+    function renderFkTags(){
+      if (!fkTags) return;
+      fkTags.innerHTML = (selectedForklifts||[]).map(f=>`<span class="chip" data-id="${f.id}">${f.label} <button class="x" title="Hapus" data-rem="${f.id}">×</button></span>`).join('');
+      fkTags.querySelectorAll('button[data-rem]').forEach(b=>{
+        b.onclick = ()=>{ const id = +b.getAttribute('data-rem'); selectedForklifts = (selectedForklifts||[]).filter(x=>x.id!==id); renderFkTags(); load(); };
+      });
+    }
+
+    function filterForkliftList(query){
+      const q = String(query||'').trim().toLowerCase();
+      if (!q) return fkCache;
+      return fkCache.filter(f=>{
+        const fields = [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=> String(v||'').toLowerCase());
+        return fields.some(v=> v.includes(q));
+      });
+    }
+
+    function fetchAndRenderFk(){
+      if (!fkInput || !fkSuggest) return;
+      const list = filterForkliftList(fkInput.value);
+      if (!Array.isArray(list) || list.length===0){ fkSuggest.style.display='none'; fkSuggest.innerHTML=''; return; }
+      fkSuggest.innerHTML = list.map(f=>{
+        const label = [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - ');
+        return `<div class="item" data-id="${f.id}">${label}</div>`;
+      }).join('');
+      fkSuggest.style.display='block';
+      if (!fkSuggest._dragGuardAttached){
+        let startY=0, dragging=false;
+        fkSuggest.addEventListener('pointerdown', e=>{ startY = e.clientY||0; dragging=false; }, {passive:true});
+        fkSuggest.addEventListener('pointermove', e=>{ if (Math.abs((e.clientY||0)-startY) > 8) dragging=true; }, {passive:true});
+        fkSuggest._isDragging = ()=>dragging;
+        fkSuggest._dragGuardAttached = true;
+      }
+      fkSuggest.querySelectorAll('.item').forEach(it=>{
+        const chooseFk = (ev)=>{
+          if (fkSuggest._isDragging && fkSuggest._isDragging()) { ev.preventDefault(); return; }
+          const id = +it.getAttribute('data-id');
+          const f = fkCache.find(x=>x.id===id);
+          if (!f) return;
+          if (!selectedForklifts.some(x=>x.id===f.id)){
+            const label = [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - ');
+            selectedForklifts.push({ id:f.id, label });
+            renderFkTags();
+            load();
+          }
+          fkInput.value=''; fkSuggest.style.display='none'; fkInput.focus();
+        };
+        it.onclick = chooseFk;
+      });
+    }
+
+    if (fkInput){
+      const debouncedFk = makeDebounce(fetchAndRenderFk, 200);
+      fkInput.addEventListener('input', debouncedFk);
+      fkInput.addEventListener('focus', ()=> fetchAndRenderFk());
+      fkInput.addEventListener('keydown', (e)=>{
+        if (e.key==='Enter'){
+          const first = fkSuggest && fkSuggest.querySelector('.item');
+          if (first){ first.click(); e.preventDefault(); }
+        }
+        if (e.key==='Escape'){ if (fkSuggest) fkSuggest.style.display='none'; }
+      });
+      document.addEventListener('click', (e)=>{ if (fkSuggest && !fkSuggest.contains(e.target) && e.target!==fkInput){ fkSuggest.style.display='none'; } });
+    }
+
+    // ================= Filter Teknisi (chips + suggest) untuk halaman utama =================
+const techInput = document.getElementById('teknisi_input');
+const techSuggest = document.getElementById('techSuggest');
+const techTags = document.getElementById('teknisi_tags');
+let selectedTech = [];
+
+function renderTechTags(){
+  if (!techTags) return;
+  const esc = (s)=> String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  techTags.innerHTML = (selectedTech||[]).map((t,i)=>{
+    const lbl = String(t.label||'');
+    return `<span class="chip" data-idx="${i}">${esc(lbl)} <button class="x" title="Hapus" data-idx="${i}">×</button></span>`;
+  }).join('');
+  techTags.querySelectorAll('button[data-idx]').forEach(b=>{
+    b.onclick = (ev)=>{
+      ev.preventDefault(); ev.stopPropagation();
+      const idx = parseInt(b.getAttribute('data-idx'),10);
+      if (!Number.isNaN(idx)) selectedTech.splice(idx,1);
+      renderTechTags();
+      load();
+    };
+  });
+}
+
+const fetchAndRenderTech = async ()=>{
+  if (!techInput || !techSuggest) return;
+  const q = (techInput.value||'').trim();
+  let list = [];
+  try{
+    const url = q ? ('/api/technicians?q='+encodeURIComponent(q)) : '/api/technicians';
+    list = await api(url);
+  }catch(e){ list = []; }
+  if (!Array.isArray(list) || list.length===0){ techSuggest.style.display='none'; techSuggest.innerHTML=''; return; }
+  const esc = (s)=> String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  techSuggest.innerHTML = list.map(t=>{
+    const label = (t.name && t.name.trim()) ? t.name.trim() : String(t.email||'').trim();
+    return `<div class="item" data-id="${t.id}">${esc(label)}</div>`;
+  }).join('');
+  techSuggest.style.display='block';
+  if (!techSuggest._dragGuardAttached){
+    let startY=0, dragging=false;
+    techSuggest.addEventListener('pointerdown', e=>{ startY = e.clientY||0; dragging=false; }, {passive:true});
+    techSuggest.addEventListener('pointermove', e=>{ if (Math.abs((e.clientY||0)-startY) > 8) dragging=true; }, {passive:true});
+    techSuggest._isDragging = ()=>dragging;
+    techSuggest._dragGuardAttached = true;
+  }
+  techSuggest.querySelectorAll('.item').forEach(it=>{
+    const chooseTech = (ev)=>{
+      if (techSuggest._isDragging && techSuggest._isDragging()) { ev.preventDefault(); return; }
+      const id = +it.getAttribute('data-id');
+      const t = list.find(x=>x.id===id);
+      if (!t) return;
+      const label = (t.name && t.name.trim()) ? t.name.trim() : String(t.email||'').trim();
+      const exists = (selectedTech||[]).some(x=> (t.id!=null && x.id!=null) ? String(x.id)===String(t.id) : (String(x.label||'').toLowerCase()===String(label).toLowerCase()));
+      if (!exists){
+        if (!Array.isArray(selectedTech)) selectedTech = [];
+        selectedTech.push({ id:t.id, label });
+        renderTechTags();
+        load();
+      }
+      techInput.value = '';
+      techSuggest.style.display='none';
+      techInput.focus();
+      // tampilkan lagi agar bisa memilih beruntun
+      fetchAndRenderTech();
+    };
+    it.onclick = chooseTech;
+  });
+};
+
+if (techInput){
+  const debouncedTech = makeDebounce(fetchAndRenderTech, 250);
+  techInput.addEventListener('input', debouncedTech);
+  techInput.addEventListener('focus', ()=>{ fetchAndRenderTech(); });
+  techInput.addEventListener('click', ()=>{ fetchAndRenderTech(); });
+  techInput.addEventListener('keydown', (e)=>{
+    if (e.key==='Enter'){
+      const first = techSuggest && techSuggest.querySelector('.item');
+      if (first){ first.click(); e.preventDefault(); }
+    }
+    if (e.key==='Escape'){ if (techSuggest) techSuggest.style.display='none'; }
+  });
+  document.addEventListener('click', (e)=>{
+    if (techSuggest && !techSuggest.contains(e.target) && e.target!==techInput){ techSuggest.style.display='none'; }
+  });
+}
+
+// Helper: tokens from technician label
+function parseTechLabelTokens(label){
+  const m = /^(.*?)(?:\s*<([^>]+)>)?$/.exec(String(label||''));
+  const name = (m && m[1] || '').trim().toLowerCase();
+  const email = (m && m[2] || '').trim().toLowerCase();
+  return { name, email };
+}
+
+function getFilters(){
+  const q = (document.getElementById('q')?.value||'').trim();
+  const start = document.getElementById('start')?.value || '';
+  const end = document.getElementById('end')?.value || '';
+  const jenisVals = Array.from(document.querySelectorAll('#jenisChecks input[type=checkbox]')).filter(cb=>cb.checked).map(cb=>cb.value);
+  const techTokens = (selectedTech||[]).map(t=> parseTechLabelTokens(t.label));
+  const fkIdSet = new Set((selectedForklifts||[]).map(f=>f.id));
+  return { q, start, end, jenisVals, techTokens, fkIdSet };
+}
+
+function sortRows(rows){
+  const arr = rows.slice();
+  const dir = sortDir==='asc' ? 1 : -1;
+  arr.sort((a,b)=>{
+    const va = (a[sortKey]??'');
+    const vb = (b[sortKey]??'');
+    if (va==vb) return 0;
+    return (va>vb?1:-1) * dir;
+  });
+  return arr;
+}
+
+async function load(){
+  try{
+    const { q, start, end, jenisVals, techTokens, fkIdSet } = getFilters();
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (start) params.set('start', start);
+    if (end) params.set('end', end);
+    // Ambil semua records lalu filter client-side untuk teknisi & forklift multi-select
+    const url = '/api/records' + (params.toString()?('?' + params.toString()):'');
+    let rows = await api(url);
+    if (!Array.isArray(rows)) rows = [];
+    // Filter by jenis (client-side)
+    if (Array.isArray(jenisVals) && jenisVals.length && jenisVals.length<3){
+      const set = new Set(jenisVals.map(x=>String(x).toLowerCase()));
+      rows = rows.filter(r=> set.has(String(r.pekerjaan||'').toLowerCase()));
+    }
+    // Filter by selected forklifts (client-side OR)
+    if (fkIdSet && fkIdSet.size>0){
+      rows = rows.filter(r=> fkIdSet.has(r.forklift_id));
+    }
+    // Filter by selected technicians (client-side OR)
+    if (Array.isArray(techTokens) && techTokens.length>0){
+      rows = rows.filter(r=>{
+        const t = String(r.teknisi||'').toLowerCase();
+        return techTokens.some(tok=> (tok.email && t.includes(tok.email)) || (tok.name && t.includes(tok.name)) );
+      });
+    }
+    // Apply sorting
+    data = sortRows(rows);
+    page = 1;
+    render();
+  } catch(e){
+    console.error('Load records error:', e);
+    alert(e && e.error ? e.error : 'Gagal memuat data');
+  }
+}
+
+function render(){
+  const startIdx = (page-1)*rowsPerPage;
+  const endIdx = startIdx + rowsPerPage;
+  currentRows = data.slice(startIdx, endIdx).map(x=>Object.assign({}, x));
+  const header = '<thead><tr>' + columns.map(c=>{
+    if (c.key==='__sel') return '<th class="sel-header" style="cursor:pointer" title="Pilih semua di halaman">Sel</th>';
+    if (c.key==='actions') return '<th>Actions</th>';
+    const arrow = sortKey===c.key ? (sortDir==='asc'?' ▲':' ▼') : '';
+    return `<th data-key="${c.key}">${c.label}${arrow}</th>`;
+  }).join('') + '</tr></thead>';
+
+  const body = '<tbody>' + currentRows.map(row=>{
+    const cb = `<input type="checkbox" data-id="${row.id}" ${selected.has(row.id)?'checked':''}/>`;
+    const actions = (user.role==='admin'||user.role==='supervisor') ? `<button data-edit="${row.id}">Edit</button> <button data-del="${row.id}">Hapus</button>` : `<button data-edit="${row.id}">Detail</button>`;
+    // Highlight Next PM yang terlambat (sebelum hari ini)
+    const nextPmRaw = row.next_pm || '';
+    let nextPmCell = nextPmRaw || '';
+    if (nextPmRaw) {
+      const d = new Date(nextPmRaw);
+      if (!Number.isNaN(d.getTime())){
+        const today = new Date(); today.setHours(0,0,0,0);
+        const next7 = new Date(today); next7.setDate(today.getDate()+7);
+        d.setHours(0,0,0,0);
+        if (d < today) {
+          nextPmCell = `<span class="late-date">${nextPmRaw}</span>`;
+        } else if (d <= next7) {
+          nextPmCell = `<span class="week-date">${nextPmRaw}</span>`;
+        } else {
+          nextPmCell = `<span class="upcoming-date">${nextPmRaw}</span>`;
+        }
+      }
+    }
+    const tds = [
+      `<td>${cb}</td>`,
+      `<td>${row.tanggal||''}</td>`,
+      `<td>${row.report_no||''}</td>`,
+      `<td>${row.forklift||''}</td>`,
+      `<td>${row.forklift_location||''}</td>`,
+      `<td>${row.pekerjaan||''}</td>`,
+      `<td>${row.teknisi||''}</td>`,
+      `<td>${nextPmCell}</td>`,
+      `<td>${row.description||''}</td>`,
+      `<td>${row.recommendation||''}</td>`,
+      `<td>${row.items_used||''}</td>`,
+      `<td>${actions}</td>`,
+    ].join('');
+    return `<tr>${tds}</tr>`;
+  }).join('') + '</tbody>';
+
+  const tableEl = document.getElementById('table');
+  if (tableEl) tableEl.innerHTML = `<div class="table-scroll"><table style="min-width:900px">${header}${body}</table></div>`;
+
+  // Select-all per halaman saat klik header "Sel"
+  const selHeader = document.querySelector('th.sel-header');
+  if (selHeader) selHeader.onclick = ()=>{
+    const allSelected = currentRows.length>0 && currentRows.every(r=> selected.has(r.id));
+    if (allSelected){ currentRows.forEach(r=> selected.delete(r.id)); } else { currentRows.forEach(r=> selected.add(r.id)); }
+    render();
+  };
+
+  // Header sort handlers
+  document.querySelectorAll('#table th[data-key]').forEach(th=>{
+    th.onclick = ()=>{
+      const key = th.getAttribute('data-key');
+      if (sortKey===key){ sortDir = (sortDir==='asc'?'desc':'asc'); } else { sortKey = key; sortDir = 'asc'; }
+      data = sortRows(data);
+      render();
+    };
+  });
+
+  // Checkbox + actions handlers
+  document.querySelectorAll("#table input[type='checkbox'][data-id]").forEach(cb=>{
+    cb.onchange = ()=>{ const id = +cb.getAttribute('data-id'); if (cb.checked) selected.add(id); else selected.delete(id); };
+  });
+  document.querySelectorAll('#table button[data-edit]').forEach(btn=>{
+    btn.onclick = ()=>{ const id = +btn.getAttribute('data-edit'); const item = currentRows.find(r=>r.id===id) || data.find(r=>r.id===id); if (item) openEditModal(item); };
+  });
+  document.querySelectorAll('#table button[data-del]').forEach(btn=>{
+    btn.onclick = async ()=>{
+      const id = +btn.getAttribute('data-del');
+      if (!confirm('Hapus record ini?')) return;
+      try{ await api('/api/records/'+id, { method:'DELETE' }); await load(); } catch(e){ alert(e && e.error ? e.error : 'Gagal menghapus'); }
+    };
+  });
+
+  // Pagination
+  const pages = Math.max(1, Math.ceil(data.length / rowsPerPage));
+  const pagEl = document.getElementById('pagination');
+  if (pagEl){
+    pagEl.innerHTML = Array.from({length: pages}, (_,i)=>`<button data-p='${i+1}' ${i+1===page?"style=\"font-weight:700\"":''}>${i+1}</button>`).join(' ');
+    pagEl.querySelectorAll('button[data-p]').forEach(b=> b.onclick = ()=>{ page = parseInt(b.getAttribute('data-p')); render(); });
+  }
+}
+
+function openEditModal(item){
+  const modal = document.getElementById('editModal'); if (!modal) return;
+  // Fill fields
+  document.getElementById('ed_tanggal').value = item.tanggal || '';
+  document.getElementById('ed_report_no').value = item.report_no || '';
+  // Set nilai forklift ke input + state
+  edForkliftId = item.forklift_id || null;
+  if (edFkInput){
+    const f = fkCache.find(x=>x.id===edForkliftId);
+    edFkInput.value = f ? fkLabel(f) : '';
+  }
+  document.getElementById('ed_pekerjaan').value = item.pekerjaan || 'PM';
+  document.getElementById('ed_location').value = item.forklift_location || '';
+  document.getElementById('ed_description').value = item.description || '';
+  document.getElementById('ed_recommendation').value = item.recommendation || '';
+  document.getElementById('ed_items_used').value = item.items_used || '';
+  // Toggle UI by jenis + prefill chosen items jika PM/Workshop
+  edUpdateJenisUI();
+  const jNow = document.getElementById('ed_pekerjaan').value;
+  if (jNow==='PM' || jNow==='Workshop'){
+    edChosen = [];
+    const txt = String(item.items_used||'');
+    if (txt){
+      txt.split(',').forEach(part=>{
+        const m = /\s*([A-Za-z0-9_-]+)\b.*?\bx\s*(\d+)\s*$/i.exec(part);
+        if (m){
+          const code = m[1];
+          const qty = parseInt(m[2])||1;
+          const it = (items||[]).find(x=>x.code===code);
+          if (it){
+            const exist = edChosen.find(c=>c.id===it.id);
+            if (exist) exist.qty += qty; else edChosen.push({ id: it.id, code: it.code, nama: it.nama, qty });
+          }
+        }
+      });
+    }
+    edRenderChosen();
+    edRenderItems(items);
+  }
+  edTechInput.value = (edTechInput.value||'').trim();
+  edTechSuggest.style.display = (edTechInput.value) ? 'block' : 'none';
+  modal.style.display='flex';
+  const cancelBtn = document.getElementById('btnCancelEdit');
+  const saveBtn = document.getElementById('btnSaveEdit');
+  cancelBtn.onclick = ()=>{ modal.style.display='none'; };
+  saveBtn.onclick = async ()=>{
+    try{
+      const teknisiList = (edSelectedTech||[]).map(t=> String(t.label||'').trim()).filter(Boolean);
+      if (teknisiList.length === 0){
+        alert('Teknisi harus diisi');
+        return;
+      }
+      // Validasi forklift
+      const fValid = fkCache.find(x=>x.id===edForkliftId);
+      if (!fValid){
+        alert('Pilih forklift dari daftar.');
+        if (edFkInput) edFkInput.focus();
+        return;
+      }
+      const payload = {
+        tanggal: document.getElementById('ed_tanggal').value,
+        report_no: document.getElementById('ed_report_no').value,
+        
+        forklift_id: parseInt(edForkliftId||0),
+        pekerjaan: document.getElementById('ed_pekerjaan').value,
+        teknisi: teknisiList.join(', '),
+        description: document.getElementById('ed_description').value,
+        recommendation: document.getElementById('ed_recommendation').value,
+        items_used: ((()=>{ const j=document.getElementById('ed_pekerjaan').value; return (j==='PM'||j==='Workshop') ? (edChosen||[]).map(c=>`${c.code} ${c.nama} x ${c.qty}`).join(', ') : document.getElementById('ed_items_used').value; })()),
+        location: document.getElementById('ed_location').value,
+      };
+      await api('/api/records/'+item.id, { method:'PUT', body: payload });
+      alert('Record berhasil diperbarui');
+      modal.style.display='none';
+      await load();
+    } catch(e){
+      alert(e && e.error ? e.error : 'Gagal menyimpan perubahan');
+    }
+  };
+}
+
+// Real-time triggers
+const qEl = document.getElementById('q');
+if (qEl) qEl.oninput = load;
+const startEl = document.getElementById('start');
+if (startEl) startEl.onchange = load;
+const endEl = document.getElementById('end');
+if (endEl) endEl.onchange = load;
+
+document.querySelectorAll('#jenisChecks input[type=checkbox]').forEach(cb=> cb.onchange = load);
+const rppEl = document.getElementById('rowsPerPage');
+if (rppEl) { rppEl.value = String(rowsPerPage); rppEl.onchange = (e)=>{ rowsPerPage = parseInt(e.target.value)||10; page=1; render(); }; }
+const applyBtn = document.getElementById('apply');
+if (applyBtn) applyBtn.onclick = ()=>{
+  // Reset semua filter dan search ke default
+  document.querySelectorAll('#jenisChecks input[type=checkbox]').forEach(cb=> cb.checked = true);
+  const startEl = document.getElementById('start'); if (startEl) startEl.value = '';
+  const endEl = document.getElementById('end'); if (endEl) endEl.value = '';
+  const qEl = document.getElementById('q'); if (qEl) qEl.value = '';
+  // Reset chip teknisi
+  selectedTech = []; renderTechTags(); if (techInput) techInput.value=''; if (techSuggest) techSuggest.style.display='none';
+  // Reset chip forklift
+  selectedForklifts = []; renderFkTags(); if (fkInput) fkInput.value=''; if (fkSuggest) fkSuggest.style.display='none';
+  // Reset sort ke default
+  sortKey = 'tanggal';
+  sortDir = 'desc';
+  page = 1; rowsPerPage = 10; if (rppEl) rppEl.value = String(rowsPerPage);
+  // Muat ulang data dengan parameter default
+  load();
+};
+
+function downloadBlob(filename, blob){
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  setTimeout(()=>{ URL.revokeObjectURL(link.href); link.remove(); }, 0);
+}
+
+// Export Excel
+const btnExcel = document.getElementById('exportExcel');
+if (btnExcel) btnExcel.onclick = async ()=>{
+  try{
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Records');
+    ws.addRow(['Tanggal','Report No','Forklift','Location','Pekerjaan','Teknisi','Next PM','Description','Recommendation','Items Used']);
+    const useSelected = selected && selected.size>0;
+    const idSet = useSelected ? new Set(Array.from(selected)) : null;
+    const rowsSource = useSelected ? (data||[]).filter(r=> idSet.has(r.id)) : (data||[]);
+    rowsSource.forEach(r=>{
+      ws.addRow([
+        r.tanggal||'', r.report_no||'', r.forklift||'', r.forklift_location||'', r.pekerjaan||'', r.teknisi||'', r.next_pm||'', r.description||'', r.recommendation||'', r.items_used||''
+      ]);
+    });
+    const buf = await wb.xlsx.writeBuffer();
+    downloadBlob('records.xlsx', new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  }catch(e){ console.error(e); alert('Gagal export Excel'); }
+};
+
+// Export PDF
+const btnPDF = document.getElementById('exportPDF');
+if (btnPDF) btnPDF.onclick = async ()=>{
+  try{
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation:'l', unit:'pt', format:'a4' });
+    const head = [['Tanggal','Report No','Forklift','Location','Pekerjaan','Teknisi','Next PM','Description','Recommendation','Items Used']];
+    const useSelected = selected && selected.size>0;
+    const idSet = useSelected ? new Set(Array.from(selected)) : null;
+    const rowsSource = useSelected ? (data||[]).filter(r=> idSet.has(r.id)) : (data||[]);
+    const body = rowsSource.map(r=>[
+      r.tanggal||'', r.report_no||'', r.forklift||'', r.forklift_location||'', r.pekerjaan||'', r.teknisi||'', r.next_pm||'', r.description||'', r.recommendation||'', r.items_used||''
+    ]);
+    doc.autoTable({ head, body, styles:{ fontSize:8, cellPadding:3, overflow:'linebreak' }, headStyles:{ fillColor:[13,71,161], textColor:255 }, startY:40, margin:{ left:24, right:24 } });
+    doc.save('records.pdf');
+  }catch(e){ console.error(e); alert('Gagal export PDF'); }
+};
+
+// Bulk delete selected
+const bulkBtn = document.getElementById('bulkDeleteBtn');
+if (bulkBtn) bulkBtn.onclick = async ()=>{
+  if (!selected || selected.size===0){ alert('Pilih record terlebih dahulu'); return; }
+  if (!confirm('Hapus semua record terpilih?')) return;
+  try{
+    const ids = Array.from(selected);
+    for (const id of ids){ await api('/api/records/'+id, { method:'DELETE' }); }
+    selected.clear();
+    await load();
+  }catch(e){ console.error(e); alert('Gagal hapus massal'); }
+};
+
+// Initial load
+renderTechTags();
+renderFkTags();
+await load();
+})();
+  </script>
+</body>
+</html>

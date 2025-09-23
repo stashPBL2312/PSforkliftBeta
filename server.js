@@ -1,0 +1,593 @@
+const express = require('express');
+const session = require('express-session');
+const sqlite3 = require('sqlite3').verbose();
+const fs = require('fs');
+const path = require('path');
+const bcrypt = require('bcrypt');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const DB_FILE = path.join(__dirname, 'db.sqlite');
+const SCHEMA_FILE = path.join(__dirname, 'schema.sql');
+
+// Middleware
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true }));
+app.use(
+  session({
+    secret: 'replace_this_with_env_secret',
+    resave: false,
+    saveUninitialized: false,
+    cookie: { httpOnly: true, sameSite: 'lax', maxAge: 1000 * 60 * 60 * 8 },
+  })
+);
+
+// Ensure DB exists and bootstrap schema
+function initDb() {
+  const db = new sqlite3.Database(DB_FILE);
+  const schema = fs.readFileSync(SCHEMA_FILE, 'utf-8');
+  db.exec(schema, async (err) => {
+    if (err) {
+      console.error('DB schema init error:', err);
+      process.exit(1);
+    }
+    // seed default admin if not exists
+    db.get("SELECT COUNT(*) as c FROM users WHERE role='admin'", async (e, row) => {
+      if (e) return console.error(e);
+      if (row.c === 0) {
+        const hash = await bcrypt.hash('admin123', 10);
+        db.run(
+          'INSERT INTO users (email, password, role) VALUES (?,?,?)',
+          ['admin@local', hash, 'admin'],
+          (er) => {
+            if (er) console.error('Seed admin failed:', er);
+            else console.log('Default admin created: admin@local / admin123');
+          }
+        );
+      }
+    });
+  });
+  return db;
+}
+
+if (!fs.existsSync(DB_FILE)) {
+  fs.writeFileSync(DB_FILE, '');
+}
+const db = initDb();
+
+// Static files
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Helpers
+function requireLogin(req, res, next) {
+  if (!req.session.user) return res.status(401).json({ error: 'Unauthorized' });
+  next();
+}
+
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!req.session.user) return res.status(401).json({ error: 'Unauthorized' });
+    if (!roles.includes(req.session.user.role)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    next();
+  };
+}
+
+// Auth routes
+app.post('/api/login', (req, res) => {
+  const { email, password } = req.body;
+  db.get('SELECT * FROM users WHERE email = ?', [email], async (err, user) => {
+    if (err) return res.status(500).json({ error: 'DB error' });
+    if (!user) return res.status(400).json({ error: 'Invalid credentials' });
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) return res.status(400).json({ error: 'Invalid credentials' });
+    req.session.user = { id: user.id, email: user.email, role: user.role, name: user.name || null };
+    res.json({ message: 'ok', user: req.session.user });
+  });
+});
+
+app.post('/api/logout', (req, res) => {
+  req.session.destroy(() => res.json({ message: 'ok' }));
+});
+
+app.get('/api/me', async (req, res) => {
+  try{
+    if (!req.session.user) return res.json({ user: null });
+    const u = req.session.user;
+    if (u && (u.name === undefined || u.name === null)){
+      try {
+        const row = await get('SELECT name FROM users WHERE id=?', [u.id]);
+        if (row) { u.name = row.name || null; req.session.user = u; }
+      } catch {}
+    }
+    res.json({ user: u });
+  }catch(e){ res.json({ user: req.session.user || null }); }
+});
+
+// CRUD Utilities
+function run(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function (err) {
+      if (err) return reject(err);
+      resolve({ id: this.lastID, changes: this.changes });
+    });
+  });
+}
+
+function get(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, function (err, row) {
+      if (err) return reject(err);
+      resolve(row);
+    });
+  });
+}
+
+function all(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, function (err, rows) {
+      if (err) return reject(err);
+      resolve(rows);
+    });
+  });
+}
+
+// Dashboard endpoints
+app.get('/api/dashboard/metrics', requireLogin, async (req, res) => {
+  try {
+    const [totalForklifts, active, maint, totalJobs, jobsThisMonth, maintJobs, pmLate, pmWeek, pmMonth, pmUpcoming] = await Promise.all([
+      get('SELECT COUNT(*) as c FROM forklifts'),
+      get("SELECT COUNT(*) as c FROM forklifts WHERE status='active'"),
+      get("SELECT COUNT(*) as c FROM forklifts WHERE status='maintenance'"),
+      get('SELECT COUNT(*) as c FROM jobs'),
+      get("SELECT COUNT(*) as c FROM jobs WHERE strftime('%Y-%m', tanggal)=strftime('%Y-%m','now')"),
+      // Maintenance Jobs harus dihitung dari service records (pekerjaan='PM'), bukan dari tabel jobs
+      get("SELECT COUNT(*) as c FROM records WHERE pekerjaan='PM'"),
+      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' as forklift, j.next_pm as jadwal_pm, 'Terlambat' as status, j.teknisi as teknisi_terakhir, j.tanggal as service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND date(j.next_pm)<date('now') ORDER BY j.next_pm ASC"),
+      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' as forklift, j.next_pm as jadwal_pm, 'Minggu Ini' as status, j.teknisi as teknisi_terakhir, j.tanggal as service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND date(j.next_pm) BETWEEN date('now') AND date('now','+7 days') ORDER BY j.next_pm ASC"),
+      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' as forklift, j.next_pm as jadwal_pm, 'Bulan Ini' as status, j.teknisi as teknisi_terakhir, j.tanggal as service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND strftime('%Y-%m', j.next_pm)=strftime('%Y-%m','now') ORDER BY j.next_pm ASC"),
+      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' as forklift, j.next_pm as jadwal_pm, 'Akan Datang' as status, j.teknisi as teknisi_terakhir, j.tanggal as service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND date(j.next_pm)>date('now','+7 days') ORDER BY j.next_pm ASC"),
+    ]);
+    res.json({
+      totalForklifts: totalForklifts.c || 0,
+      forkliftsActive: active.c || 0,
+      forkliftsMaintenance: maint.c || 0,
+      totalJobs: totalJobs.c || 0,
+      jobsThisMonth: jobsThisMonth.c || 0,
+      maintenanceJobs: maintJobs.c || 0,
+      pmLate: pmLate,
+      pmWeek: pmWeek,
+      pmMonth: pmMonth,
+      pmUpcoming: pmUpcoming,
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to load metrics' });
+  }
+});
+
+// Tambah kolom name di users jika belum ada (migration ringan)
+// Jalankan setelah schema dieksekusi
+(function ensureUsersNameColumn(){
+  try {
+    db.run("ALTER TABLE users ADD COLUMN name TEXT", (err)=>{ /* abaikan jika kolom sudah ada */ });
+  } catch (e) { /* noop */ }
+})();
+
+// Migration ringan: tambah kolom location di records (snapshot lokasi forklift saat itu)
+(function ensureRecordsLocationColumn(){
+  try {
+    db.run("ALTER TABLE records ADD COLUMN location TEXT", (err)=>{ /* abaikan jika kolom sudah ada */ });
+    // Backfill hanya untuk yang masih NULL/kosong
+    db.run("UPDATE records SET location=(SELECT location FROM forklifts f WHERE f.id=records.forklift_id) WHERE location IS NULL OR location=''", ()=>{});
+  } catch (e) { /* noop */ }
+})();
+app.get('/api/users', requireRole('admin'), async (req, res) => {
+  const rows = await all('SELECT id, email, name, role FROM users ORDER BY id DESC');
+  res.json(rows);
+});
+app.post('/api/users', requireRole('admin'), async (req, res) => {
+  const { email, password, role, name } = req.body;
+  const hash = await bcrypt.hash(password || '', 10);
+  try {
+    const r = await run('INSERT INTO users (email, password, role, name) VALUES (?,?,?,?)', [email, hash, role, name || null]);
+    res.json({ id: r.id });
+  } catch (e) {
+    res.status(400).json({ error: 'User create failed' });
+  }
+});
+app.put('/api/users/:id', requireRole('admin'), async (req, res) => {
+  const { email, password, role, name } = req.body;
+  try {
+    // Ambil user lama untuk deteksi perubahan nama
+    const oldUser = await get('SELECT name, email FROM users WHERE id=?', [req.params.id]);
+    const oldName = oldUser && oldUser.name ? String(oldUser.name) : null;
+
+    if (password) {
+      const hash = await bcrypt.hash(password, 10);
+      await run('UPDATE users SET email=?, password=?, role=?, name=? WHERE id=?', [email, hash, role, name || null, req.params.id]);
+    } else {
+      await run('UPDATE users SET email=?, role=?, name=? WHERE id=?', [email, role, name || null, req.params.id]);
+    }
+
+    // Rigid rename: update semua records.teknisi mengganti nama lama -> nama baru
+    const newName = name && String(name).trim() ? String(name).trim() : null;
+    if (oldName && newName && oldName !== newName){
+      // Gunakan REPLACE di SQLite, batasi ke baris yang mengandung oldName untuk efisiensi
+      await run('UPDATE records SET teknisi = REPLACE(teknisi, ?, ?) WHERE teknisi LIKE ?', [oldName, newName, `%${oldName}%`]);
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'User update failed' });
+  }
+});
+app.delete('/api/users/:id', requireRole('admin'), async (req, res) => {
+  try {
+    await run('DELETE FROM users WHERE id=?', [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'User delete failed' });
+  }
+});
+
+// Expose technicians list for job assignment suggestions (support query q)
+app.get('/api/technicians', requireLogin, async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    if (q) {
+      const like = `%${q}%`;
+      const rows = await all("SELECT id, name, email FROM users WHERE role='teknisi' AND (COALESCE(name,'') LIKE ? OR email LIKE ?) ORDER BY name, email LIMIT 20", [like, like]);
+      return res.json(rows);
+    }
+    const rows = await all("SELECT id, name, email FROM users WHERE role='teknisi' ORDER BY name, email LIMIT 100", []);
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to load technicians' });
+  }
+});
+app.get('/api/forklifts', requireLogin, async (req, res) => {
+  try {
+    const rows = await all('SELECT * FROM forklifts ORDER BY id DESC', []);
+    res.json(rows);
+  } catch (e) {
+    res.status(400).json({ error: 'Forklifts query failed' });
+  }
+});
+app.post('/api/forklifts', requireRole('admin','supervisor'), async (req, res) => {
+  const { brand, type, eq_no, serial, location, powertrain, owner, tahun, status } = req.body;
+  try {
+    const r = await run('INSERT INTO forklifts (brand,type,eq_no,serial,location,powertrain,owner,tahun,status) VALUES (?,?,?,?,?,?,?,?,?)', [brand,type,eq_no,serial,location,powertrain,owner,tahun,status]);
+    res.json({ id: r.id });
+  } catch (e) {
+    let msg = 'Forklift create failed';
+    const em = String(e && e.message || '');
+    if ((e && e.code === 'SQLITE_CONSTRAINT') || /constraint/i.test(em)){
+      if (em.includes('forklifts.eq_no')) msg = 'EQ No sudah terdaftar';
+      else if (em.includes('forklifts.serial')) msg = 'Serial sudah terdaftar';
+      else msg = 'Gagal menyimpan: pelanggaran constraint';
+    }
+    res.status(400).json({ error: msg });
+  }
+});
+app.put('/api/forklifts/:id', requireRole('admin','supervisor'), async (req, res) => {
+  const { brand, type, eq_no, serial, location, powertrain, owner, tahun, status } = req.body;
+  try {
+    await run('UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=? WHERE id=?', [brand,type,eq_no,serial,location,powertrain,owner,tahun,status, req.params.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    let msg = 'Forklift update failed';
+    const em = String(e && e.message || '');
+    if ((e && e.code === 'SQLITE_CONSTRAINT') || /constraint/i.test(em)){
+      if (em.includes('forklifts.eq_no')) msg = 'EQ No sudah terdaftar';
+      else if (em.includes('forklifts.serial')) msg = 'Serial sudah terdaftar';
+      else msg = 'Gagal menyimpan: pelanggaran constraint';
+    }
+    res.status(400).json({ error: msg });
+  }
+});
+app.delete('/api/forklifts/:id', requireRole('admin','supervisor'), async (req, res) => {
+  try {
+    const id = req.params.id;
+    // Hapus child records terlebih dahulu untuk memenuhi foreign key constraints
+    await run('DELETE FROM records WHERE forklift_id=?', [id]);
+    await run('DELETE FROM jobs WHERE forklift_id=?', [id]);
+    await run('DELETE FROM forklifts WHERE id=?', [id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Forklift delete failed' });
+  }
+});
+app.post('/api/forklifts/bulk-delete', requireRole('admin','supervisor'), async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'No ids' });
+  try {
+    const placeholders = ids.map(() => '?').join(',');
+    // Hapus child records terlebih dahulu untuk memenuhi foreign key constraints
+    await run(`DELETE FROM records WHERE forklift_id IN (${placeholders})`, ids);
+    await run(`DELETE FROM jobs WHERE forklift_id IN (${placeholders})`, ids);
+    await run(`DELETE FROM forklifts WHERE id IN (${placeholders})`, ids);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Bulk delete failed' });
+  }
+});
+
+// Items CRUD
+app.get('/api/items', requireLogin, async (req, res) => {
+  const rows = await all('SELECT * FROM items ORDER BY id DESC');
+  res.json(rows);
+});
+app.post('/api/items', requireRole('admin','supervisor'), async (req, res) => {
+  const { code, nama, unit, description, status } = req.body;
+  try {
+    const r = await run('INSERT INTO items (code, nama, unit, description, status) VALUES (?,?,?,?,?)', [code,nama,unit,description,status]);
+    res.json({ id: r.id });
+  } catch (e) {
+    res.status(400).json({ error: 'Item create failed' });
+  }
+});
+app.put('/api/items/:id', requireRole('admin','supervisor'), async (req, res) => {
+  const { code, nama, unit, description, status } = req.body;
+  try {
+    await run('UPDATE items SET code=?, nama=?, unit=?, description=?, status=? WHERE id=?', [code,nama,unit,description,status, req.params.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Item update failed' });
+  }
+});
+app.delete('/api/items/:id', requireRole('admin','supervisor'), async (req, res) => {
+  try {
+    await run('DELETE FROM items WHERE id=?', [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Item delete failed' });
+  }
+});
+
+// Jobs CRUD
+function nextReportNo(prefix, rows) {
+  let max = 0;
+  const re = new RegExp('^'+prefix+"(\\d{5})$");
+  for (const r of rows) {
+    const m = re.exec(r.report_no || '');
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n > max) max = n;
+    }
+  }
+  const next = (max + 1).toString().padStart(5, '0');
+  return `${prefix}${next}`;
+}
+
+function reportPrefixForPowertrain(powertrain){
+  const p = String(powertrain||'').toLowerCase();
+  if (p.includes('electric') || p.includes('manual') || p.includes('instrument') || p.includes('tools')) return 'Z';
+  if (p.includes('diesel') || p.includes('lpg')) return 'W';
+  return 'W';
+}
+// Endpoint untuk autofill report number di form Jobs
+app.get('/api/jobs/next-report', requireLogin, async (req, res) => {
+  try{
+    const forklift_id = parseInt(req.query.forklift_id);
+    if (!forklift_id) return res.status(400).json({ error: 'forklift_id wajib diisi' });
+    const fk = await get('SELECT powertrain FROM forklifts WHERE id=?', [forklift_id]);
+    const prefix = reportPrefixForPowertrain(fk && fk.powertrain);
+    // Ambil sumber penomoran dari service records saat ini, bukan dari tabel jobs,
+    // agar jika record W00005 dihapus maka next kembali ke W00005 (bukan W00006)
+    const rows = await all(`SELECT report_no FROM records WHERE report_no LIKE ? AND pekerjaan='Workshop' ORDER BY id DESC LIMIT 100`, [prefix+'%']);
+    const report_no = nextReportNo(prefix, rows);
+    res.json({ report_no, prefix });
+  }catch(e){ res.status(400).json({ error: 'Gagal ambil nomor' }); }
+});
+app.get('/api/jobs', requireLogin, async (req, res) => {
+  const rows = await all('SELECT * FROM jobs ORDER BY id DESC');
+  res.json(rows);
+});
+app.post('/api/jobs', requireRole('admin','supervisor','teknisi'), async (req, res) => {
+  let { jenis, forklift_id, tanggal, teknisi, report_no, description, recommendation, items_used, next_pm } = req.body;
+  try {
+    if (!teknisi || !String(teknisi).trim()) return res.status(400).json({ error: 'Teknisi wajib diisi' });
+
+    // Pastikan variabel terdeklarasi
+    let fk = null;
+    let fkLoc = null;
+    let prefix = 'W';
+
+    if (jenis === 'Workshop') {
+      fk = await get('SELECT powertrain, location FROM forklifts WHERE id=?', [forklift_id]);
+      fkLoc = fk ? fk.location : null;
+      prefix = reportPrefixForPowertrain(fk && fk.powertrain);
+      if (!report_no || !/^[ZW]\d{5}$/.test(String(report_no))) {
+        // Sumber penomoran diambil dari records agar mengikuti data aktif di service records
+        const rows = await all("SELECT report_no FROM records WHERE report_no LIKE ? AND pekerjaan='Workshop' ORDER BY id DESC LIMIT 100", [prefix + '%']);
+        report_no = nextReportNo(prefix, rows);
+      }
+      }
+
+      const r = await run('INSERT INTO jobs (jenis,forklift_id,tanggal,teknisi,report_no,description,recommendation,items_used,next_pm) VALUES (?,?,?,?,?,?,?,?,?)', [jenis, forklift_id, tanggal, teknisi, report_no, description, recommendation, items_used, next_pm || null]);
+
+    // Snapshot lokasi (selalu isi): jika belum didapat dari blok Workshop, ambil dari forklifts
+    if (fkLoc == null) {
+      const ff = await get('SELECT location FROM forklifts WHERE id=?', [forklift_id]);
+      fkLoc = ff ? ff.location : null;
+    }
+
+    await run('INSERT INTO records (tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, location) VALUES (?,?,?,?,?,?,?,?,?)', [tanggal, report_no, forklift_id, jenis, teknisi, description, recommendation, items_used, fkLoc || null]);
+
+    res.json({ id: r.id, report_no });
+  } catch (e) {
+    res.status(400).json({ error: 'Job create failed' });
+  }
+});
+app.put('/api/jobs/:id', requireRole('admin','supervisor'), async (req, res) => {
+  const { jenis, forklift_id, tanggal, teknisi, report_no, description, recommendation, items_used, next_pm } = req.body;
+  try {
+    // Ambil data lama untuk sinkronisasi ke records
+    const old = await get('SELECT report_no, forklift_id FROM jobs WHERE id=?', [req.params.id]);
+
+    await run('UPDATE jobs SET jenis=?, forklift_id=?, tanggal=?, teknisi=?, report_no=?, description=?, recommendation=?, items_used=?, next_pm=? WHERE id=?', [jenis,forklift_id,tanggal,teknisi,report_no,description,recommendation,items_used,next_pm || null, req.params.id]);
+
+    // Sinkronkan ke service records agar statistik Maintenance Jobs (berbasis records) ikut berubah ketika job diubah
+    if (old && old.report_no) {
+      let sql = 'UPDATE records SET pekerjaan=?, tanggal=?, teknisi=?, description=?, recommendation=?, items_used=?, report_no=?, forklift_id=?';
+      const params = [jenis, tanggal, teknisi, description, recommendation, items_used, report_no, forklift_id];
+      // Jika forklift_id berubah, snapshot ulang lokasi dari forklifts
+      if (String(old.forklift_id) !== String(forklift_id)) {
+        const fk = await get('SELECT location FROM forklifts WHERE id=?', [forklift_id]);
+        sql += ', location=?';
+        params.push(fk ? fk.location : null);
+      }
+      sql += ' WHERE report_no=? AND forklift_id=?';
+      params.push(old.report_no, old.forklift_id);
+      await run(sql, params);
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Job update failed' });
+  }
+});
+app.delete('/api/jobs/:id', requireRole('admin','supervisor'), async (req, res) => {
+  try {
+    // Hapus service record terkait agar statistik Maintenance Jobs (records) ikut berkurang
+    const old = await get('SELECT report_no, forklift_id FROM jobs WHERE id=?', [req.params.id]);
+    if (old && old.report_no) {
+      await run('DELETE FROM records WHERE report_no=? AND forklift_id=?', [old.report_no, old.forklift_id]);
+    }
+    await run('DELETE FROM jobs WHERE id=?', [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Job delete failed' });
+  }
+});
+
+// Records endpoints
+app.get('/api/records', requireLogin, async (req, res) => {
+  try {
+    const { q, forklift_id, start, end } = req.query;
+    const params = [];
+    let sql = `SELECT r.*, (SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=r.forklift_id) as forklift, r.location as forklift_location, COALESCE((SELECT j.next_pm FROM jobs j WHERE j.report_no=r.report_no AND j.forklift_id=r.forklift_id AND j.jenis='PM' ORDER BY j.id DESC LIMIT 1), (SELECT j.next_pm FROM jobs j WHERE j.jenis='PM' AND j.forklift_id=r.forklift_id ORDER BY j.id DESC LIMIT 1)) as next_pm FROM records r WHERE 1=1`;
+    // Filter by forklift
+    if (forklift_id) { sql += ' AND r.forklift_id=?'; params.push(forklift_id); }
+    // Range filter
+    if (start) { sql += ' AND date(r.tanggal)>=date(?)'; params.push(start); }
+    if (end) { sql += ' AND date(r.tanggal)<=date(?)'; params.push(end); }
+    if (q) {
+      sql += ' AND (r.description LIKE ? OR r.recommendation LIKE ? OR r.items_used LIKE ? OR r.report_no LIKE ? OR r.teknisi LIKE ? OR r.location LIKE ? OR EXISTS (SELECT 1 FROM forklifts f WHERE f.id=r.forklift_id AND (COALESCE(f.eq_no,"") LIKE ? OR COALESCE(f.brand,"") LIKE ? OR COALESCE(f.type,"") LIKE ? OR COALESCE(f.location,"") LIKE ?)))';
+      params.push(`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`);
+    }
+    sql += ' ORDER BY r.id DESC';
+    const rows = await all(sql, params);
+    res.json(rows);
+  } catch (e) {
+    res.status(400).json({ error: 'Records fetch failed' });
+  }
+});
+
+// Records CRUD (admin & supervisor)
+app.post('/api/records', requireRole('admin','supervisor'), async (req, res) => {
+  const { tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used } = req.body;
+  try {
+    const fk = await get('SELECT location FROM forklifts WHERE id=?', [forklift_id]);
+    const loc = fk ? fk.location : null;
+    const r = await run('INSERT INTO records (tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, location) VALUES (?,?,?,?,?,?,?,?,?)', [tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, loc || null]);
+    res.json({ id: r.id });
+  } catch (e) {
+    res.status(400).json({ error: 'Record create failed' });
+  }
+});
+
+app.put('/api/records/:id', requireLogin, async (req, res) => {
+  const user = req.session.user;
+  const { tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, location } = req.body;
+  try {
+    if (user.role === 'teknisi') {
+      const rec = await get('SELECT teknisi FROM records WHERE id=?', [req.params.id]);
+      const low = String(rec && rec.teknisi || '').toLowerCase();
+      const meEmail = String(user.email||'').toLowerCase();
+      const meName = String(user.name||'').toLowerCase();
+      const assigned = low.includes(meEmail) || (!!meName && low.includes(meName));
+      if (!assigned) return res.status(403).json({ error: 'Tidak boleh edit' });
+    }
+    // Update lokasi: izinkan rename manual jika dikirimkan; jika tidak dan forklift_id berubah, snapshot ulang dari forklifts; selain itu pertahankan
+    const oldRec = await get('SELECT forklift_id, location FROM records WHERE id=?', [req.params.id]);
+    let locVal = oldRec ? oldRec.location : null;
+    if (typeof location !== 'undefined') {
+      locVal = location;
+    } else if (oldRec && String(oldRec.forklift_id) !== String(forklift_id)){
+      const fk = await get('SELECT location FROM forklifts WHERE id=?', [forklift_id]);
+      locVal = fk ? fk.location : null;
+    }
+    await run('UPDATE records SET tanggal=?, report_no=?, forklift_id=?, pekerjaan=?, teknisi=?, description=?, recommendation=?, items_used=?, location=? WHERE id=?', [tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, locVal || null, req.params.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Record update failed' });
+  }
+});
+
+app.delete('/api/records/:id', requireLogin, async (req, res) => {
+  try {
+    const user = req.session.user;
+    if (user.role === 'admin' || user.role === 'supervisor') {
+      await run('DELETE FROM records WHERE id=?', [req.params.id]);
+      return res.json({ message: 'ok' });
+    }
+    if (user.role === 'teknisi') {
+      const rec = await get('SELECT teknisi FROM records WHERE id=?', [req.params.id]);
+      const low = String(rec && rec.teknisi || '').toLowerCase();
+      const email = String(user.email || '').toLowerCase();
+      const name = String(user.name || '').toLowerCase();
+      const assigned = low.includes(email) || (!!name && low.includes(name));
+      if (!assigned) return res.status(403).json({ error: 'Forbidden' });
+      await run('DELETE FROM records WHERE id=?', [req.params.id]);
+      return res.json({ message: 'ok' });
+    }
+    return res.status(403).json({ error: 'Forbidden' });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Server error' });
+  }
+});
+
+app.post('/api/records/bulk-delete', requireLogin, async (req, res) => {
+  try {
+    const user = req.session.user;
+    let { ids } = req.body || {};
+    if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids required' });
+
+    if (user.role === 'admin' || user.role === 'supervisor') {
+      const placeholders = ids.map(()=>'?').join(',');
+      await run(`DELETE FROM records WHERE id IN (${placeholders})`, ids);
+      return res.json({ message: 'ok', deleted: ids.length });
+    }
+
+    if (user.role === 'teknisi') {
+      // Ambil record milik teknisi
+      const placeholders = ids.map(()=>'?').join(',');
+      const rows = await all(`SELECT id, teknisi FROM records WHERE id IN (${placeholders})`, ids);
+      const email = String(user.email || '').toLowerCase();
+      const name = String(user.name || '').toLowerCase();
+      const ownIds = rows.filter(r=>{
+        const low = String(r.teknisi||'').toLowerCase();
+        return low.includes(email) || (!!name && low.includes(name));
+      }).map(r=>r.id);
+      if (!ownIds.length) return res.status(403).json({ error: 'Tidak ada record milik Anda dalam pilihan' });
+      const ph2 = ownIds.map(()=>'?').join(',');
+      await run(`DELETE FROM records WHERE id IN (${ph2})`, ownIds);
+      return res.json({ message: 'ok', deleted: ownIds.length });
+    }
+
+    return res.status(403).json({ error: 'Forbidden' });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Server error' });
+  }
+});
+
+// Serve index to login by default
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+});

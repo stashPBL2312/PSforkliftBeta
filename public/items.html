@@ -1,0 +1,156 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Items</title>
+  <script src="/common.js"></script>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin:0; }
+    .wrap { max-width:1100px; margin:20px auto; padding:0 16px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding:8px; border-bottom:1px solid #eee; }
+    th { background:#fafafa; }
+    input, select, button { padding:6px 8px; }
+    .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+    /* Dark mode: modal */
+    [data-theme="dark"] #modal > div { background:#0f172a !important; color:#e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.6); }
+    [data-theme="dark"] #modal h3 { color:#e5e7eb; }
+    [data-theme="dark"] #modal div[style*='color:#666'],
+    [data-theme="dark"] #modal div[style*='color:#777'] { color:#e5e7eb !important; }
+    [data-theme="dark"] #modal input,
+    [data-theme="dark"] #modal select,
+    [data-theme="dark"] #modal textarea { background:#0b1220; border-color:#334155; color:#e5e7eb; }
+    [data-theme="dark"] input::placeholder, [data-theme="dark"] textarea::placeholder { color:#e5e7eb !important; opacity:1 !important; }
+  </style>
+</head>
+<body>
+  <div id="header"></div>
+  <div class="wrap">
+    <h2>Items</h2>
+    <div class="toolbar">
+      <input id="search" placeholder="Cari..." />
+      <select id="rowsPerPage"><option>10</option><option>15</option><option>25</option></select>
+      <button id="addBtn">Tambah</button>
+    </div>
+    <div id="table"></div>
+    <div id="pagination" style="margin-top:8px;"></div>
+  </div>
+
+  <div id="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.3); align-items:center; justify-content:center;">
+    <div style="background:#fff; padding:16px; border-radius:8px; width:480px; max-width:95vw;">
+      <h3 id="modalTitle" style="margin-top:0;">Tambah Item</h3>
+      <div id="form"></div>
+      <div style="text-align:right; margin-top:10px;">
+        <button id="cancelBtn">Batal</button>
+        <button id="saveBtn">Simpan</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (async function(){
+    const user = await ensureAuthedAndRenderNav(); if (!user) return;
+    let data = await api('/api/items');
+    const canEdit = (user.role==='admin'||user.role==='supervisor');
+
+    const columns = [
+      { key:'code', label:'Code' },
+      { key:'nama', label:'Nama' },
+      { key:'unit', label:'Unit' },
+      { key:'description', label:'Description' },
+      { key:'status', label:'Status' },
+      { key:'__act', label:'Aksi' },
+    ];
+
+    let page = 1; let rows = 10;
+
+    // helper untuk kapitalisasi status saat ditampilkan
+    function ucFirst(s){
+      s = String(s||'');
+      return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
+    }
+
+    function formHtml(item={}){
+      const statusList = ['Available','Unavailable'];
+      const stOptions = statusList.map(v=>`<option value="${v}">${v}</option>`).join('');
+      return `
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>CODE</div><input id='f_code' value='${item.code??''}' /></div>
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>NAMA</div><input id='f_nama' value='${item.nama??''}' /></div>
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>UNIT</div><input id='f_unit' value='${item.unit??''}' /></div>
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>DESCRIPTION</div><input id='f_description' value='${item.description??''}' /></div>
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>STATUS</div>
+          <select id='f_status'>${stOptions}</select>
+        </div>
+      `;
+    }
+
+    function render(){
+      const q = document.getElementById('search').value;
+      const filtered = filterData(data, q);
+      const start = (page-1)*rows; const end = start+rows;
+      const header = '<thead><tr>' + columns.map(c=>`<th>${c.label}</th>`).join('') + '</tr></thead>';
+      const body = '<tbody>' + filtered.slice(start,end).map(row=>{
+        const actions = canEdit ? `<button data-edit='${row.id}'>Edit</button> <button data-del='${row.id}'>Hapus</button>` : '';
+        return `<tr>
+          <td>${row.code||''}</td>
+          <td>${row.nama||''}</td>
+          <td>${row.unit||''}</td>
+          <td>${row.description||''}</td>
+          <td>${ucFirst(row.status)||''}</td>
+          <td>${actions}</td>
+        </tr>`;
+      }).join('') + '</tbody>';
+      document.getElementById('table').innerHTML = `<table>${header}${body}</table>`;
+      document.querySelectorAll('button[data-edit]').forEach(b=>b.onclick = ()=> openModal('Edit Item', data.find(x=>x.id==b.getAttribute('data-edit'))));
+      document.querySelectorAll('button[data-del]').forEach(b=>b.onclick = async ()=>{ if(confirm('Hapus?')){ await api('/api/items/'+b.getAttribute('data-del'), { method:'DELETE' }); data = await api('/api/items'); render(); } });
+      const pages = Math.max(1, Math.ceil(filtered.length/rows));
+      document.getElementById('pagination').innerHTML = Array.from({length: pages}, (_,i)=>`<button data-p='${i+1}' ${i+1===page?'style="font-weight:700"':''}>${i+1}</button>`).join(' ');
+      document.querySelectorAll('#pagination button').forEach(b=>b.onclick = ()=>{ page = parseInt(b.getAttribute('data-p')); render();});
+    }
+
+    document.getElementById('search').oninput = render;
+    document.getElementById('rowsPerPage').onchange = (e)=>{ rows = parseInt(e.target.value); page=1; render(); };
+    document.getElementById('addBtn').onclick = ()=> openModal('Tambah Item', {});
+
+    function openModal(title, item){
+      if (!canEdit) return alert('Tidak punya akses');
+      document.getElementById('modalTitle').textContent = title;
+      document.getElementById('form').innerHTML = formHtml(item);
+      // set nilai status terpilih (default 'Available' jika kosong/tidak dikenal)
+      const stEl = document.getElementById('f_status');
+      const statusList = ['Available','Unavailable'];
+      const current = item.status ? (statusList.find(v=>v.toLowerCase()===String(item.status).toLowerCase()) || 'Available') : 'Available';
+      if (stEl) stEl.value = current;
+      document.getElementById('modal').style.display = 'flex';
+      document.getElementById('cancelBtn').onclick = ()=> document.getElementById('modal').style.display = 'none';
+      document.getElementById('saveBtn').onclick = async ()=>{
+        try {
+          const payload = {
+            code: document.getElementById('f_code').value,
+            nama: document.getElementById('f_nama').value,
+            unit: document.getElementById('f_unit').value,
+            description: document.getElementById('f_description').value,
+            status: String(document.getElementById('f_status').value||'').toLowerCase(),
+          };
+          if (item.id) {
+            await api('/api/items/'+item.id, { method:'PUT', body: payload });
+            alert('Data item berhasil diperbarui');
+          } else {
+            await api('/api/items', { method:'POST', body: payload });
+          }
+          document.getElementById('modal').style.display='none';
+          data = await api('/api/items'); render();
+        } catch (e) {
+          console.error('Item save error:', e);
+          const msg = (e && e.error) ? e.error : 'Gagal menyimpan item';
+          alert(msg);
+        }
+      };
+    }
+
+    render();
+  })();
+  </script>
+</body>
+</html>

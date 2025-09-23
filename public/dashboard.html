@@ -1,0 +1,197 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard</title>
+  <script src="/common.js"></script>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin:0; background:#f5f7fb; }
+    .wrap { max-width:1100px; margin:20px auto; padding:0 16px; }
+    .grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; }
+    .card { background:#fff; padding:14px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,.06); }
+    .muted { color:#666; font-size:12px; }
+    [data-theme="dark"] .muted { color:#fff; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding:8px; border-bottom:1px solid #eee; }
+    th { background:#fafafa; }
+    input, select { padding:6px 8px; }
+    /* Late PM date styling */
+    .late-date { color:#dc2626; font-weight:600; }
+    [data-theme="dark"] .late-date { color:#fca5a5; }
+    /* Week/Upcoming date styling */
+    .week-date { color:#ca8a04; font-weight:600; }
+    [data-theme="dark"] .week-date { color:#fde68a; }
+    .upcoming-date { color:#16a34a; font-weight:600; }
+    [data-theme="dark"] .upcoming-date { color:#86efac; }
+    /* Status badges */
+    .status-badge { display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600; }
+    .status-late { background:rgba(220,38,38,0.10); color:#dc2626; }
+    [data-theme="dark"] .status-late { background:rgba(252,165,165,0.12); color:#fca5a5; }
+    .status-week { background:rgba(234,179,8,0.15); color:#a16207; }
+    [data-theme="dark"] .status-week { background:rgba(250,204,21,0.12); color:#fde68a; }
+    .status-upcoming { background:rgba(22,163,74,0.12); color:#16a34a; }
+    [data-theme="dark"] .status-upcoming { background:rgba(134,239,172,0.12); color:#86efac; }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px){
+      .wrap { margin:12px auto; padding:0 12px; }
+      .card > div:first-child { flex-wrap: wrap; gap: 8px; }
+      #pmTable { overflow-x:auto; }
+      #pagination { display:flex; flex-wrap: wrap; gap: 6px; }
+      /* Keep 3 columns on tablets/phones and scale content */
+      .grid { grid-template-columns: repeat(3, 1fr) !important; gap: 8px; grid-auto-flow: row !important; overflow-x: visible !important; }
+      .grid .card { padding: 10px; }
+      .grid .card > div:nth-child(2) { font-size: 18px !important; }
+      .muted { font-size: 11px; }
+    }
+    @media (max-width: 480px){
+      /* Extra small phones: still 3 columns, tighter spacing */
+      .grid { grid-template-columns: repeat(3, 1fr) !important; gap: 6px; grid-auto-flow: row !important; overflow-x: visible !important; }
+      .grid .card { padding: 8px; }
+      .grid .card > div:nth-child(2) { font-size: 16px !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="header"></div>
+  <div class="wrap">
+    <h2>Dashboard</h2>
+    <div id="metrics" class="grid"></div>
+
+    <div class="card" style="margin-top:16px;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <h3 style="margin:0;">Jadwal PM</h3>
+        <select id="pmCategory" title="Kategori PM">
+          <option value="late">Terlambat</option>
+          <option value="week">Minggu Ini</option>
+          <option value="upcoming">Akan Datang</option>
+        </select>
+        <input id="search" placeholder="Cari..." style="margin-left:auto;" />
+        <select id="rowsPerPage">
+          <option>10</option><option>15</option><option>25</option>
+        </select>
+      </div>
+      <div id="pmTable" style="margin-top:8px;"></div>
+      <div id="pagination" style="margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <script>
+  (async function(){
+    const user = await ensureAuthedAndRenderNav(); if (!user) return;
+    const data = await api('/api/dashboard/metrics');
+    // Ambil semua jobs agar kategori "Akan Datang" bisa menampilkan SEMUA PM mendatang (tidak terbatas 7 hari)
+    let allJobs = [];
+    try { allJobs = await api('/api/jobs'); } catch(e){ allJobs = []; }
+    // Ambil daftar forklifts untuk normalisasi row jika API metrics tidak menyertakan label forklift
+    let fkMap = {};
+    try {
+      const forklifts = await api('/api/forklifts');
+      forklifts.forEach(f=>{ fkMap[f.id] = `${f.brand} ${f.type} (${f.eq_no})`; });
+    } catch(e){ /* abaikan jika gagal, hanya berdampak pada label forklift */ }
+
+    function parseISODate(s){ const d = new Date(s); return Number.isNaN(d.getTime())?null:d; }
+    function normalizeRow(r){
+      const jadwal = r.jadwal_pm || r.next_pm || '';
+      return {
+        forklift: r.forklift || (r.forklift_id && fkMap[r.forklift_id]) || (r.forklift_id ? `#${r.forklift_id}` : ''),
+        jadwal_pm: jadwal,
+        status: r.status || '',
+        teknisi_terakhir: r.teknisi_terakhir || r.teknisi || '',
+        service_terakhir: r.service_terakhir || r.tanggal || '',
+      };
+    }
+    function normalizeList(list){ return (Array.isArray(list)?list:[]).map(normalizeRow); }
+    function byDateRange(list, predicate){ return normalizeList(list).filter(row=>{ const d=parseISODate(row.jadwal_pm); if(!d) return false; const today=new Date(); today.setHours(0,0,0,0); d.setHours(0,0,0,0); const next7 = new Date(today); next7.setDate(today.getDate()+7); return predicate({ d, today, next7 }); }); }
+    function getDatasetForCategory(cat){
+      if (cat==='late'){
+        const src = Array.isArray(data.pmLate) && data.pmLate.length ? data.pmLate : (Array.isArray(data.pmMonth) ? data.pmMonth : []);
+        // Jika pmLate kosong/tdk tersedia, fallback: ambil yang < today dari pmMonth
+        if (src === data.pmLate) return normalizeList(src);
+        return byDateRange(src, ({d,today})=> d < today);
+      }
+      if (cat==='week'){
+        const src = Array.isArray(data.pmWeek) && data.pmWeek.length ? data.pmWeek : (Array.isArray(data.pmMonth) ? data.pmMonth : []);
+        // Jika pmWeek kosong/tdk tersedia, fallback: between today..+7 dari pmMonth
+        if (src === data.pmWeek) return normalizeList(src);
+        return byDateRange(src, ({d,today,next7})=> d >= today && d <= next7);
+      }
+      if (cat==='upcoming'){
+        // "Akan Datang" = semua PM dengan jadwal >= hari ini (tanpa batas 7 hari)
+        // Sumber utama: seluruh jobs (jenis='PM') dengan next_pm
+        if (Array.isArray(allJobs) && allJobs.length){
+          const list = allJobs.filter(j => String(j.jenis||'').toUpperCase() === 'PM' && j.next_pm);
+          return byDateRange(list, ({d,today})=> d >= today);
+        }
+        // Fallback: gabungkan pmWeek (0..+7) + pmUpcoming (>+7) bila tersedia
+        const haveWeek = Array.isArray(data.pmWeek) && data.pmWeek.length>0;
+        const haveUpcoming = Array.isArray(data.pmUpcoming) && data.pmUpcoming.length>0;
+        if (haveWeek || haveUpcoming){
+          const combined = [];
+          if (haveWeek) combined.push(...data.pmWeek);
+          if (haveUpcoming) combined.push(...data.pmUpcoming);
+          return normalizeList(combined);
+        }
+        // Fallback terakhir: filter dari pmMonth (atau list lain) untuk d >= today
+        const src = Array.isArray(data.pmMonth) ? data.pmMonth : [];
+        return byDateRange(src, ({d,today})=> d >= today);
+      }
+      // fallback umum
+      return normalizeList([]);
+    }
+
+    const monthName = new Intl.DateTimeFormat('id-ID', { month: 'long' }).format(new Date());
+
+    const m = [
+      { label:'Forklift', value:data.totalForklifts, desc:'Total forklift dalam sistem' },
+      { label:'Forklift Aktif', value:data.forkliftsActive, desc:'Forklift dengan status aktif' },
+      { label:'Forklift Maintenance', value:data.forkliftsMaintenance, desc:'Forklift dalam maintenance' },
+      { label:'Total Pekerjaan', value:data.totalJobs, desc:'Pekerjaan PM, Lapangan dan workshop dalam sistem' },
+      { label:'Jobs Bulan Ini', value:data.jobsThisMonth, desc:`Pekerjaan di Bulan ${monthName}` },
+      { label:'Maintenance Jobs', value:data.maintenanceJobs, desc:'Total Pekerjaan maintenance' },
+      { label:'PM Terlambat', value:(data.pmLate||[]).length, desc:'PM yang sudah melewati jadwal' },
+      { label:'PM Minggu ini', value:(data.pmWeek||[]).length, desc:'PM dalam 7 hari kedepan' },
+      { label:'PM Bulan Ini', value:(data.pmMonth||[]).length, desc:'PM dalam 30 hari kedepan' },
+    ];
+    document.getElementById('metrics').innerHTML = m.map(x=>`<div class='card'><div class='muted'>${x.label}</div><div style='font-size:22px; font-weight:700;'>${x.value}</div><div class='muted' style='margin-top:4px;'>${x.desc}</div></div>`).join('');
+
+    let category = (document.getElementById('pmCategory')?.value) || 'late';
+    const columns = [
+      { key:'forklift', label:'Forklift' },
+      { key:'jadwal_pm', label:'Jadwal PM', render: r => {
+          const cls = category==='late'? 'late-date' : (category==='week'? 'week-date' : 'upcoming-date');
+          return `<span class="${cls}">${r.jadwal_pm}</span>`;
+        }
+      },
+      { key:'status', label:'Status', render: r => {
+          const text = category==='late'? 'Terlambat' : (category==='week'? 'Minggu Ini' : 'Akan Datang');
+          const scls = category==='late'? 'status-badge status-late' : (category==='week'? 'status-badge status-week' : 'status-badge status-upcoming');
+          return `<span class="${scls}">${text}</span>`;
+        }
+      },
+      { key:'teknisi_terakhir', label:'Teknisi Terakhir' },
+      { key:'service_terakhir', label:'Tanggal Service Terakhir' },
+    ];
+
+    let pmData = getDatasetForCategory(category);
+    let page = 1; let rows = 10;
+
+    function render(){
+      const q = document.getElementById('search').value;
+      const filtered = filterData(pmData, q);
+      const start = (page-1)*rows; const end = start+rows;
+      simpleTable('pmTable', columns, filtered.slice(start,end));
+      const pages = Math.max(1, Math.ceil(filtered.length/rows));
+      document.getElementById('pagination').innerHTML = Array.from({length: pages}, (_,i)=>`<button data-p='${i+1}' ${i+1===page?'style="font-weight:700"':''}>${i+1}</button>`).join(' ');
+      document.querySelectorAll('#pagination button').forEach(b=>b.onclick = ()=>{ page = parseInt(b.getAttribute('data-p')); render();});
+    }
+    document.getElementById('search').oninput = render;
+    document.getElementById('rowsPerPage').onchange = (e)=>{ rows = parseInt(e.target.value); page=1; render(); };
+    const pmCatEl = document.getElementById('pmCategory');
+    if (pmCatEl){ pmCatEl.onchange = ()=>{ category = pmCatEl.value; page=1; pmData = getDatasetForCategory(category); render(); }; }
+    render();
+  })();
+  </script>
+</body>
+</html>
