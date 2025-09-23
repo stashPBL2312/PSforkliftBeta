@@ -78,10 +78,19 @@
     [data-theme="dark"] input::placeholder, [data-theme="dark"] textarea::placeholder { color:#e5e7eb !important; opacity:1 !important; }
 
     /* Pastikan layout label di modal rapi (stacked) dan chips terlihat penuh */
-    #editModal label { display:flex; flex-direction:column; gap:6px; }
-    #editModal .teknisi-field { display:flex; flex-direction:column; gap:6px; }
-    #ed_teknisi_tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:2px; align-items:flex-start; }
-    #ed_teknisi_tags .chip { flex:0 0 auto; max-width:100%; }
+    #editModal .input-suggest-wrap .clear-btn { position:absolute; right:4px; top:50%; transform:translateY(-50%); border:none; background:transparent; cursor:pointer; font-size:16px; color:#888; padding:2px; line-height:1; }
+    #editModal .input-suggest-wrap .clear-btn:hover { color:#000; }
+    [data-theme="dark"] #editModal .input-suggest-wrap .clear-btn { color:#e5e7eb; }
+    #editModal .input-suggest-wrap input { padding-right: 28px; }
+    #editModal .input-suggest-wrap.fk .clear-btn { left:4px; right:auto; }
+    #editModal .input-suggest-wrap.fk input { padding-left:28px; padding-right:8px; }
+    #editModal .chosen-row { display:flex; align-items:center; gap:8px; padding:6px 0; }
+    #editModal .chosen-row .qty { width:72px; }
+    #editModal .xbtn { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:18px; border:1px solid #ddd; background:#f8f8f8; cursor:pointer; font-size:18px; line-height:1; }
+    #editModal .xbtn:active { transform: scale(0.98); }
+    #editModal .xbtn:focus { outline: 2px solid #c5d9fd; }
+    [data-theme="dark"] #editModal .xbtn { background:#1f2937; border-color:#334155; color:#e5e7eb; }
+    #editModal .xbtn { width:40px; height:40px; font-size:20px; }
     #editModal .input-suggest-wrap { position:relative; width:100%; }
     /* Batasi lebar wrapper forklift di modal agar dropdown tidak terlalu lebar pada layar lebar */
     #editModal .input-suggest-wrap.fk { max-width: 480px; }
@@ -176,6 +185,7 @@
           <label>Forklift
             <div class="input-suggest-wrap fk" style="position:relative;">
               <input id="ed_forklift_input" placeholder="Ketik untuk cari forklift..." autocomplete="off" />
+              <button type="button" class="clear-btn" aria-label="Clear" title="Clear">&times;</button>
               <div id="edFkSuggest" class="suggest" style="display:none;"></div>
             </div>
           </label>
@@ -199,13 +209,21 @@
           <label>Description <textarea id="ed_description" rows="3"></textarea></label>
           <label>Recommendation <textarea id="ed_recommendation" rows="3"></textarea></label>
           <div id="ed_itemsChoiceWrap" style="grid-column: 1 / -1; display:none;">
-            <div style="font-size:12px; color:#666; margin-bottom:4px;">Items Used (PM/Workshop)</div>
-            <input id="ed_itemSearch" placeholder="Cari item..." autocomplete="off" />
-            <div id="ed_itemList" style="max-height:180px; overflow:auto; border:1px solid #eee; padding:8px; border-radius:6px; margin-top:6px;"></div>
+            <div style="font-size:12px; color:#666; margin-bottom:4px;">Item dipakai (pilih dari katalog)</div>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <div class="input-suggest-wrap" style="position:relative; flex:1;">
+                <input id="ed_itemSearch" placeholder="Cari item..." autocomplete="off" />
+                <div id="edItemSuggest" class="suggest" style="display:none;"></div>
+              </div>
+              <div style="display:flex; gap:6px; align-items:center;">
+                <label for="ed_itemQty" style="font-size:12px; color:#555;">Qty</label>
+                <input id="ed_itemQty" type="number" min="1" value="1" />
+              </div>
+            </div>
             <div id="ed_chosenItems" style="margin-top:8px; max-height:240px; overflow:auto; border:1px solid #eee; padding:8px; border-radius:6px;"></div>
-            <div class="muted" style="font-size:11px; color:#777; margin-top:6px;">Klik Tambah untuk menambahkan item. Anda bisa menghapus item terpilih.</div>
+            <div class="muted" style="font-size:11px; color:#777; margin-top:6px;">Ketik untuk mencari item, pilih untuk menambahkan. Anda bisa menghapus item terpilih.</div>
           </div>
-          <label id="ed_itemsFreeWrap" style="grid-column: 1 / -1;">Items Used <textarea id="ed_items_used" rows="3"></textarea></label>
+          <label id="ed_itemsFreeWrap" style="grid-column: 1 / -1;">Item dipakai <textarea id="ed_items_used" rows="3"></textarea></label>
         </div>
         <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
           <button id="btnCancelEdit">Batal</button>
@@ -240,6 +258,12 @@
     // Input + suggest forklift untuk modal edit
     const edFkInput = document.getElementById('ed_forklift_input');
     const edFkSuggest = document.getElementById('edFkSuggest');
+    const edFkClearBtn = document.querySelector('#editModal .input-suggest-wrap.fk .clear-btn');
+    function syncEdFkClear(){ if (!edFkClearBtn) return; const hasVal = (edFkInput && (edFkInput.value||'').trim().length>0); edFkClearBtn.style.display = hasVal ? 'block' : 'none'; }
+    if (edFkClearBtn){
+      edFkClearBtn.onclick = (e)=>{ e.preventDefault(); if (edFkInput) { edFkInput.value=''; } edForkliftId=null; if (edFkSuggest) edFkSuggest.style.display='none'; if (edFkInput) edFkInput.focus(); syncEdFkClear(); };
+    }
+    syncEdFkClear();
     function fkLabel(f){ return [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - '); }
     function filterFk(q){
       const s = String(q||'').toLowerCase();
@@ -274,6 +298,7 @@
           const loc = document.getElementById('ed_location');
           if (loc && !loc.value){ loc.value = String(f.location||''); }
           edFkSuggest.style.display='none';
+          syncEdFkClear();
         };
         // Hanya gunakan click, jangan pointerdown agar tidak mudah terpencet saat scroll
         it.onclick = chooseEdFk;
@@ -281,9 +306,9 @@
     }
     if (edFkInput){
       const debouncedFkEd = (fn=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),200); }; })(renderEdFkSuggest);
-      edFkInput.addEventListener('input', debouncedFkEd);
-      edFkInput.addEventListener('focus', ()=> renderEdFkSuggest());
-      edFkInput.addEventListener('click', ()=> renderEdFkSuggest());
+      edFkInput.addEventListener('input', (e)=>{ debouncedFkEd(); syncEdFkClear(); });
+      edFkInput.addEventListener('focus', ()=> { renderEdFkSuggest(); syncEdFkClear(); });
+      edFkInput.addEventListener('click', ()=> { renderEdFkSuggest(); syncEdFkClear(); });
     }
     // Tap outside handler untuk menutup dropdown di modal edit
     const editModal = document.getElementById('editModal');
@@ -292,44 +317,72 @@
         const t = e.target;
         const inEdFk = t.closest && t.closest('#edFkSuggest, #ed_forklift_input');
         const inEdTech = t.closest && t.closest('#edTechSuggest, #ed_teknisi_input');
+        const inEdItem = t.closest && t.closest('#edItemSuggest, #ed_itemSearch');
         if (!inEdFk && edFkSuggest){ edFkSuggest.style.display = 'none'; }
         if (!inEdTech && edTechSuggest){ edTechSuggest.style.display = 'none'; }
+        if (!inEdItem && edItemSuggest){ edItemSuggest.style.display = 'none'; }
       });
     }
 
     // ===== Items chooser untuk modal edit (PM/Workshop) =====
-    function edRenderItems(list){
-      const qEl = document.getElementById('ed_itemSearch');
-      const listEl = document.getElementById('ed_itemList');
-      if (!qEl || !listEl) return;
-      const q = String(qEl.value||'').toLowerCase();
-      const filtered = (Array.isArray(list)?list:[]).filter(i => Object.values(i).some(v=>String(v||'').toLowerCase().includes(q)));
-      listEl.innerHTML = filtered.map(i=>{
-        const disabled = String(i.status||'').toLowerCase()==='unavailable' ? 'disabled' : '';
-        return `<div style='display:flex; align-items:center; justify-content:space-between; padding:4px 0; border-bottom:1px dashed #eee;'>
-          <div style='min-width:0; overflow:hidden; text-overflow:ellipsis;'>${i.code} - ${i.nama}</div>
-          <div style='display:flex; align-items:center; gap:6px;'>
-            <input id='ed_qty_${i.id}' type='number' min='1' value='1' style='width:64px;' ${disabled} />
-            <button data-add='${i.id}' ${disabled}>Tambah</button>
-          </div>
-        </div>`;
+    const edItemInput = document.getElementById('ed_itemSearch');
+    const edItemSuggest = document.getElementById('edItemSuggest');
+    const edItemQtyEl = document.getElementById('ed_itemQty');
+
+    function renderEdItemSuggest(){
+      if (!edItemInput || !edItemSuggest) return;
+      const q = String(edItemInput.value||'').trim().toLowerCase();
+      const list = (Array.isArray(items)?items:[]).filter(i=> !q || `${i.code} ${i.nama}`.toLowerCase().includes(q));
+      if (!list.length){ edItemSuggest.style.display='none'; edItemSuggest.innerHTML=''; return; }
+      edItemSuggest.innerHTML = list.map(i=>{
+        const unavailable = String(i.status||'').toLowerCase()==='unavailable';
+        const rowStyle = unavailable ? 'opacity:0.5;' : '';
+        const statusBadge = unavailable ? " <span class='muted'>(unavailable)</span>" : '';
+        return `<div class="item" data-id="${i.id}" data-unavail="${unavailable?1:0}" style="${rowStyle}">${i.code} - ${i.nama}${statusBadge}</div>`;
       }).join('');
-      listEl.querySelectorAll('button[data-add]').forEach(btn=>{
-        btn.onclick = ()=>{
-          const id = +btn.getAttribute('data-add');
-          const it = (items||[]).find(x=>x.id===id);
-          if (!it) return;
-          const qty = parseInt((document.getElementById('ed_qty_'+id)?.value)||1) || 1;
+      edItemSuggest.style.display='block';
+      if (!edItemSuggest._dragGuardAttached){
+        let startY=0, dragging=false;
+        edItemSuggest.addEventListener('pointerdown', e=>{ startY=e.clientY||0; dragging=false; }, {passive:true});
+        edItemSuggest.addEventListener('pointermove', e=>{ if (Math.abs((e.clientY||0)-startY)>8) dragging=true; }, {passive:true});
+        edItemSuggest._isDragging = ()=>dragging;
+        edItemSuggest._dragGuardAttached = true;
+      }
+      edItemSuggest.querySelectorAll('.item').forEach(it=>{
+        it.onclick = (ev)=>{
+          if (edItemSuggest._isDragging && edItemSuggest._isDragging()) { ev.preventDefault(); return; }
+          const unavail = it.getAttribute('data-unavail')==='1'; if (unavail) return;
+          const id = +it.getAttribute('data-id');
+          const f = (items||[]).find(x=>x.id===id); if (!f) return;
+          let qty = 1; if (edItemQtyEl){ qty = parseInt(edItemQtyEl.value||'1',10); if (!qty || qty<1) qty = 1; }
           const exist = (edChosen||[]).find(c=>c.id===id);
-          if (exist) exist.qty += qty; else edChosen.push({ id, code: it.code, nama: it.nama, qty });
+          if (exist){ exist.qty += qty; } else { edChosen.push({ id, code:f.code, nama:f.nama, qty }); }
           edRenderChosen();
+          edItemInput.value = '';
+          edItemSuggest.style.display='none';
         };
       });
     }
+
+    // Backward-compat wrapper to keep function name used elsewhere
+    function edRenderItems(){ renderEdItemSuggest(); }
     function edRenderChosen(){
       const chosenEl = document.getElementById('ed_chosenItems'); if (!chosenEl) return;
-      chosenEl.innerHTML = (edChosen||[]).map(c=>`<div>${c.code} - ${c.nama} x ${c.qty} <button data-ed-rem='${c.id}'>X</button></div>`).join('');
+      chosenEl.innerHTML = (edChosen||[]).map(c=>`
+        <div class="chosen-row">
+          <div style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;">${c.code} - ${c.nama}</div>
+          <input class="qty" type="number" min="1" value="${c.qty}" data-ed-qty="${c.id}" />
+          <button class="xbtn" aria-label="Hapus item" title="Hapus" data-ed-rem="${c.id}">&times;</button>
+        </div>
+      `).join('');
       chosenEl.querySelectorAll('button[data-ed-rem]').forEach(b=> b.onclick = ()=>{ const id=+b.getAttribute('data-ed-rem'); edChosen = (edChosen||[]).filter(c=>c.id!==id); edRenderChosen(); });
+      chosenEl.querySelectorAll('input[data-ed-qty]').forEach(inp=>{
+        inp.oninput = ()=>{
+          const id = +inp.getAttribute('data-ed-qty');
+          let v = parseInt(inp.value||'1',10); if (!v || v<1) v = 1; inp.value = String(v);
+          const row = (edChosen||[]).find(x=>x.id===id); if (row) row.qty = v;
+        };
+      });
     }
     const edJenisSel = document.getElementById('ed_pekerjaan');
     function edUpdateJenisUI(){
@@ -341,7 +394,20 @@
     }
     if (edJenisSel){ edJenisSel.addEventListener('change', ()=>{ edUpdateJenisUI(); }); }
     const edSearch = document.getElementById('ed_itemSearch');
-    if (edSearch){ edSearch.oninput = ()=> edRenderItems(items); }
+    if (edSearch){
+      const debouncedEdItems = makeDebounce(renderEdItemSuggest, 200);
+      edSearch.addEventListener('input', debouncedEdItems);
+      edSearch.addEventListener('focus', ()=> renderEdItemSuggest());
+      edSearch.addEventListener('click', ()=> renderEdItemSuggest());
+      edSearch.addEventListener('keydown', (e)=>{
+        if (e.key==='Enter'){
+          const first = edItemSuggest && edItemSuggest.querySelector('.item[data-unavail="0"]');
+          if (first){ first.click(); e.preventDefault(); }
+        }
+        if (e.key==='Escape'){ if (edItemSuggest) edItemSuggest.style.display='none'; }
+      });
+      document.addEventListener('click', (e)=>{ if (edItemSuggest && !edItemSuggest.contains(e.target) && e.target!==edSearch){ edItemSuggest.style.display='none'; } });
+    }
     // (fix) remove erroneous block that referenced techInput/fetchAndRenderTech for modal edit
     const edTechInput = document.getElementById('ed_teknisi_input');
     const edTechSuggest = document.getElementById('edTechSuggest');
@@ -705,7 +771,18 @@ function render(){
 
   const body = '<tbody>' + currentRows.map(row=>{
     const cb = `<input type="checkbox" data-id="${row.id}" ${selected.has(row.id)?'checked':''}/>`;
-    const actions = (user.role==='admin'||user.role==='supervisor') ? `<button data-edit="${row.id}">Edit</button> <button data-del="${row.id}">Hapus</button>` : `<button data-edit="${row.id}">Detail</button>`;
+    let actions;
+    if (user.role==='admin'||user.role==='supervisor') {
+      actions = `<button data-edit="${row.id}">Edit</button> <button data-del="${row.id}">Hapus</button>`;
+    } else if (user.role==='teknisi') {
+      const t = String(row.teknisi||'').toLowerCase();
+      const email = String(user.email||'').toLowerCase();
+      const name = String(user.name||'').toLowerCase();
+      const assigned = t.includes(email) || (!!name && t.includes(name));
+      actions = assigned ? `<button data-edit="${row.id}">Edit</button> <button data-del="${row.id}">Hapus</button>` : `<button data-detail="${row.id}">Detail</button>`;
+    } else {
+      actions = `<button data-detail="${row.id}">Detail</button>`;
+    }
     // Highlight Next PM yang terlambat (sebelum hari ini)
     const nextPmRaw = row.next_pm || '';
     let nextPmCell = nextPmRaw || '';
@@ -769,6 +846,9 @@ function render(){
   document.querySelectorAll('#table button[data-edit]').forEach(btn=>{
     btn.onclick = ()=>{ const id = +btn.getAttribute('data-edit'); const item = currentRows.find(r=>r.id===id) || data.find(r=>r.id===id); if (item) openEditModal(item); };
   });
+  document.querySelectorAll('#table button[data-detail]').forEach(btn=>{
+    btn.onclick = ()=>{ const id = +btn.getAttribute('data-detail'); const item = currentRows.find(r=>r.id===id) || data.find(r=>r.id===id); if (item) openEditModal(item, true); };
+  });
   document.querySelectorAll('#table button[data-del]').forEach(btn=>{
     btn.onclick = async ()=>{
       const id = +btn.getAttribute('data-del');
@@ -786,7 +866,7 @@ function render(){
   }
 }
 
-function openEditModal(item){
+function openEditModal(item, readOnly=false){
   const modal = document.getElementById('editModal'); if (!modal) return;
   // Fill fields
   document.getElementById('ed_tanggal').value = item.tanggal || '';
@@ -823,14 +903,49 @@ function openEditModal(item){
       });
     }
     edRenderChosen();
-    edRenderItems(items);
+    edRenderItems();
   }
   edTechInput.value = (edTechInput.value||'').trim();
   edTechSuggest.style.display = (edTechInput.value) ? 'block' : 'none';
+  if (readOnly){
+    // Matikan semua input & suggest di modal
+    ['ed_tanggal','ed_report_no','ed_pekerjaan','ed_location','ed_description','ed_recommendation','ed_items_used'].forEach(id=>{
+      const el = document.getElementById(id);
+      if (el){ el.disabled = true; el.readOnly = true; }
+    });
+    if (typeof edFkInput !== 'undefined' && edFkInput) edFkInput.disabled = true;
+    if (typeof edTechInput !== 'undefined' && edTechInput) edTechInput.disabled = true;
+    if (typeof edItemInput !== 'undefined' && edItemInput) edItemInput.disabled = true;
+    if (typeof edItemQtyEl !== 'undefined' && edItemQtyEl) edItemQtyEl.disabled = true;
+    if (typeof edFkSuggest !== 'undefined' && edFkSuggest) edFkSuggest.style.display='none';
+    if (typeof edTechSuggest !== 'undefined' && edTechSuggest) edTechSuggest.style.display='none';
+    if (typeof edItemSuggest !== 'undefined' && edItemSuggest) edItemSuggest.style.display='none';
+    // Nonaktifkan tombol hapus pada chips teknisi
+    document.querySelectorAll('#ed_teknisi_tags button.x').forEach(b=>{ b.disabled = true; b.style.pointerEvents='none'; });
+    // Nonaktifkan kontrol chosen items (qty & remove)
+    document.querySelectorAll('#ed_chosenItems .chosen-row input.qty').forEach(el=>{ el.disabled = true; el.readOnly = true; });
+    document.querySelectorAll('#ed_chosenItems .chosen-row .xbtn').forEach(btn=>{ btn.style.display = 'none'; });
+  } else {
+    // Pastikan semua input aktif di mode edit
+    ['ed_tanggal','ed_report_no','ed_pekerjaan','ed_location','ed_description','ed_recommendation','ed_items_used'].forEach(id=>{
+      const el = document.getElementById(id);
+      if (el){ el.disabled = false; el.readOnly = false; }
+    });
+    if (typeof edFkInput !== 'undefined' && edFkInput) edFkInput.disabled = false;
+    if (typeof edTechInput !== 'undefined' && edTechInput) edTechInput.disabled = false;
+    if (typeof edItemInput !== 'undefined' && edItemInput) edItemInput.disabled = false;
+    if (typeof edItemQtyEl !== 'undefined' && edItemQtyEl) edItemQtyEl.disabled = false;
+    // Aktifkan kembali tombol hapus pada chips teknisi
+    document.querySelectorAll('#ed_teknisi_tags button.x').forEach(b=>{ b.disabled = false; b.style.pointerEvents=''; });
+    // Tampilkan kembali kontrol chosen items
+    document.querySelectorAll('#ed_chosenItems .chosen-row input.qty').forEach(el=>{ el.disabled = false; el.readOnly = false; });
+    document.querySelectorAll('#ed_chosenItems .chosen-row .xbtn').forEach(btn=>{ btn.style.display = ''; });
+  }
   modal.style.display='flex';
   const cancelBtn = document.getElementById('btnCancelEdit');
   const saveBtn = document.getElementById('btnSaveEdit');
   cancelBtn.onclick = ()=>{ modal.style.display='none'; };
+  if (readOnly){ saveBtn.style.display='none'; cancelBtn.textContent='Tutup'; } else { saveBtn.style.display=''; cancelBtn.textContent='Batal'; }
   saveBtn.onclick = async ()=>{
     try{
       const teknisiList = (edSelectedTech||[]).map(t=> String(t.label||'').trim()).filter(Boolean);

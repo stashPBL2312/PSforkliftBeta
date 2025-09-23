@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
@@ -9,6 +9,26 @@
     body { font-family: system-ui, Arial, sans-serif; margin:0; }
     .wrap { max-width:1000px; margin:20px auto; padding:0 16px; }
     input, select, textarea, button { padding:6px 8px; }
+    /* Ikuti preferensi skema warna agar kontrol form (termasuk date picker) adaptif */
+    input[type="date"] { color-scheme: light; }
+    [data-theme="dark"] input[type="date"] { color-scheme: dark; }
+    /* Pulihkan indikator bawaan, jangan hilangkan/ubah skala */
+    input[type="date"]::-webkit-calendar-picker-indicator { filter: none; opacity: 1; }
+    /* Light mode: ikon hitam pekat */
+    [data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator,
+    :root:not([data-theme]) input[type="date"]::-webkit-calendar-picker-indicator { filter: brightness(0) contrast(1) !important; }
+    /* Dark mode: ikon putih */
+    [data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator { opacity: 1 !important; filter: invert(1) brightness(1.2) contrast(1.05) !important; }
+    /* Hapus aturan sisa date-input-wrap agar tidak mempengaruhi layout */
+    .date-input-wrap { display: initial; position: initial; width: auto; }
+    .date-input-wrap input[type="date"] { padding-right: initial; width: auto; }
+    .date-input-wrap::after { content: none; }
+    /* Dark mode: pakai ikon kalender dengan stroke terang */
+    [data-theme="dark"] .date-input-wrap::after { background-image: none !important; }
+    /* Light mode: ikon gelap */
+    [data-theme="light"] .date-input-wrap::after, :root:not([data-theme]) .date-input-wrap::after { background-image: none !important; }
+    /* Tampilkan indikator bawaan dan ubah warnanya jadi putih di dark mode */
+    [data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator { opacity: 1 !important; filter: invert(1) brightness(1.2) contrast(1.05) !important; }
     textarea { width:100%; min-height:80px; }
     .row { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
     .card { background:#fff; padding:12px; border:1px solid #eee; border-radius:8px; margin-bottom:12px; }
@@ -27,8 +47,28 @@
     .chip { display:inline-flex; align-items:center; gap:6px; background:#f0f0f0; border:1px solid #e0e0e0; border-radius:16px; padding:2px 8px; font-size:12px; }
     .chip .x { border:none; background:transparent; cursor:pointer; font-size:12px; color:#666; }
     .chip .x:hover { color:#000; }
-    /* Batasi lebar khusus untuk input forklift agar dropdown tidak terlalu lebar di desktop */
-    .input-suggest-wrap.fk { max-width: 320px; }
+    /* Chosen items row + mobile friendly X button */
+    .chosen-row { display:flex; align-items:center; gap:8px; padding:6px 0; }
+    .chosen-row .label { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .chosen-row .qty { width:72px; }
+    .xbtn { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:18px; border:1px solid #ddd; background:#f8f8f8; cursor:pointer; font-size:18px; line-height:1; }
+    .xbtn:active { transform: scale(0.98); }
+    .xbtn:focus { outline: 2px solid #c5d9fd; }
+    [data-theme="dark"] .xbtn { background:#1f2937; border-color:#334155; color:#e5e7eb; }
+    @media (max-width: 768px){
+      .xbtn { width:40px; height:40px; font-size:20px; }
+    }
+    /* Clear button for suggest inputs */
+    /* Improve clear button proximity to input */
+    .input-suggest-wrap .clear-btn { position:absolute; right:4px; top:50%; transform:translateY(-50%); border:none; background:transparent; cursor:pointer; font-size:16px; color:#888; padding:2px; line-height:1; }
+    .input-suggest-wrap .clear-btn:hover { color:#000; }
+    [data-theme="dark"] .input-suggest-wrap .clear-btn { color:#e5e7eb; }
+    .input-suggest-wrap input { padding-right: 28px; }
+    /* Override khusus forklift: clear button di kiri, beri padding kiri agar tidak menimpa teks */
+    .input-suggest-wrap.fk .clear-btn { left:4px; right:auto; }
+    .input-suggest-wrap.fk input { padding-left:28px; padding-right:8px; }
+    /* Qty input placed before adding item */
+    #itemQty { width:72px; }
     .suggest { position:absolute; z-index:1000; top: calc(100% + 4px); left:0; width:100%; border:1px solid #e0e0e0; border-radius:6px; max-height:96px; overflow:auto; background:#fff; box-shadow:0 6px 16px rgba(0,0,0,0.12); }
     .suggest .item { padding:6px 8px; cursor:pointer; border-bottom:1px solid #f5f5f5; }
     .suggest .item:hover { background:#f6f9ff; }
@@ -40,6 +80,9 @@
     .muted { font-size:11px; color:#777; }
      [data-theme="dark"] .muted { color:#fff; }
      [data-theme="dark"] input::placeholder, [data-theme="dark"] textarea::placeholder { color:#e5e7eb !important; opacity:1 !important; }
+     /* Dark mode: visibilitas ikon kalender input tanggal */
+     /* Hapus rule yang menyembunyikan indikator */
+      /* (dihapus) [data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0 !important; } */
 
     /* Responsive */
     @media (max-width: 768px){
@@ -75,6 +118,7 @@
           <label>Forklift</label>
           <div class="input-suggest-wrap fk" style="position:relative;">
              <input id="fk_input" placeholder="Ketik untuk cari forklift..." autocomplete="off" />
+             <button id="fk_clear" class="clear-btn" type="button" title="Hapus forklift" aria-label="Hapus forklift">&times;</button>
              <div id="fkSuggest" class="suggest" style="display:none;"></div>
            </div>
         </div>
@@ -85,30 +129,30 @@
             <input id="teknisi_input" placeholder="Ketik untuk cari teknisi..." autocomplete="off" />
             <div id="techSuggest" class="suggest" style="display:none;"></div>
           </div>
-          <div class="muted">Klik pada hasil untuk menambahkan. Hapus dengan klik tanda × pada chip.</div>
+          <div class="muted">Klik pada hasil untuk menambahkan. Hapus dengan klik tanda &times; pada chip.</div>
         </div>
         <div>
           <label>Report No</label>
-          <input id="report_no" placeholder="W/Z + 5 digit (auto untuk Workshop, bisa diedit)" />
+          <input id="report_no" placeholder="Ketik Report No" />
         </div>
         <div id="nextPmWrap" style="display:none;">
           <label>Next PM</label>
-          <select id="next_pm_opt">
-            <option value="+1 month">+1 bulan</option>
-            <option value="+2 month">+2 bulan</option>
-            <option value="+3 month">+3 bulan</option>
-            <option value="custom">Custom</option>
-          </select>
-          <input id="next_pm_date" type="date" style="display:none;" />
+          <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
+            <label><input type="radio" name="nextpm" value="1" /> +1 bulan</label>
+            <label><input type="radio" name="nextpm" value="2" /> +2 bulan</label>
+            <label><input type="radio" name="nextpm" value="3" /> +3 bulan</label>
+          </div>
+          <input id="next_pm_date" type="date" placeholder="Atau pilih custom" />
+          <div class="muted">Pilih radio untuk autofill, atau isi langsung date untuk custom</div>
         </div>
       </div>
       <div>
-        <label>Deskripsi</label>
+        <label>Pekerjaan</label>
         <div class="rte-toolbar">
           <button type="button" data-target="description" data-cmd="bold"><b>B</b></button>
           <button type="button" data-target="description" data-cmd="italic"><i>I</i></button>
           <button type="button" data-target="description" data-cmd="underline"><u>U</u></button>
-          <button type="button" data-target="description" data-cmd="insertUnorderedList">• List</button>
+          <button type="button" data-target="description" data-cmd="insertUnorderedList">&bull; List</button>
           <button type="button" data-target="description" data-cmd="insertOrderedList">1. List</button>
         </div>
         <div id="description" class="rte" contenteditable="true"></div>
@@ -119,15 +163,24 @@
           <button type="button" data-target="recommendation" data-cmd="bold"><b>B</b></button>
           <button type="button" data-target="recommendation" data-cmd="italic"><i>I</i></button>
           <button type="button" data-target="recommendation" data-cmd="underline"><u>U</u></button>
-          <button type="button" data-target="recommendation" data-cmd="insertUnorderedList">• List</button>
+          <button type="button" data-target="recommendation" data-cmd="insertUnorderedList">&bull; List</button>
           <button type="button" data-target="recommendation" data-cmd="insertOrderedList">1. List</button>
         </div>
         <div id="recommendation" class="rte" contenteditable="true"></div>
       </div>
       <div id="itemsUsedWrap">
         <label>Item dipakai (pilih dari katalog)</label>
-        <input id="itemSearch" placeholder="Cari item..." />
-        <div id="itemList" style="max-height:150px; overflow:auto; border:1px solid #eee; padding:6px; border-radius:6px; margin-top:6px;"></div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <div class="input-suggest-wrap" style="position:relative; flex:1;">
+            <input id="itemSearch" placeholder="Cari item..." autocomplete="off" />
+            <div id="itemSuggest" class="suggest" style="display:none;"></div>
+          </div>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <label for="itemQty" style="font-size:12px; color:#555;">Qty</label>
+            <input id="itemQty" type="number" min="1" value="1" />
+          </div>
+        </div>
+        <div id="itemList" style="display:none;"></div>
         <div id="chosenItems" style="margin-top:6px;"></div>
       </div>
       <div id="itemsFreeWrap" style="display:none;">
@@ -153,7 +206,15 @@
     const fkCache = Array.isArray(forklifts) ? forklifts : [];
     const fkInput = document.getElementById('fk_input');
     const fkSuggest = document.getElementById('fkSuggest');
+    const fkClear = document.getElementById('fk_clear');
     let jobForkliftId = null;
+    if (fkClear) {
+      fkClear.addEventListener('click', ()=>{
+        jobForkliftId = null;
+        if (fkInput) fkInput.value = '';
+        if (fkSuggest){ fkSuggest.innerHTML=''; fkSuggest.style.display='none'; }
+      });
+    }
     function fkLabel(f){ return [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - '); }
     function filterFk(q){
       const s = String(q||'').toLowerCase();
@@ -212,7 +273,7 @@
     const makeDebounce = (fn, delay=250)=>{ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), delay); }; };
 
     function renderTechTags(){
-      techTags.innerHTML = selectedTech.map(t=>`<span class="chip" data-id="${t.id}">${t.label} <button class="x" title="Hapus" data-rem="${t.id}">×</button></span>`).join('');
+      techTags.innerHTML = selectedTech.map(t=>`<span class="chip" data-id="${t.id}">${t.label} <button class="x" title="Hapus" data-rem="${t.id}">&times;</button></span>`).join('');
       techTags.querySelectorAll('button[data-rem]').forEach(b=>{
         b.onclick = ()=>{ const id = +b.getAttribute('data-rem'); selectedTech = selectedTech.filter(x=>x.id!==id); renderTechTags(); };
       });
@@ -344,42 +405,107 @@
 
     let chosen = [];
 
-    function renderItems(list){
-      const q = document.getElementById('itemSearch').value.toLowerCase();
-      const filtered = list.filter(i => Object.values(i).some(v=>String(v||'').toLowerCase().includes(q)));
-      document.getElementById('itemList').innerHTML = filtered.map(i=>{
+    // Item suggest (dropdown) mirip forklift/teknisi
+    const itemInput = document.getElementById('itemSearch');
+    const itemSuggest = document.getElementById('itemSuggest');
+    const itemQtyEl = document.getElementById('itemQty');
+
+    function filterItems(q){
+      const s = String(q||'').toLowerCase();
+      if (!s) return items;
+      return items.filter(i=> Object.values(i).some(v=> String(v||'').toLowerCase().includes(s)) );
+    }
+
+    function renderItemSuggest(){
+      if (!itemInput || !itemSuggest) return;
+      const list = filterItems(itemInput.value);
+      if (!Array.isArray(list) || list.length===0){ itemSuggest.style.display='none'; itemSuggest.innerHTML=''; return; }
+      itemSuggest.innerHTML = list.map(i=>{
         const unavailable = String(i.status||'').toLowerCase()==='unavailable';
         const rowStyle = unavailable ? 'opacity:0.5;' : '';
         const statusBadge = unavailable ? " <span class='muted'>(unavailable)</span>" : '';
-        const disabledAttr = unavailable ? 'disabled' : '';
-        return `<div class='item-row' style='display:flex; align-items:center; justify-content:space-between; padding:4px 0; border-bottom:1px dashed #eee; ${rowStyle}'>
-          <div class='item-info' style='min-width:0;'>${i.code} - ${i.nama}${statusBadge}</div>
-          <div class='item-ctrl' style='display:flex; align-items:center; gap:6px; flex:0 0 auto;'>
-            <input type='number' min='1' value='1' style='width:64px;' id='qty_${i.id}' ${disabledAttr} />
-            <button data-add='${i.id}' ${disabledAttr}>Tambah</button>
-          </div>
-        </div>`;
+        return `<div class="item" data-id="${i.id}" data-unavail="${unavailable?1:0}" style="${rowStyle}">${i.code} - ${i.nama}${statusBadge}</div>`;
       }).join('');
-      document.querySelectorAll("button[data-add]").forEach(b=>b.onclick = ()=>{
-        const id = +b.getAttribute('data-add');
-        const it = items.find(x=>x.id===id);
-        if (String(it.status||'').toLowerCase()==='unavailable') return; // guard tambahan
-        const qty = parseInt(document.getElementById('qty_'+id).value||1);
-        const exist = chosen.find(c=>c.id===id);
-        if (exist) exist.qty += qty; else chosen.push({ id, code: it.code, nama: it.nama, qty });
-        renderChosen();
+      itemSuggest.style.display='block';
+      // drag guard untuk mobile
+      if (!itemSuggest._dragGuardAttached){
+        let startY = 0, dragging = false;
+        itemSuggest.addEventListener('pointerdown', (e)=>{ startY = e.clientY||0; dragging = false; }, {passive:true});
+        itemSuggest.addEventListener('pointermove', (e)=>{ if (Math.abs((e.clientY||0)-startY) > 8) dragging = true; }, {passive:true});
+        itemSuggest._isDragging = ()=>dragging;
+        itemSuggest._dragGuardAttached = true;
+      }
+      itemSuggest.querySelectorAll('.item').forEach(it=>{
+        it.onclick = (ev)=>{
+          if (itemSuggest._isDragging && itemSuggest._isDragging()) { ev.preventDefault(); return; }
+          const unavail = it.getAttribute('data-unavail')==='1';
+          if (unavail) return; // skip unavailable
+          const id = +it.getAttribute('data-id');
+          const f = items.find(x=>x.id===id); if (!f) return;
+          let qty = 1; if (itemQtyEl){ qty = parseInt(itemQtyEl.value||'1',10); if (!qty || qty<1) qty = 1; }
+          const exist = chosen.find(c=>c.id===id);
+          if (exist) { exist.qty += qty; } else { chosen.push({ id, code: f.code, nama: f.nama, qty }); }
+          renderChosen();
+          itemInput.value = '';
+          if (itemQtyEl) { /* keep user input or reset? choose to keep as-is */ }
+          itemSuggest.style.display='none';
+        };
       });
     }
 
-    function renderChosen(){
-      document.getElementById('chosenItems').innerHTML = chosen.map(c=>`<div class='chosen-row' style='display:flex; align-items:center; justify-content:space-between; gap:8px; padding:4px 0;'><div style='min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'>${c.code} - ${c.nama} x ${c.qty}</div><button data-rem='${c.id}'>X</button></div>`).join('');
-      document.querySelectorAll('button[data-rem]').forEach(b=>b.onclick = ()=>{ const id=+b.getAttribute('data-rem'); chosen = chosen.filter(c=>c.id!==id); renderChosen(); });
+    if (itemInput){
+      const debouncedItems = ((fn)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), 200); }; })(renderItemSuggest);
+      itemInput.addEventListener('input', debouncedItems);
+      itemInput.addEventListener('focus', ()=> renderItemSuggest());
+      itemInput.addEventListener('click', ()=> renderItemSuggest());
+      itemInput.addEventListener('keydown', (e)=>{
+        if (e.key==='Enter'){
+          const first = itemSuggest && itemSuggest.querySelector('.item[data-unavail="0"]');
+          if (first){ first.click(); e.preventDefault(); }
+        }
+        if (e.key==='Escape'){ if (itemSuggest) itemSuggest.style.display='none'; }
+      });
+      document.addEventListener('click', (e)=>{ if (itemSuggest && !itemSuggest.contains(e.target) && e.target!==itemInput){ itemSuggest.style.display='none'; } });
     }
 
-    document.getElementById('itemSearch').oninput = ()=> renderItems(items);
-    renderItems(items);
+    function renderChosen(){
+      const html = chosen.map(c=>`<div class='chosen-row'>
+        <div class='label'>${c.code} - ${c.nama}</div>
+        <input class='qty' type='number' min='1' value='${c.qty}' data-qty='${c.id}' />
+        <button class='xbtn' aria-label='Hapus item' title='Hapus' data-rem='${c.id}'>&times;</button>
+      </div>`).join('');
+      document.getElementById('chosenItems').innerHTML = html;
+      // handlers qty
+      document.querySelectorAll("input[data-qty]").forEach(inp=>{
+        inp.onchange = (e)=>{
+          const id = +inp.getAttribute('data-qty');
+          let v = parseInt(inp.value||'1', 10); if (!v || v<1) v = 1; inp.value = String(v);
+          const row = chosen.find(x=>x.id===id); if (row) row.qty = v;
+        };
+      });
+      // handlers remove (tap-friendly)
+      document.querySelectorAll('button[data-rem]').forEach(b=>{
+        const removeFn = ()=>{ const id = +b.getAttribute('data-rem'); chosen = chosen.filter(c=>c.id!==id); renderChosen(); };
+        b.addEventListener('click', removeFn, { passive: true });
+        b.addEventListener('pointerdown', (e)=>{ if (e.pointerType === 'touch') { e.preventDefault(); removeFn(); } }, { passive: false });
+      });
+    }
+
+    // Hapus implementasi list lama
+    // document.getElementById('itemSearch').oninput = ()=> renderItems(items);
+    // renderItems(items);
 
     const jenisSel = document.getElementById('jenis');
+    // Next PM radio autofill handlers
+    const tanggalEl = document.getElementById('tanggal');
+    const nextPmDateEl = document.getElementById('next_pm_date');
+    const nextPmRadios = Array.from(document.querySelectorAll('input[name=nextpm]'));
+    function toISODate(d){ const yyyy=d.getFullYear(); const mm=String(d.getMonth()+1).padStart(2,'0'); const dd=String(d.getDate()).padStart(2,'0'); return `${yyyy}-${mm}-${dd}`; }
+    function addMonthsDate(baseDate, months){ const d=new Date(baseDate.getTime()); const day=d.getDate(); d.setMonth(d.getMonth()+months); if (d.getDate()<day){ d.setDate(0); } return d; }
+    function recalcNextPM(){ const sel=document.querySelector('input[name=nextpm]:checked'); if(!sel) return; const months=parseInt(sel.value||'0',10); if(!months) return; const base=tanggalEl.value? new Date(tanggalEl.value): new Date(); const nd=addMonthsDate(base, months); nextPmDateEl.value=toISODate(nd); }
+    nextPmRadios.forEach(r=> r.addEventListener('change', recalcNextPM));
+    tanggalEl.addEventListener('change', recalcNextPM);
+
     function updateJenis(){
     const j = jenisSel.value;
     document.getElementById('itemsUsedWrap').style.display = (j==='PM'||j==='Workshop') ? 'block':'none';
@@ -387,6 +513,15 @@
     document.getElementById('nextPmWrap').style.display = (j==='PM') ? 'block':'none';
     document.getElementById('report_no').disabled = false;
     if (j==='Workshop' && !reportDirty) { autofillReport(); }
+    // Autofill pekerjaan ketika PM dipilih
+    const descEl = document.getElementById('description');
+    const current = getRteValue('description');
+    const pmDefault = 'Preventative Maintenance';
+    if (j==='PM'){
+    if (!current || current === pmDefault){ descEl.textContent = pmDefault; }
+    } else {
+    if (current === pmDefault){ descEl.textContent = ''; }
+    }
     }
     const reportInput = document.getElementById('report_no');
     let reportDirty = false; // user has typed manually
@@ -406,14 +541,10 @@
     }
     }
     
-    jenisSel.onchange = updateJenis; updateJenis();
+    jenisSel.onchange = ()=>{ updateJenis(); recalcNextPM(); }; updateJenis(); recalcNextPM();
     
     // Autofill when forklift changes for Workshop (if not manually edited)
     // removed: fSel.onchange handler, replaced by suggest selection handler
-    document.getElementById('next_pm_opt').onchange = (e)=>{
-      const v = e.target.value;
-      document.getElementById('next_pm_date').style.display = v==='custom' ? 'block':'none';
-    };
 
     document.getElementById('saveBtn').onclick = async ()=>{
       const jenis = jenisSel.value;
@@ -430,14 +561,18 @@
       if (jenis==='PM' || jenis==='Workshop') {
         items_used = chosen.map(c=>`${c.code} ${c.nama} x ${c.qty}`).join(', ');
         if (jenis==='PM') {
-          const opt = document.getElementById('next_pm_opt').value;
-          if (opt==='custom') next_pm = document.getElementById('next_pm_date').value || null;
-          else {
-            // simple add months by days approximation (30 days)
-            const base = new Date(tanggal || new Date());
-            const add = opt==='+1 month'?30:opt==='+2 month'?60:90;
-            const d = new Date(base.getTime()+add*24*3600*1000);
-            next_pm = d.toISOString().slice(0,10);
+          // Radio atau custom date
+          const radioSel = document.querySelector('input[name="nextpm"]:checked');
+          const customDate = document.getElementById('next_pm_date').value;
+          if (customDate){
+            next_pm = customDate;
+          } else if (radioSel){
+            const months = parseInt(radioSel.value, 10);
+            const base = new Date(tanggal);
+            base.setHours(0,0,0,0);
+            const d = new Date(base);
+            d.setMonth(d.getMonth() + months);
+            next_pm = new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10);
           }
         }
       } else if (jenis==='Lapangan') {
