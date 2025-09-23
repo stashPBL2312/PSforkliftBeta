@@ -4,21 +4,29 @@ const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DB_FILE = path.join(__dirname, 'db.sqlite');
 const SCHEMA_FILE = path.join(__dirname, 'schema.sql');
 
+// Env-aware settings
+const isProd = process.env.NODE_ENV === 'production';
+// behind Render's proxy to allow secure cookies
+app.set('trust proxy', 1);
+// Use env-provided session secret (fallback to random for dev)
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+
 // Middleware
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(
   session({
-    secret: 'replace_this_with_env_secret',
+    secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { httpOnly: true, sameSite: 'lax', maxAge: 1000 * 60 * 60 * 8 },
+    cookie: { httpOnly: true, sameSite: 'lax', secure: isProd, maxAge: 1000 * 60 * 60 * 8 },
   })
 );
 
@@ -31,17 +39,19 @@ function initDb() {
       console.error('DB schema init error:', err);
       process.exit(1);
     }
-    // seed default admin if not exists
+    // seed default admin if not exists (gunakan ENV bila tersedia)
     db.get("SELECT COUNT(*) as c FROM users WHERE role='admin'", async (e, row) => {
       if (e) return console.error(e);
       if (row.c === 0) {
-        const hash = await bcrypt.hash('admin123', 10);
+        const adminEmail = (process.env.ADMIN_EMAIL || 'admin@local').trim();
+        const adminPassword = (process.env.ADMIN_PASSWORD || 'admin123');
+        const hash = await bcrypt.hash(adminPassword, 10);
         db.run(
           'INSERT INTO users (email, password, role) VALUES (?,?,?)',
-          ['admin@local', hash, 'admin'],
+          [adminEmail, hash, 'admin'],
           (er) => {
             if (er) console.error('Seed admin failed:', er);
-            else console.log('Default admin created: admin@local / admin123');
+            else console.log(`Admin created: ${adminEmail} (please change password immediately)`);
           }
         );
       }
@@ -57,6 +67,12 @@ const db = initDb();
 
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Lightweight health endpoint (no auth)
+app.get('/health', (req, res) => {
+  res.set('Cache-Control','no-store');
+  res.type('text/plain').send('ok');
+});
 
 // Helpers
 function requireLogin(req, res, next) {
