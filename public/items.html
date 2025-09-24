@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Items</title>
   <script src="/common.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
   <style>
     body { font-family: system-ui, Arial, sans-serif; margin:0; }
     .wrap { max-width:1100px; margin:20px auto; padding:0 16px; }
@@ -32,6 +35,10 @@
       <input id="search" placeholder="Cari..." />
       <select id="rowsPerPage"><option>10</option><option>15</option><option>25</option></select>
       <button id="addBtn">Tambah</button>
+      <button id="bulkDeleteBtn">Hapus Terpilih</button>
+      <button id="importExcel">Import Excel</button>
+      <button id="exportExcel">Export Excel</button>
+      <button id="exportPDF">Export PDF</button>
     </div>
     <div id="table"></div>
     <div id="pagination" style="margin-top:8px;"></div>
@@ -52,9 +59,12 @@
   (async function(){
     const user = await ensureAuthedAndRenderNav(); if (!user) return;
     let data = await api('/api/items');
+    let selected = new Set();
     const canEdit = (user.role==='admin'||user.role==='supervisor');
+    const canImportExport = (user.role==='admin'||user.role==='supervisor'||user.role==='teknisi');
 
     const columns = [
+      { key:'__sel', label:'Sel' },
       { key:'code', label:'Code' },
       { key:'nama', label:'Nama' },
       { key:'unit', label:'Unit' },
@@ -64,6 +74,7 @@
     ];
 
     let page = 1; let rows = 10;
+    let currentRows = [];
 
     // helper untuk kapitalisasi status saat ditampilkan
     function ucFirst(s){
@@ -71,8 +82,10 @@
       return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
     }
 
+    // daftar opsi status untuk select list
+    const statusList = ['Available','Unavailable'];
+
     function formHtml(item={}){
-      const statusList = ['Available','Unavailable'];
       const stOptions = statusList.map(v=>`<option value="${v}">${v}</option>`).join('');
       return `
         <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>CODE</div><input id='f_code' value='${item.code??''}' /></div>
@@ -85,69 +98,340 @@
       `;
     }
 
+    // Modal open/close + save logic
+    function openModal(title, item={}){
+      if (!canEdit){ /* non-editor: jangan munculkan popup, cukup tidak membuka modal */ return; }
+      const modal = document.getElementById('modal');
+      const titleEl = document.getElementById('modalTitle');
+      const formEl = document.getElementById('form');
+      const saveBtn = document.getElementById('saveBtn');
+      const cancelBtn = document.getElementById('cancelBtn');
+      titleEl.textContent = title;
+      formEl.innerHTML = formHtml(item);
+      // set status default/terpilih
+      const fStatus = document.getElementById('f_status');
+      if (fStatus){
+        const wanted = ucFirst(item.status || statusList[0]);
+        fStatus.value = wanted;
+      }
+      modal.style.display = 'flex';
+
+      cancelBtn.onclick = ()=>{ modal.style.display='none'; };
+      modal.onclick = (ev)=>{ if (ev.target === modal) modal.style.display='none'; };
+
+      saveBtn.onclick = async ()=>{
+        const payload = {
+          code: String(document.getElementById('f_code').value||'').trim(),
+          nama: String(document.getElementById('f_nama').value||'').trim(),
+          unit: String(document.getElementById('f_unit').value||'').trim(),
+          description: String(document.getElementById('f_description').value||'').trim(),
+          status: String(document.getElementById('f_status').value||'').toLowerCase(),
+        };
+        try{
+          if (item && item.id){
+            await api('/api/items/'+item.id, { method:'PUT', body: payload });
+          } else {
+            await api('/api/items', { method:'POST', body: payload });
+          }
+          modal.style.display='none';
+          data = await api('/api/items');
+          render();
+        }catch(e){ console.error('Save item error:', e); alert('Gagal menyimpan item'); }
+      };
+    }
+    // Modal view-only untuk non-editor
+    function openView(title, item={}){
+      const modal = document.getElementById('modal');
+      const titleEl = document.getElementById('modalTitle');
+      const formEl = document.getElementById('form');
+      const saveBtn = document.getElementById('saveBtn');
+      const cancelBtn = document.getElementById('cancelBtn');
+      titleEl.textContent = title;
+      formEl.innerHTML = formHtml(item);
+      const fStatus = document.getElementById('f_status');
+      if (fStatus){
+        const wanted = ucFirst(item.status || statusList[0]);
+        fStatus.value = wanted;
+      }
+      // Disable semua field
+      formEl.querySelectorAll('input, select, textarea').forEach(el=> el.disabled = true);
+      // Sembunyikan tombol Simpan
+      saveBtn.style.display = 'none';
+      modal.style.display = 'flex';
+      // Close handlers
+      const close = ()=>{ modal.style.display='none'; saveBtn.style.display=''; };
+      cancelBtn.onclick = close;
+      modal.onclick = (ev)=>{ if (ev.target === modal) close(); };
+    }
     function render(){
-      const q = document.getElementById('search').value;
-      const filtered = filterData(data, q);
-      const start = (page-1)*rows; const end = start+rows;
-      const header = '<thead><tr>' + columns.map(c=>`<th>${c.label}</th>`).join('') + '</tr></thead>';
-      const body = '<tbody>' + filtered.slice(start,end).map(row=>{
-        const actions = canEdit ? `<button data-edit='${row.id}'>Edit</button> <button data-del='${row.id}'>Hapus</button>` : '';
-        return `<tr>
-          <td>${row.code||''}</td>
-          <td>${row.nama||''}</td>
-          <td>${row.unit||''}</td>
-          <td>${row.description||''}</td>
-          <td>${ucFirst(row.status)||''}</td>
-          <td>${actions}</td>
-        </tr>`;
-      }).join('') + '</tbody>';
-      document.getElementById('table').innerHTML = `<table>${header}${body}</table>`;
-      document.querySelectorAll('button[data-edit]').forEach(b=>b.onclick = ()=> openModal('Edit Item', data.find(x=>x.id==b.getAttribute('data-edit'))));
-      document.querySelectorAll('button[data-del]').forEach(b=>b.onclick = async ()=>{ if(confirm('Hapus?')){ await api('/api/items/'+b.getAttribute('data-del'), { method:'DELETE' }); data = await api('/api/items'); render(); } });
-      const pages = Math.max(1, Math.ceil(filtered.length/rows));
-      document.getElementById('pagination').innerHTML = Array.from({length: pages}, (_,i)=>`<button data-p='${i+1}' ${i+1===page?'style="font-weight:700"':''}>${i+1}</button>`).join(' ');
-      document.querySelectorAll('#pagination button').forEach(b=>b.onclick = ()=>{ page = parseInt(b.getAttribute('data-p')); render();});
+       const q = document.getElementById('search').value;
+       const filtered = filterData(data, q);
+       const start = (page-1)*rows; const end = start+rows;
+       const rowsData = filtered.slice(start,end).map(x=>Object.assign({}, x));
+       currentRows = rowsData;
+       const header = '<thead><tr>' + columns.map(c=>{
+         if (c.key==='__sel') return `<th class="sel-header" style="cursor:pointer" title="Pilih semua di halaman">Sel</th>`;
+         return `<th>${c.label}</th>`;
+       }).join('') + '</tr></thead>';
+       const body = '<tbody>' + rowsData.map(row=>{
+         const cb = `<input type='checkbox' data-id='${row.id}' ${selected.has(row.id)?'checked':''}/>`;
+         const actions = canEdit 
+           ? `<button data-edit='${row.id}'>Edit</button> <button data-del='${row.id}'>Hapus</button>` 
+           : `<button data-view='${row.id}' class='btn-view' title='View' aria-label='View'>
+                <svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='vertical-align:middle;margin-right:6px'>
+                  <path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'></path>
+                  <circle cx='12' cy='12' r='3'></circle>
+                </svg>
+                View
+              </button>`;
+         const stOptions = statusList.map(v=>{
+           const val = v.toLowerCase();
+           const selectedOpt = row.status && String(row.status).toLowerCase()===val ? 'selected' : '';
+           return `<option value="${val}" ${selectedOpt}>${v}</option>`;
+         }).join('');
+         const statusCell = `<select data-status='${row.id}' ${canEdit?'' : 'disabled'}>${stOptions}</select>`;
+         return `<tr data-id='${row.id}'>
+           <td>${cb}</td>
+           <td>${row.code||''}</td>
+           <td>${row.nama||''}</td>
+           <td>${row.unit||''}</td>
+           <td>${row.description||''}</td>
+           <td>${statusCell}</td>
+           <td>${actions}</td>
+         </tr>`;
+       }).join('') + '</tbody>';
+       document.getElementById('table').innerHTML = `<table>${header}${body}</table>`;
+       const pages = Math.max(1, Math.ceil(filtered.length/rows));
+       document.getElementById('pagination').innerHTML = Array.from({length: pages}, (_,i)=>`<button data-p='${i+1}' ${i+1===page?'style="font-weight:700"':''}>${i+1}</button>`).join(' ');
+       document.querySelectorAll('#pagination button').forEach(b=>b.onclick = ()=>{ page = parseInt(b.getAttribute('data-p')); render();});
+       // Select-all per halaman saat klik header "Sel"
+       const selHeader = document.querySelector('th.sel-header');
+       if (selHeader) selHeader.onclick = ()=>{
+         const allSelected = currentRows.length>0 && currentRows.every(r=> selected.has(r.id));
+         if (allSelected) { currentRows.forEach(r=> selected.delete(r.id)); } else { currentRows.forEach(r=> selected.add(r.id)); }
+         render();
+       };
+       // Bind checkbox select per-baris
+       document.querySelectorAll("input[type='checkbox'][data-id]").forEach(cb=> cb.onchange = ()=>{ const id = +cb.getAttribute('data-id'); if (cb.checked) selected.add(id); else selected.delete(id); });
+       // Bind tombol Edit/Hapus setelah render tabel
+       document.querySelectorAll('button[data-edit]').forEach(b=> b.onclick = ()=> openModal('Edit Item', data.find(x=> x.id==b.getAttribute('data-edit'))));
+       document.querySelectorAll('button[data-del]').forEach(b=> b.onclick = async ()=>{
+         if(confirm('Hapus?')){
+           const delId = +b.getAttribute('data-del');
+           await api('/api/items/'+delId, { method:'DELETE' });
+           if (selected.has(delId)) selected.delete(delId);
+           data = await api('/api/items');
+           render();
+         }
+       });
++      // Bind perubahan status inline
+       document.querySelectorAll('select[data-status]').forEach(sel=>{
+         sel.onchange = async ()=>{
+           const id = sel.getAttribute('data-status');
+           const item = data.find(x=> String(x.id)===String(id));
+           if (!item) return;
+           const payload = { code:item.code, nama:item.nama, unit:item.unit, description:item.description, status: String(sel.value||'').toLowerCase() };
+           try{
+             await api('/api/items/'+item.id, { method:'PUT', body: payload });
+             data = await api('/api/items');
+             render();
+           }catch(e){ console.error('Update status error:', e); alert('Gagal memperbarui status item'); }
+         };
+       });
+       // Bind tombol View (read-only) untuk non-editor
+       document.querySelectorAll('button[data-view]').forEach(b=> b.onclick = ()=>{
+         const itm = data.find(x=> x.id==b.getAttribute('data-view'));
+         if (itm) openView('Detail Item', itm);
+       });
+       // Klik pada sel (selain kolom Aksi) untuk membuka modal Edit Item, abaikan klik pada kontrol interaktif
+      document.querySelectorAll('#table tbody tr').forEach(tr=>{
+        tr.addEventListener('click', (ev)=>{
+          const td = ev.target.closest('td');
+          if (!td) return;
+          // abaikan klik pada kontrol interaktif di dalam sel
+          if (ev.target.closest('select, input, textarea, button, a')) return;
+          const isActionCol = (td.cellIndex === tr.cells.length - 1);
+          if (isActionCol) return;
+          const id = tr.getAttribute('data-id');
+          const item = data.find(x=> String(x.id) === String(id));
+          if (item) openModal('Edit Item', item);
+        });
+      });
     }
 
     document.getElementById('search').oninput = render;
     document.getElementById('rowsPerPage').onchange = (e)=>{ rows = parseInt(e.target.value); page=1; render(); };
-    document.getElementById('addBtn').onclick = ()=> openModal('Tambah Item', {});
-
-    function openModal(title, item){
-      if (!canEdit) return alert('Tidak punya akses');
-      document.getElementById('modalTitle').textContent = title;
-      document.getElementById('form').innerHTML = formHtml(item);
-      // set nilai status terpilih (default 'Available' jika kosong/tidak dikenal)
-      const stEl = document.getElementById('f_status');
-      const statusList = ['Available','Unavailable'];
-      const current = item.status ? (statusList.find(v=>v.toLowerCase()===String(item.status).toLowerCase()) || 'Available') : 'Available';
-      if (stEl) stEl.value = current;
-      document.getElementById('modal').style.display = 'flex';
-      document.getElementById('cancelBtn').onclick = ()=> document.getElementById('modal').style.display = 'none';
-      document.getElementById('saveBtn').onclick = async ()=>{
-        try {
-          const payload = {
-            code: document.getElementById('f_code').value,
-            nama: document.getElementById('f_nama').value,
-            unit: document.getElementById('f_unit').value,
-            description: document.getElementById('f_description').value,
-            status: String(document.getElementById('f_status').value||'').toLowerCase(),
-          };
-          if (item.id) {
-            await api('/api/items/'+item.id, { method:'PUT', body: payload });
-            alert('Data item berhasil diperbarui');
-          } else {
-            await api('/api/items', { method:'POST', body: payload });
-          }
-          document.getElementById('modal').style.display='none';
-          data = await api('/api/items'); render();
-        } catch (e) {
-          console.error('Item save error:', e);
-          const msg = (e && e.error) ? e.error : 'Gagal menyimpan item';
-          alert(msg);
-        }
-      };
+    // ... existing code ...
+    const addBtn = document.getElementById('addBtn');
+    if (addBtn){
+    addBtn.onclick = ()=>{
+    if (canEdit) return openModal('Tambah Item', {});
+    if (user.role==='teknisi') { alert('Role Teknisi tidak punya akses untuk menambah item.'); return; }
+    // Non-editor lain: tidak melakukan apa-apa (tanpa popup)
+    };
+    if (!canEdit && user.role!=='teknisi') addBtn.disabled = true;
     }
+    const bulkBtn = document.getElementById('bulkDeleteBtn');
+    if (bulkBtn) bulkBtn.onclick = async ()=>{
+      if (!canEdit) return alert('Tidak punya akses');
+      if (!selected || selected.size===0) return alert('Tidak ada yang dipilih');
+      if (!confirm('Hapus data yang terpilih?')) return;
+      try{
+        bulkBtn.disabled = true;
+        const ids = Array.from(selected);
+        const results = await Promise.allSettled(ids.map(id=> api('/api/items/'+id, { method:'DELETE' })));
+        const ok = results.filter(r=> r.status==='fulfilled').length;
+        const fail = results.length - ok;
+        selected.clear();
+        data = await api('/api/items');
+        render();
+        alert(`Bulk delete selesai. Sukses: ${ok}${fail?`, Gagal: ${fail}`:''}`);
+      }catch(e){
+        console.error('Bulk delete items error:', e);
+        alert('Gagal melakukan bulk delete.');
+      } finally {
+        bulkBtn.disabled = false;
+      }
+    };
+
+    // Helper untuk download Blob
+    function downloadBlob(filename, blob){
+      try{
+        const a = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        a.href = url; a.download = filename; a.style.display = 'none';
+        document.body.appendChild(a); a.click();
+        setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 0);
+      }catch(e){ console.error('downloadBlob error:', e); alert('Gagal mengunduh file.'); }
+    }
+
+    // Export Excel
+    const btnExportExcel = document.getElementById('exportExcel');
+    if (btnExportExcel) btnExportExcel.onclick = async ()=>{
+      try{
+        if (!window.ExcelJS){ alert('Library ExcelJS tidak tersedia.'); return; }
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet('Items');
+        const exportCols = columns.filter(c=> c.key !== '__act' && c.key !== '__sel');
+        ws.addRow(exportCols.map(c=> c.label));
+        const headerRow = ws.getRow(1);
+        headerRow.font = { bold:true, color:{ argb:'FFFFFFFF' } };
+        headerRow.alignment = { horizontal:'center', vertical:'middle' };
+        headerRow.height = 22;
+        headerRow.eachCell(cell=> cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF0D47A1' } });
+        // Lebar kolom seragam
+        const widthsMap = { code:14, nama:24, unit:12, description:40, status:14 };
+        ws.columns = exportCols.map(c=> ({ header:c.label, key:c.key, width: widthsMap[c.key] || 16 }));
+        // Freeze header dan AutoFilter
+        ws.views = [{ state: 'frozen', ySplit: 1 }];
+        const lastColLetter = String.fromCharCode(64 + exportCols.length);
+        ws.autoFilter = `A1:${lastColLetter}1`;
+        // Data: gunakan baris terpilih bila ada, jika tidak pakai semua yang difilter
+        const q = document.getElementById('search').value;
+        const filteredAll = (typeof filterData==='function') ? (filterData(data, q) || []) : (data || []);
+        const useSelected = selected && selected.size>0;
+        const idSet = useSelected ? new Set(Array.from(selected)) : null;
+        const rowsSource = useSelected ? filteredAll.filter(r=> idSet.has(r.id)) : filteredAll;
+        rowsSource.forEach(row=> ws.addRow(exportCols.map(c=> String(row[c.key] ?? ''))));
+        // Wrap text untuk description
+        const descIdx = exportCols.findIndex(c=> c.key==='description');
+        if (descIdx>=0){ ws.getColumn(descIdx+1).alignment = { wrapText:true, vertical:'top' }; }
+        // Borders & zebra striping
+        for (let r = 2; r <= ws.rowCount; r++){
+          const row = ws.getRow(r);
+          if (r % 2 === 0){ row.eachCell(cell=> cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFF2F6FC' } }); }
+          row.eachCell(cell=>{ cell.border = {
+            top: { style:'thin', color:{ argb:'FFB0BEC5' } },
+            left: { style:'thin', color:{ argb:'FFB0BEC5' } },
+            bottom: { style:'thin', color:{ argb:'FFB0BEC5' } },
+            right: { style:'thin', color:{ argb:'FFB0BEC5' } },
+          }; });
+        }
+        const buffer = await wb.xlsx.writeBuffer();
+        downloadBlob('items.xlsx', new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      }catch(e){ console.error('Export Excel error:', e); alert('Gagal mengekspor Excel.'); }
+    };
+
+    // Import Excel
+    const btnImportExcel = document.getElementById('importExcel');
+    if (btnImportExcel) btnImportExcel.onclick = async ()=>{
+       try{
+        if (!canImportExport) { alert('Tidak punya akses untuk import.'); return; }
+        if (!window.ExcelJS){ alert('Library ExcelJS tidak tersedia.'); return; }
+        const input = document.createElement('input');
+        input.type = 'file'; input.accept = '.xlsx';
+        input.onchange = async (e)=>{
+          const file = e.target.files && e.target.files[0];
+          if (!file) return;
+          const ab = await file.arrayBuffer();
+          const wb = new ExcelJS.Workbook();
+          await wb.xlsx.load(ab);
+          const ws = wb.worksheets[0];
+          if (!ws){ alert('Worksheet tidak ditemukan.'); return; }
+          const expected = ['Code','Nama','Unit','Description','Status'];
+          const header = expected.map((_,i)=> String(ws.getRow(1).getCell(i+1).value||'').trim());
+          const okHeader = expected.every((h,i)=> (header[i]||'').toLowerCase() === h.toLowerCase());
+          if (!okHeader){ alert('Format header tidak sesuai. Pastikan sama seperti hasil Export: '+expected.join(', ')); return; }
+          const rows = [];
+          for (let r = 2; r <= ws.rowCount; r++){
+            const row = ws.getRow(r);
+            const code = String(row.getCell(1).value ?? '').trim();
+            const nama = String(row.getCell(2).value ?? '').trim();
+            const unit = String(row.getCell(3).value ?? '').trim();
+            const description = String(row.getCell(4).value ?? '').trim();
+            const status = String(row.getCell(5).value ?? '').trim();
+            if (![code,nama,unit,description,status].some(v=> (v!=='' && v!==null && v!==undefined))) continue;
+            rows.push({ code, nama, unit, description, status });
+          }
+          if (!rows.length){ alert('Tidak ada data untuk diimport.'); return; }
+          // Insert/Update per baris berdasarkan CODE
+          const existingByCode = new Map((data||[]).map(it=> [String(it.code||'').trim().toLowerCase(), it]));
+          let inserted = 0, updated = 0, errors = 0;
+          for (const r of rows){
+            const key = String(r.code||'').trim().toLowerCase();
+            const payload = { code:r.code, nama:r.nama, unit:r.unit, description:r.description, status: String(r.status||'').toLowerCase() };
+            try{
+              const existing = existingByCode.get(key);
+              if (existing && existing.id){ await api('/api/items/'+existing.id, { method:'PUT', body: payload }); updated++; }
+              else { await api('/api/items', { method:'POST', body: payload }); inserted++; }
+            }catch(e){ console.error('Import row error:', e); errors++; }
+          }
+          alert(`Import selesai. Inserted: ${inserted}, Updated: ${updated}${errors?`, Errors: ${errors}`:''}`);
+          data = await api('/api/items'); render();
+        };
+        input.click();
+      }catch(e){ console.error('Gagal import Excel:', e); alert('Gagal import Excel.'); }
+    };
+
+    // Export PDF
+    const btnExportPDF = document.getElementById('exportPDF');
+    if (btnExportPDF) btnExportPDF.onclick = ()=>{
+      try{
+        if (window.jspdf && window.jspdf.jsPDF){
+          const { jsPDF } = window.jspdf;
+          const doc = new jsPDF({ orientation:'landscape', unit:'pt', format:'a4' });
+          const exportCols = columns.filter(c=> c.key !== '__act' && c.key !== '__sel');
+          const head = [exportCols.map(c=> c.label)];
+          const q = document.getElementById('search')?.value || '';
+          const filteredAll = (typeof filterData==='function') ? (filterData(data, q) || []) : (data || []);
+          const useSelected = selected && selected.size>0;
+          const idSet = useSelected ? new Set(Array.from(selected)) : null;
+          const rowsSource = useSelected ? filteredAll.filter(r=> idSet.has(r.id)) : filteredAll;
+          const body = rowsSource.map(row => exportCols.map(c => String(row[c.key] ?? '')));
+          if (doc.autoTable){
+            doc.autoTable({
+              head, body,
+              styles: { fontSize: 8, cellPadding: 3 },
+              headStyles: { fillColor: [13,71,161], textColor: 255 },
+              margin: { top: 20, left: 15, right: 15 },
+            });
+          }
+          doc.save('items.pdf');
+        } else {
+          alert('Library jsPDF tidak tersedia.');
+        }
+      }catch(e){ console.error('Export PDF error:', e); alert('Gagal export PDF.'); }
+     };
 
     render();
   })();
