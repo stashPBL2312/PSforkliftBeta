@@ -122,6 +122,13 @@
       /* Kecilkan dropdown forklift di modal edit pada mobile */
       #edFkSuggest { max-height: 30vh !important; -webkit-overflow-scrolling: touch; }
     }
+
+    /* Ikon kalender kustom (seragam dengan jobs.html) */
+    input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0 !important; filter: none !important; }
+    .date-input-wrap { position: relative; display: inline-block; color:#111; }
+    [data-theme="dark"] .date-input-wrap { color:#fff; }
+    .date-input-wrap input[type="date"] { padding-right: 30px; }
+    .date-input-wrap::after { content: ""; position:absolute; right:8px; top:50%; transform:translateY(-50%); width:18px; height:18px; pointer-events:none; background-color: currentColor; -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='4' width='18' height='17' rx='2' ry='2' fill='none' stroke='%23fff' stroke-width='2'/><line x1='16' y1='2' x2='16' y2='6' stroke='%23fff' stroke-width='2'/><line x1='8' y1='2' x2='8' y2='6' stroke='%23fff' stroke-width='2'/><line x1='3' y1='10' x2='21' y2='10' stroke='%23fff' stroke-width='2'/></svg>") no-repeat center / contain; mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='4' width='18' height='17' rx='2' ry='2' fill='none' stroke='%23fff' stroke-width='2'/><line x1='16' y1='2' x2='16' y2='6' stroke='%23fff' stroke-width='2'/><line x1='8' y1='2' x2='8' y2='6' stroke='%23fff' stroke-width='2'/><line x1='3' y1='10' x2='21' y2='10' stroke='%23fff' stroke-width='2'/></svg>") no-repeat center / contain; }
   </style>
 </head>
 <body>
@@ -136,7 +143,7 @@
         <label><input type="checkbox" value="Workshop" checked /> Workshop</label>
       </div>
       <label>Range</label>
-      <input id="start" type="date" /> s/d <input id="end" type="date" />
+      <div class="date-input-wrap"><input id="start" type="date" /></div> s/d <div class="date-input-wrap"><input id="end" type="date" /></div>
       <!-- Filter Forklift (multi-select chips + suggest) -->
       <div id="forkliftFilter" class="filter-group">
         <div class="label-row">
@@ -180,7 +187,7 @@
       <div style="background:#fff; padding:16px; width:680px; max-width:95vw; max-height:90vh; overflow:auto; border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,.2);">
         <h3 style="margin-top:0;">Edit Record</h3>
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
-          <label>Tanggal <input id="ed_tanggal" type="date" /></label>
+          <label>Tanggal <div class="date-input-wrap"><input id="ed_tanggal" type="date" /></div></label>
           <label>Report No <input id="ed_report_no" /></label>
           <label>Forklift
             <div class="input-suggest-wrap fk" style="position:relative;">
