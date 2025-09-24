@@ -1,6 +1,12 @@
 // Initialize theme attribute early based on stored preference or system setting
 (function(){
   try {
+    var isLogin = (location && location.pathname && location.pathname.endsWith('/login.html'));
+    if (isLogin){
+      // Force light theme on login page to match original look
+      document.documentElement.setAttribute('data-theme', 'light');
+      return;
+    }
     var saved = localStorage.getItem('theme');
     var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     var theme = (saved === 'dark' || saved === 'light') ? saved : (prefersDark ? 'dark' : 'light');
@@ -159,6 +165,108 @@ function injectResponsiveStyles(){
   document.head.appendChild(style);
 }
 
+// Inject global uniform scaling styles
+function injectScalingStyles(){
+  if (document.getElementById('scalingStyles')) return;
+  const css = `
+  :root { --ui-scale: 1; }
+  .scale-root { transform: scale(var(--ui-scale)); transform-origin: top left; }
+  .scale-root { width: calc(100% / var(--ui-scale)); }
+  `;
+  const style = document.createElement('style');
+  style.id = 'scalingStyles';
+  style.textContent = css;
+  document.head.appendChild(style);
+}
+
+function computeUniformScale(){
+  try {
+    const baseW = 1366; // baseline width
+    const baseH = 768;  // baseline height
+    const vw = Math.max(320, Math.min(window.innerWidth || baseW, screen && screen.width ? screen.width : baseW));
+    const vh = Math.max(480, Math.min(window.innerHeight || baseH, screen && screen.height ? screen.height : baseH));
+    let s = Math.min(vw / baseW, vh / baseH);
+    // Keep UI readable and avoid unintended upscaling on large screens
+    const minS = 1.0;
+    const maxS = 1.0;
+    if (!isFinite(s) || s <= 0) s = 1;
+    s = Math.max(minS, Math.min(maxS, s));
+    return s;
+  } catch { return 1; }
+}
+
+function applyUniformScale(scale){
+  try { document.documentElement.style.setProperty('--ui-scale', String(scale)); } catch {}
+}
+
+function initializeUniformScaling(){
+  try {
+    if (window._uniformScaleInit) return;
+    window._uniformScaleInit = true;
+
+    injectScalingStyles();
+
+    const markScaleTargets = ()=>{
+      try{
+        document.querySelectorAll('.wrap, .topbar, #modal > div, #editModal > div').forEach(el=>{
+          if (el && el.classList && !el.classList.contains('scale-root')) el.classList.add('scale-root');
+        });
+      }catch{}
+    };
+
+    markScaleTargets();
+
+    const obs = new MutationObserver((mutations)=>{
+      for (const m of mutations){
+        if (m.addedNodes && m.addedNodes.length){
+          m.addedNodes.forEach(n=>{
+            if (n && n.nodeType===1){
+              try{
+                if (n.matches && n.matches('.wrap, .topbar, #modal > div, #editModal > div')) n.classList.add('scale-root');
+                if (n.querySelectorAll){
+                  n.querySelectorAll('.wrap, .topbar, #modal > div, #editModal > div').forEach(el=>{
+                    if (el && el.classList) el.classList.add('scale-root');
+                  });
+                }
+              }catch{}
+            }
+          });
+        }
+      }
+    });
+    obs.observe(document.documentElement, { childList:true, subtree:true });
+    window._uniformScaleObs = obs;
+
+    const setScale = ()=>{
+      let s = computeUniformScale();
+      try {
+        const saved = localStorage.getItem('uiScale');
+        if (saved){ const v = parseFloat(saved); if (!isNaN(v) && v>0) s = v; }
+      } catch {}
+      applyUniformScale(s);
+    };
+
+    setScale();
+    window.addEventListener('resize', setScale, { passive:true });
+    window.addEventListener('orientationchange', setScale, { passive:true });
+
+    window.setUiScale = function(val){
+      try{
+        if (val===null || val===undefined){ localStorage.removeItem('uiScale'); setScale(); return; }
+        const v = parseFloat(val);
+        if (!isNaN(v) && v>0){ localStorage.setItem('uiScale', String(v)); applyUniformScale(v); }
+      }catch{}
+    };
+  } catch {}
+}
+
+// Ensure scaling is initialized on all pages
+(function(){
+  const run = ()=>{ try{ injectThemeStyles(); injectScalingStyles(); initializeUniformScaling(); }catch{} };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run, { once:true });
+  else run();
+})();
+
 // Minimal SVG icon set
 function svgIcon(name){
   switch(name){
@@ -186,6 +294,8 @@ function svgIcon(name){
       return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="7" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="17" r="1"/><line x1="8" y1="7" x2="20" y2="7"/><line x1="8" y1="12" x2="20" y2="12"/><line x1="8" y1="17" x2="20" y2="17"/></svg>';
     case 'ol':
       return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h2"/><path d="M4 10h2"/><path d="M4 14h2"/><line x1="8" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="20" y2="12"/><line x1="8" y1="18" x2="20" y2="18"/></svg>';
+    case 'eye':
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
     default:
       return '';
   }
@@ -219,6 +329,7 @@ function decorateButtonsOnce(root){
     // Action buttons in tables
     r.querySelectorAll('button[data-edit]').forEach(el=> setButtonIcon(el, 'edit', true));
     r.querySelectorAll('button[data-del]').forEach(el=> setButtonIcon(el, 'trash', true));
+    r.querySelectorAll('button[data-detail]').forEach(el=> setButtonIcon(el, 'eye', true));
     r.querySelectorAll('button[data-add], button[data-ed-add]').forEach(el=> setButtonIcon(el, 'plus', true));
     // Chip remove buttons use icon only
     r.querySelectorAll('button.x').forEach(el=> setButtonIcon(el, 'x', false));
