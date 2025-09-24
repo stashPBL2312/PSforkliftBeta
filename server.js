@@ -331,6 +331,104 @@ app.post('/api/forklifts/bulk-delete', requireRole('admin','supervisor'), async 
   }
 });
 
+// Import forklifts via Excel (rows format must match Export: Brand..Status (A..I))
+app.post('/api/forklifts/import', requireRole('admin','supervisor'), async (req, res) => {
+  const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows : [];
+  let inserted = 0, updated = 0; const errors = [];
+
+  function normalizeStatus(s){
+    const v = String(s||'').trim().toLowerCase();
+    if (v === 'active' || v === 'aktif') return 'active';
+    if (v === 'maintenance' || v === 'maint' || v === 'maintain') return 'maintenance';
+    if (v === 'retired' || v === 'nonaktif' || v === 'retire') return 'retired';
+    // default
+    return 'active';
+  }
+
+  if (rows.length === 0) return res.json({ inserted, updated, errors });
+
+  try {
+    await run('BEGIN');
+    for (let i = 0; i < rows.length; i++){
+      try {
+        let { brand, type, eq_no, serial, location, powertrain, owner, tahun, status } = rows[i] || {};
+        brand = String(brand||'').trim();
+        type = String(type||'').trim();
+        eq_no = String(eq_no||'').trim();
+        serial = String(serial||'').trim();
+        location = String(location||'').trim();
+        powertrain = String(powertrain||'').trim();
+        owner = String(owner||'').trim();
+        const t = parseInt(String(tahun ?? '').replace(/\D+/g,'')) || null;
+        status = normalizeStatus(status);
+
+        if (!eq_no && !serial) { errors.push({ index: i+2, error: 'Missing EQ No and Serial' }); continue; }
+
+        let existing = null;
+        if (eq_no) existing = await get('SELECT id FROM forklifts WHERE eq_no=?', [eq_no]);
+        if (!existing && serial) existing = await get('SELECT id FROM forklifts WHERE serial=?', [serial]);
+
+        if (existing){
+          await run('UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=? WHERE id=?', [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, t, status, existing.id]);
+          updated++;
+        } else {
+          await run('INSERT INTO forklifts (brand,type,eq_no,serial,location,powertrain,owner,tahun,status) VALUES (?,?,?,?,?,?,?,?,?)', [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, t, status]);
+          inserted++;
+        }
+      } catch (e) {
+        errors.push({ index: i+2, error: String(e && e.message || 'SQL error') });
+      }
+    }
+    await run('COMMIT');
+    res.json({ inserted, updated, errors });
+  } catch (e) {
+    await run('ROLLBACK');
+    res.status(400).json({ error: 'Import failed' });
+  }
+});
+app.put('/api/forklifts/:id', requireRole('admin','supervisor'), async (req, res) => {
+  const { brand, type, eq_no, serial, location, powertrain, owner, tahun, status } = req.body;
+  try {
+    await run('UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=? WHERE id=?', [brand,type,eq_no,serial,location,powertrain,owner,tahun,status, req.params.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    let msg = 'Forklift update failed';
+    const em = String(e && e.message || '');
+    if ((e && e.code === 'SQLITE_CONSTRAINT') || /constraint/i.test(em)){
+      if (em.includes('forklifts.eq_no')) msg = 'EQ No sudah terdaftar';
+      else if (em.includes('forklifts.serial')) msg = 'Serial sudah terdaftar';
+      else msg = 'Gagal menyimpan: pelanggaran constraint';
+    }
+    res.status(400).json({ error: msg });
+  }
+});
+app.delete('/api/forklifts/:id', requireRole('admin','supervisor'), async (req, res) => {
+  try {
+    const id = req.params.id;
+    // Hapus child records terlebih dahulu untuk memenuhi foreign key constraints
+    await run('DELETE FROM records WHERE forklift_id=?', [id]);
+    await run('DELETE FROM jobs WHERE forklift_id=?', [id]);
+    await run('DELETE FROM forklifts WHERE id=?', [id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Forklift delete failed' });
+  }
+});
+app.post('/api/forklifts/bulk-delete', requireRole('admin','supervisor'), async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'No ids' });
+  try {
+    const placeholders = ids.map(() => '?').join(',');
+    // Hapus child records terlebih dahulu untuk memenuhi foreign key constraints
+    await run(`DELETE FROM records WHERE forklift_id IN (${placeholders})`, ids);
+    await run(`DELETE FROM jobs WHERE forklift_id IN (${placeholders})`, ids);
+    await run(`DELETE FROM forklifts WHERE id IN (${placeholders})`, ids);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Bulk delete failed' });
+  }
+});
+
 // Items CRUD
 app.get('/api/items', requireLogin, async (req, res) => {
   const rows = await all('SELECT * FROM items ORDER BY id DESC');
@@ -503,7 +601,68 @@ app.get('/api/records', requireLogin, async (req, res) => {
   }
 });
 
-// Records CRUD (admin & supervisor)
+// Import Records dari Excel (format sama seperti export)
+app.post('/api/records/import', requireRole('admin','supervisor'), async (req, res) => {
+  const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows : [];
+  let inserted = 0, updated = 0; const errors = [];
+
+  function parseEqNo(str){
+    const s = String(str||'');
+    const m = s.match(/\(([^)]+)\)\s*$/);
+    return (m && m[1]) ? String(m[1]).trim() : s.trim();
+  }
+
+  try {
+    if (!rows.length) return res.json({ inserted, updated, errors });
+    await run('BEGIN');
+    for (let i = 0; i < rows.length; i++){
+      try{
+        let { tanggal, report_no, forklift, location, pekerjaan, teknisi, description, recommendation, items_used } = rows[i] || {};
+        tanggal = String(tanggal||'').trim();
+        report_no = String(report_no||'').trim();
+        const fkStr = String(forklift||'').trim();
+        let loc = (location===null||location===undefined) ? '' : String(location).trim();
+        pekerjaan = String(pekerjaan||'').trim();
+        teknisi = String(teknisi||'').trim();
+        description = String(description||'').trim();
+        recommendation = String(recommendation||'').trim();
+        items_used = String(items_used||'').trim();
+
+        if (!fkStr){ errors.push({ index: i+2, error: 'Forklift kosong' }); continue; }
+        const eq = parseEqNo(fkStr);
+        const fk = await get('SELECT id, location FROM forklifts WHERE eq_no=?', [eq]);
+        if (!fk){ errors.push({ index: i+2, error: `Forklift tidak ditemukan untuk EQ No: ${eq}` }); continue; }
+
+        // Snapshot location jika kolom Location kosong
+        if (!loc){
+          loc = fk.location || null;
+        }
+
+        // Upsert berdasarkan (report_no, forklift_id)
+        let existing = null;
+        if (report_no) {
+          existing = await get('SELECT id FROM records WHERE report_no=? AND forklift_id=?', [report_no, fk.id]);
+        }
+
+        if (existing){
+          await run('UPDATE records SET tanggal=?, report_no=?, forklift_id=?, pekerjaan=?, teknisi=?, description=?, recommendation=?, items_used=?, location=? WHERE id=?', [tanggal||null, report_no||null, fk.id, pekerjaan||null, teknisi||null, description||null, recommendation||null, items_used||null, loc||null, existing.id]);
+          updated++;
+        } else {
+          await run('INSERT INTO records (tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, location) VALUES (?,?,?,?,?,?,?,?,?)', [tanggal||null, report_no||null, fk.id, pekerjaan||null, teknisi||null, description||null, recommendation||null, items_used||null, loc||null]);
+          inserted++;
+        }
+      } catch(e){
+        errors.push({ index: i+2, error: String(e && e.message || 'SQL error') });
+      }
+    }
+    await run('COMMIT');
+    res.json({ inserted, updated, errors });
+  } catch (e) {
+    await run('ROLLBACK');
+    res.status(400).json({ error: 'Import failed' });
+  }
+});
+
 app.post('/api/records', requireRole('admin','supervisor'), async (req, res) => {
   const { tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used } = req.body;
   try {

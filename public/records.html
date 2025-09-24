@@ -182,6 +182,7 @@
           <label for="rowsPerPage">Rows</label>
           <select id="rowsPerPage"><option>10</option><option>15</option><option>25</option></select>
           <button id="apply">Reset</button>
+          <button id="importExcel">Import Excel</button>
           <button id="exportExcel">Export Excel</button>
           <button id="exportPDF">Export PDF</button>
           <button id="bulkDeleteBtn">Hapus Terpilih</button>
@@ -1043,7 +1044,22 @@ if (btnExcel) btnExcel.onclick = async ()=>{
   try{
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Records');
+    // Set column widths to widen table and avoid squished text
+    const widths = [12, 16, 24, 22, 32, 22, 14, 48, 40, 40];
+    widths.forEach((w,i)=>{ try{ const col = ws.getColumn(i+1); col.width = w; col.alignment = { vertical:'top', wrapText: (i+1)>=8 }; }catch{} });
+    // Header
     ws.addRow(['Tanggal','Report No','Forklift','Location','Pekerjaan','Teknisi','Next PM','Description','Recommendation','Items Used']);
+    const headerRow = ws.getRow(1);
+    try{
+      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      headerRow.height = 22;
+      headerRow.eachCell(cell=> cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF0D47A1' } });
+    }catch{}
+    // Freeze header and enable auto filter
+    try{ ws.views = [{ state:'frozen', xSplit:0, ySplit:1 }]; }catch{}
+    try{ ws.autoFilter = { from: { row:1, column:1 }, to: { row:1, column:10 } }; }catch{}
+
     const useSelected = selected && selected.size>0;
     const idSet = useSelected ? new Set(Array.from(selected)) : null;
     const rowsSource = useSelected ? (data||[]).filter(r=> idSet.has(r.id)) : (data||[]);
@@ -1052,9 +1068,82 @@ if (btnExcel) btnExcel.onclick = async ()=>{
         r.tanggal||'', r.report_no||'', r.forklift||'', r.forklift_location||'', r.pekerjaan||'', r.teknisi||'', r.next_pm||'', r.description||'', r.recommendation||'', r.items_used||''
       ]);
     });
+
+    // Borders for all cells and zebra striping for data rows
+    try{
+      const lastRow = ws.rowCount;
+      // Zebra striping for readability
+      for (let r = 2; r <= lastRow; r++){
+        if (r % 2 === 0){
+          const row = ws.getRow(r);
+          row.eachCell(cell=> cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFF2F6FC' } });
+        }
+      }
+      // Thin borders
+      for (let r = 1; r <= lastRow; r++){
+        const row = ws.getRow(r);
+        for (let c = 1; c <= 10; c++){
+          const cell = row.getCell(c);
+          cell.border = {
+            top: { style:'thin', color:{ argb:'FFB0BEC5' } },
+            left: { style:'thin', color:{ argb:'FFB0BEC5' } },
+            bottom: { style:'thin', color:{ argb:'FFB0BEC5' } },
+            right: { style:'thin', color:{ argb:'FFB0BEC5' } },
+          };
+        }
+      }
+    }catch{}
+
     const buf = await wb.xlsx.writeBuffer();
     downloadBlob('records.xlsx', new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
   }catch(e){ console.error(e); alert('Gagal export Excel'); }
+};
+
+// Import Excel
+const btnImport = document.getElementById('importExcel');
+if (btnImport) btnImport.onclick = async ()=>{
+  try{
+    if (!window.ExcelJS){ alert('Library ExcelJS tidak tersedia.'); return; }
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = '.xlsx';
+    input.onchange = async (e)=>{
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const ab = await file.arrayBuffer();
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(ab);
+      const ws = wb.worksheets[0];
+      if (!ws){ alert('Worksheet tidak ditemukan.'); return; }
+      const expected = ['Tanggal','Report No','Forklift','Location','Pekerjaan','Teknisi','Next PM','Description','Recommendation','Items Used'];
+      const header = expected.map((_,i)=> String(ws.getRow(1).getCell(i+1).value||'').trim());
+      const okHeader = expected.every((h,i)=> (header[i]||'').toLowerCase() === h.toLowerCase());
+      if (!okHeader){
+        alert('Format header tidak sesuai. Pastikan sama seperti hasil Export: '+expected.join(', '));
+        return;
+      }
+      const rows = [];
+      for (let r = 2; r <= ws.rowCount; r++){
+        const row = ws.getRow(r);
+        const tanggal = String(row.getCell(1).value ?? '').trim();
+        const report_no = String(row.getCell(2).value ?? '').trim();
+        const forklift = String(row.getCell(3).value ?? '').trim();
+        const location = String(row.getCell(4).value ?? '').trim();
+        const pekerjaan = String(row.getCell(5).value ?? '').trim();
+        const teknisi = String(row.getCell(6).value ?? '').trim();
+        const next_pm = String(row.getCell(7).value ?? '').trim();
+        const description = String(row.getCell(8).value ?? '').trim();
+        const recommendation = String(row.getCell(9).value ?? '').trim();
+        const items_used = String(row.getCell(10).value ?? '').trim();
+        if (![tanggal,report_no,forklift,location,pekerjaan,teknisi,next_pm,description,recommendation,items_used].some(v=> (v!=='' && v!==null && v!==undefined))) continue;
+        rows.push({ tanggal, report_no, forklift, location, pekerjaan, teknisi, next_pm, description, recommendation, items_used });
+      }
+      if (!rows.length){ alert('Tidak ada data untuk diimport.'); return; }
+      const resp = await api('/api/records/import', { method:'POST', body:{ rows } });
+      alert(`Import selesai. Inserted: ${resp.inserted||0}, Updated: ${resp.updated||0}${resp.errors && resp.errors.length? `, Errors: ${resp.errors.length}`:''}`);
+      await load();
+    };
+    input.click();
+  }catch(e){ console.error(e); alert('Gagal import Excel.'); }
 };
 
 // Export PDF

@@ -284,6 +284,9 @@ function svgIcon(name){
       return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><rect x="8" y="13" width="8" height="6" rx="1"/><path d="M9.5 14.5l5 3"/><path d="M14.5 14.5l-5 3"/></svg>';
     case 'file-pdf':
       return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 17c4-1 6-3 8-6"/><path d="M8 17c1.5-3 2-5 2-7"/><path d="M8 17c3 .5 5 .5 8 0"/></svg>';
+    case 'pdf-export':
+      // New PDF export icon: file with outward arrow
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 12h7"/><path d="M15 9l3 3-3 3"/></svg>';
     case 'reset':
       return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>';
     case 'logout':
@@ -319,7 +322,7 @@ function decorateButtonsOnce(root){
   try{
     const r = root || document;
     // ID-based buttons
-    [['#addBtn','plus'], ['#bulkDeleteBtn','trash'], ['#exportExcel','file-excel'], ['#exportPDF','file-pdf'], ['#saveBtn','save'], ['#btnSaveEdit','save'], ['#cancelBtn','x'], ['#btnCancelEdit','x'], ['#apply','reset'], ['#logoutBtn','logout']].forEach(([sel,icon])=>{
+    [["#addBtn","plus"], ["#bulkDeleteBtn","trash"], ["#importExcel","file-pdf"], ["#exportExcel","file-excel"], ["#exportPDF","pdf-export"], ["#saveBtn","save"], ["#btnSaveEdit","save"], ["#cancelBtn","x"], ["#btnCancelEdit","x"], ["#apply","reset"], ["#logoutBtn","logout"]].forEach(([sel,icon])=>{
       r.querySelectorAll(sel).forEach(el=> setButtonIcon(el, icon, true));
     });
     // Login submit button only on login page

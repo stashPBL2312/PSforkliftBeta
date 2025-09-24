@@ -37,6 +37,7 @@
       <select id="rowsPerPage"><option>10</option><option>15</option><option>25</option></select>
       <button id="addBtn">Tambah</button>
       <button id="bulkDeleteBtn">Hapus Terpilih</button>
+      <button id="importExcel">Import Excel</button>
       <button id="exportExcel">Export Excel</button>
       <button id="exportPDF">Export PDF</button>
     </div>
@@ -231,10 +232,45 @@
         const rowsArr = rowsSource.map(row => exportCols.map(c => String(row[c.key] ?? '')));
         const wb = new ExcelJS.Workbook();
         const ws = wb.addWorksheet('Forklifts');
-        ws.columns = exportCols.map(c=>({ header: c.label, key: c.key, width: c.key==='brand'||c.key==='type'?24: (c.key==='eq_no'||c.key==='serial'?18:16) }));
+        // Uniform widths and alignment (wrap long text columns)
+        const widthsMap = {
+          brand: 24, type: 24, eq_no: 18, serial: 18, location: 24, powertrain: 18, owner: 18, tahun: 12, status: 14
+        };
+        ws.columns = exportCols.map((c,i)=>{
+          const w = widthsMap[c.key] ?? 18;
+          return { header: c.label, key: c.key, width: w, style: { alignment: { vertical:'top', wrapText: ['brand','type','location'].includes(c.key) } } };
+        });
         ws.addRows(rowsArr);
-        // Bold header
-        if (ws.getRow(1)) ws.getRow(1).font = { bold: true };
+        // Header style, freeze, filter, borders, zebra
+        const headerRow = ws.getRow(1);
+        try{
+          headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+          headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+          headerRow.height = 22;
+          headerRow.eachCell(cell=> cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF0D47A1' } });
+          ws.views = [{ state:'frozen', xSplit:0, ySplit:1 }];
+          ws.autoFilter = { from: { row:1, column:1 }, to: { row:1, column: exportCols.length } };
+        }catch{}
+        try{
+          const lastRow = ws.rowCount;
+          // Zebra striping
+          for (let r = 2; r <= lastRow; r++){
+            if (r % 2 === 0){ ws.getRow(r).eachCell(cell=> cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFF2F6FC' } }); }
+          }
+          // Thin borders
+          for (let r = 1; r <= lastRow; r++){
+            const row = ws.getRow(r);
+            for (let c = 1; c <= exportCols.length; c++){
+              const cell = row.getCell(c);
+              cell.border = {
+                top: { style:'thin', color:{ argb:'FFB0BEC5' } },
+                left: { style:'thin', color:{ argb:'FFB0BEC5' } },
+                bottom: { style:'thin', color:{ argb:'FFB0BEC5' } },
+                right: { style:'thin', color:{ argb:'FFB0BEC5' } },
+              };
+            }
+          }
+        }catch{}
         const buffer = await wb.xlsx.writeBuffer();
         const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         downloadBlob('forklifts.xlsx', blob);
@@ -244,6 +280,63 @@
       }
     };
 
+    // Import Excel -> baca file XLSX (format sama dengan export), kirim ke server untuk di-insert/update
+    document.getElementById('importExcel').onclick = async ()=>{
+      try {
+        if (!window.ExcelJS) { alert('Library ExcelJS tidak tersedia.'); return; }
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.xlsx';
+        input.onchange = async (e)=>{
+          const file = e.target.files && e.target.files[0];
+          if (!file) return;
+          const ab = await file.arrayBuffer();
+          const wb = new ExcelJS.Workbook();
+          await wb.xlsx.load(ab);
+          const ws = wb.worksheets[0];
+          if (!ws){ alert('Worksheet tidak ditemukan.'); return; }
+
+          // Validasi header (A..I)
+          const expected = ['Brand','Type','EQ No','Serial','Location','Powertrain','Owner','Tahun','Status'];
+          const header = expected.map((_,i)=> String(ws.getRow(1).getCell(i+1).value||'').trim());
+          const okHeader = expected.every((h,i)=> (header[i]||'').toLowerCase() === h.toLowerCase());
+          if (!okHeader){
+            alert('Format header tidak sesuai. Pastikan sama seperti hasil Export: '+expected.join(', '));
+            return;
+          }
+
+          const rows = [];
+          for (let r = 2; r <= ws.rowCount; r++){
+            const row = ws.getRow(r);
+            const brand = String(row.getCell(1).value ?? '').trim();
+            const type = String(row.getCell(2).value ?? '').trim();
+            const eq_no = String(row.getCell(3).value ?? '').trim();
+            const serial = String(row.getCell(4).value ?? '').trim();
+            const location = String(row.getCell(5).value ?? '').trim();
+            const powertrain = String(row.getCell(6).value ?? '').trim();
+            const owner = String(row.getCell(7).value ?? '').trim();
+            const tahunRaw = row.getCell(8).value;
+            const tahun = (tahunRaw===null||tahunRaw===undefined||String(tahunRaw).trim()==='') ? null : parseInt(String(tahunRaw).replace(/\D+/g,'')) || null;
+            const status = String(row.getCell(9).value ?? '').trim();
+
+            // Skip baris kosong total
+            if (![brand,type,eq_no,serial,location,powertrain,owner,tahun,status].some(v=> (v!=='' && v!==null && v!==undefined))) continue;
+
+            rows.push({ brand, type, eq_no, serial, location, powertrain, owner, tahun, status });
+          }
+          if (rows.length===0){ alert('Tidak ada data untuk diimport.'); return; }
+
+          const resp = await api('/api/forklifts/import', { method:'POST', body:{ rows } });
+          alert(`Import selesai. Inserted: ${resp.inserted||0}, Updated: ${resp.updated||0}${resp.errors && resp.errors.length? `, Errors: ${resp.errors.length}`:''}`);
+          data = await api('/api/forklifts');
+          render();
+        };
+        input.click();
+      } catch (e){
+        console.error('Import error:', e);
+        alert('Gagal import Excel.');
+      }
+    };
     document.getElementById('exportPDF').onclick = ()=>{
       try {
         if (window.jspdf && window.jspdf.jsPDF){
