@@ -78,6 +78,34 @@
 
     let page = 1; let rows = 10;
    let currentRows = [];
+// State sorting header
+let sortKey = null;
+let sortDir = 'asc';
+function sortRows(rows){
+  const arr = (rows||[]).slice();
+  if (!sortKey) return arr;
+  const cmp = (a,b)=>{
+    const va = a[sortKey]; const vb = b[sortKey];
+    // Khusus Powertrain: urutan custom
+    if (sortKey==='powertrain'){
+      const normalize = s=>String(s||'').toLowerCase();
+      const orderAsc = ['electric','lpg','diesel','manual','instruments & tools'];
+      const orderDesc = ['lpg','electric','diesel','manual','instruments & tools'];
+      const order = sortDir==='asc' ? orderAsc : orderDesc;
+      const ia = order.indexOf(normalize(va)); const ib = order.indexOf(normalize(vb));
+      if (ia !== ib) return ia - ib;
+      return normalize(va).localeCompare(normalize(vb), undefined, { sensitivity:'base' });
+    }
+    // Numeric vs string general compare
+    const na = parseFloat(va); const nb = parseFloat(vb);
+    if (!Number.isNaN(na) && !Number.isNaN(nb)) return sortDir==='asc' ? na - nb : nb - na;
+    const sa = String(va||'').toLowerCase(); const sb = String(vb||'').toLowerCase();
+    const d = sa.localeCompare(sb, undefined, { sensitivity:'base', numeric:true });
+    return sortDir==='asc' ? d : -d;
+  };
+  arr.sort(cmp);
+  return arr;
+}
 
     // helper untuk kapitalisasi status saat ditampilkan
     function ucFirst(s){
@@ -133,12 +161,15 @@
     function render(){
       const q = document.getElementById('search').value;
       const filtered = filterData(data, q);
+      const sorted = sortRows(filtered);
       const start = (page-1)*rows; const end = start+rows;
-      const rowsData = filtered.slice(start,end).map(x=>Object.assign({}, x));
+      const rowsData = sorted.slice(start,end).map(x=>Object.assign({}, x));
       currentRows = rowsData;
       const header = '<thead><tr>' + columns.map(c=>{
         if (c.key==='__sel') return `<th class="sel-header" style="cursor:pointer" title="Pilih semua di halaman">Sel</th>`;
-        return `<th>${c.label}</th>`;
+        if (c.key==='__act') return `<th>Aksi</th>`;
+        const arrow = sortKey===c.key ? (sortDir==='asc'?' ▲':' ▼') : '';
+        return `<th data-key="${c.key}" style="cursor:pointer">${c.label}${arrow}</th>`;
       }).join('') + '</tr></thead>';
       const body = '<tbody>' + rowsData.map(row=>{
         const cb = `<input type='checkbox' data-id='${row.id}' ${selected.has(row.id)?'checked':''}/>`;
@@ -183,6 +214,16 @@
         } finally {
           b.disabled = false;
         }
+      });
+      // Header sort handlers
+      document.querySelectorAll('#table th[data-key]').forEach(th=>{
+        th.onclick = ()=>{
+          const key = th.getAttribute('data-key');
+          if (key==='__sel' || key==='__act') return;
+          if (sortKey===key){ sortDir = (sortDir==='asc'?'desc':'asc'); } else { sortKey = key; sortDir = 'asc'; }
+          page = 1;
+          render();
+        };
       });
       const pages = Math.max(1, Math.ceil(filtered.length/rows));
       document.getElementById('pagination').innerHTML = Array.from({length: pages}, (_,i)=>`<button data-p='${i+1}' ${i+1===page?'style="font-weight:700"':''}>${i+1}</button>`).join(' ');
