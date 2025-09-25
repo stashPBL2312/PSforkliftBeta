@@ -85,6 +85,10 @@ app.get('/healthz', (req, res) => {
   res.json({ ok: true });
 });
 
+// Add /health for platform health checks (Render, etc.)
+app.get('/health', (req, res) => {
+  res.json({ ok: true });
+});
 // Add simple cache headers for GET APIs in production
 app.use((req, res, next) => {
   if (isProd && req.method === 'GET' && req.path.startsWith('/api/')) {
