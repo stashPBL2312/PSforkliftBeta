@@ -345,13 +345,13 @@ function decorateButtonsOnce(root){
 // Setup observer for dynamic content
 (function(){
   try{
-    const run = ()=> decorateButtonsOnce(document);
+    const run = ()=> { decorateButtonsOnce(document); decorateDateInputsOnce(document); };
     if (!window._btnIconObserver){
       const obs = new MutationObserver((mutations)=>{
         for (const m of mutations){
           if (m.addedNodes && m.addedNodes.length){
             m.addedNodes.forEach(n=>{
-              if (n.nodeType===1) decorateButtonsOnce(n);
+              if (n.nodeType===1){ decorateButtonsOnce(n); decorateDateInputsOnce(n); }
             });
           }
         }
@@ -428,4 +428,38 @@ function filterData(data, keyword){
   if (!keyword) return data;
   const q = keyword.toLowerCase();
   return data.filter(obj => Object.values(obj).some(v => String(v||'').toLowerCase().includes(q)));
+}
+
+// Enable clickable calendar icon on date inputs across the app
+function decorateDateInputsOnce(root){
+  try {
+    const r = root || document;
+    r.querySelectorAll('.date-input-wrap').forEach(wrap=>{
+      if (wrap.dataset.dateDecorated) return;
+      const input = wrap.querySelector('input[type="date"]');
+      if (!input){ wrap.dataset.dateDecorated = '1'; return; }
+      // Ensure wrapper positioning for absolute overlay button
+      if (!wrap.style.position) { wrap.style.position = 'relative'; }
+      // Create transparent button overlay at the icon area
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'date-ico-btn';
+      btn.setAttribute('aria-label', 'Pilih tanggal');
+      btn.title = 'Pilih tanggal';
+      Object.assign(btn.style, {
+        position:'absolute', right:'4px', top:'50%', transform:'translateY(-50%)',
+        width:'24px', height:'24px', background:'transparent', border:'none',
+        padding:'0', margin:'0', cursor:'pointer'
+      });
+      btn.addEventListener('click', (e)=>{
+        e.preventDefault(); e.stopPropagation();
+        try {
+          if (typeof input.showPicker === 'function') { input.showPicker(); }
+          else { input.focus(); setTimeout(()=>{ try{ input.click(); } catch(_){} }, 0); }
+        } catch(_) { try { input.focus(); } catch(__){} }
+      });
+      wrap.appendChild(btn);
+      wrap.dataset.dateDecorated = '1';
+    });
+  } catch(e){ /* noop */ }
 }
