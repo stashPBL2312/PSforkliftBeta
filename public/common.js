@@ -426,8 +426,24 @@ function simpleTable(containerId, columns, data){
 
 function filterData(data, keyword){
   if (!keyword) return data;
+  const t0 = (typeof performance!=='undefined' && performance.now) ? performance.now() : Date.now();
   const q = keyword.toLowerCase();
-  return data.filter(obj => Object.values(obj).some(v => String(v||'').toLowerCase().includes(q)));
+  const result = data.filter(obj => Object.values(obj).some(v => String(v||'').toLowerCase().includes(q)));
+  try{
+    const t1 = (typeof performance!=='undefined' && performance.now) ? performance.now() : Date.now();
+    // Observability: log durasi filter dan jumlah hasil untuk memantau beban saat mengetik
+    console.debug('[perf] filterData', `${(t1 - t0).toFixed(1)}ms`, `kw:"${keyword}"`, `n=${data?.length||0} -> ${result.length}`);
+  }catch{}
+  return result;
+}
+
+// Micro utility: debounce to prevent excessive re-renders on fast typing
+function debounce(fn, delay=200){
+  let t;
+  return function(...args){
+    clearTimeout(t);
+    t = setTimeout(()=> fn.apply(this, args), delay);
+  };
 }
 
 // Enable clickable calendar icon on date inputs across the app
@@ -462,4 +478,65 @@ function decorateDateInputsOnce(root){
       wrap.dataset.dateDecorated = '1';
     });
   } catch(e){ /* noop */ }
+}
+
+// Promise-based confirm dialog to ensure consistent UX across browsers
+async function confirmDialog(message){
+  return new Promise((resolve)=>{
+    try{
+      // If a dialog is already open, prevent stacking
+      if (document.getElementById('confirmDialog')){ resolve(false); return; }
+      const overlay = document.createElement('div');
+      overlay.id = 'confirmDialog';
+      Object.assign(overlay.style, {
+        position:'fixed', inset:'0', background:'rgba(0,0,0,0.35)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:'9999'
+      });
+      const box = document.createElement('div');
+      Object.assign(box.style, {
+        background: (document.documentElement.getAttribute('data-theme')==='dark' ? '#111827' : '#fff'),
+        color: (document.documentElement.getAttribute('data-theme')==='dark' ? '#e5e7eb' : '#111'),
+        borderRadius:'8px', padding:'16px', minWidth:'280px', boxShadow:'0 10px 24px rgba(0,0,0,0.25)'
+      });
+      const msg = document.createElement('div');
+      msg.textContent = message || 'Konfirmasi?';
+      msg.style.marginBottom = '12px';
+      const actions = document.createElement('div');
+      actions.style.display = 'flex'; actions.style.gap = '8px'; actions.style.justifyContent = 'flex-end';
+      const cancelBtn = document.createElement('button'); cancelBtn.textContent = 'Batal';
+      const okBtn = document.createElement('button'); okBtn.textContent = 'OK';
+      [cancelBtn, okBtn].forEach(b=>{ b.style.padding='6px 12px'; b.style.borderRadius='6px'; });
+      cancelBtn.onclick = ()=>{ cleanup(); resolve(false); };
+      okBtn.onclick = ()=>{ cleanup(); resolve(true); };
+      const cleanup = ()=>{ try{ document.body.removeChild(overlay); }catch{} };
+      overlay.addEventListener('click', (e)=>{ if (e.target===overlay){ cleanup(); resolve(false); } });
+      box.appendChild(msg); actions.appendChild(cancelBtn); actions.appendChild(okBtn); box.appendChild(actions); overlay.appendChild(box);
+      document.body.appendChild(overlay);
+      // keyboard support
+      const keyHandler = (ev)=>{
+        if (ev.key==='Escape'){ ev.preventDefault(); cleanup(); resolve(false); }
+        if (ev.key==='Enter'){ ev.preventDefault(); cleanup(); resolve(true); }
+      };
+      overlay.tabIndex = -1; overlay.focus({ preventScroll:true });
+      overlay.addEventListener('keydown', keyHandler, { once:true });
+    }catch(_){ resolve(window.confirm(message || 'Konfirmasi?')); }
+  });
+}
+// Lightweight perf helpers (optional usage across pages)
+if (!window.__perf){ window.__perf = { t: new Map() }; }
+function perfStart(name){ try{ window.__perf.t.set(name, (performance.now?performance.now():Date.now())); }catch{} }
+function perfEnd(name, extra){ try{ const t0 = window.__perf.t.get(name); if (typeof t0==='number'){ const t1 = (performance.now?performance.now():Date.now()); console.debug('[perf]', name, `${(t1-t0).toFixed(1)}ms`, extra||''); window.__perf.t.delete(name);} }catch{} }
+
+// Performance: apply content-visibility/style hints to table containers (id: 'table' or passed element)
+function applyTablePerformanceHints(container){
+  try{
+    const el = typeof container==='string' ? document.getElementById(container) : (container || document.getElementById('table'));
+    if (!el || el.dataset.perfHintsApplied) return;
+    el.dataset.perfHintsApplied = '1';
+    el.style.containIntrinsicSize = el.style.containIntrinsicSize || '1000px';
+    // Ensure scroll wrapper exists; if not, we still apply hints on container
+    if (!el.closest('.table-scroll')){ if (!el.style.minHeight) el.style.minHeight = '120px'; }
+    // Apply CSS class via inline style for broad support
+    el.style.contentVisibility = el.style.contentVisibility || 'auto';
+    el.style.willChange = el.style.willChange || 'contents';
+  }catch{}
 }

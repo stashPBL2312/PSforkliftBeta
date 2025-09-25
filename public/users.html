@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Users</title>
-  <script src="/common.js"></script>
+  <script src="/common.js" defer></script>
   <style>
     body { font-family: system-ui, Arial, sans-serif; margin:0; }
     .wrap { max-width:800px; margin:20px auto; padding:0 16px; }
@@ -46,12 +46,14 @@
   </div>
 
   <script>
-  (async function(){
+  window.addEventListener('DOMContentLoaded', ()=>{ (async function(){
     const user = await ensureAuthedAndRenderNav(); if (!user) return;
     if (user.role!=='admin') return alert('Hanya Admin') || (location.href='/dashboard.html');
 
+    let rows = [];
+
     async function load(){
-      const rows = await api('/api/users');
+      rows = await api('/api/users');
       const columns = [
         { key:'name', label:'Nama' },
         { key:'email', label:'Email' },
@@ -65,8 +67,7 @@
         <td><button data-edit='${r.id}'>Edit</button> <button data-del='${r.id}'>Hapus</button></td>
       </tr>`).join('') + '</tbody></table>';
       document.getElementById('table').innerHTML = html;
-      document.querySelectorAll('button[data-edit]').forEach(b=>b.onclick = ()=> openModal('Edit User', rows.find(x=>x.id==b.getAttribute('data-edit'))));
-      document.querySelectorAll('button[data-del]').forEach(b=>b.onclick = async ()=>{ if(confirm('Hapus?')){ await api('/api/users/'+b.getAttribute('data-del'), { method:'DELETE' }); load(); } });
+      /* Actions handled by delegated #table click */
     }
 
     function formHtml(item={}){
@@ -100,10 +101,27 @@
       };
     }
 
+    const tableEl = document.getElementById('table');
+    tableEl.addEventListener('click', async (e)=>{
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      const idEdit = btn.getAttribute('data-edit');
+      const idDel = btn.getAttribute('data-del');
+      if (idEdit) {
+        const item = rows.find(x=>x.id==idEdit);
+        openModal('Edit User', item);
+      } else if (idDel) {
+        if (await confirmDialog('Hapus user ini?')) {
+          await api('/api/users/'+idDel, { method:'DELETE' });
+          await load();
+        }
+      }
+    });
+
     document.getElementById('addBtn').onclick = ()=> openModal('Tambah User', {});
 
     load();
-  })();
+  })(); });
   </script>
 </body>
 </html>

@@ -4,10 +4,35 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Items</title>
-  <script src="/common.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+  <script src="/common.js" defer></script>
+  <!-- Lazy-load export libraries only when needed -->
+  <script>
+    (function(){
+      function loadScript(src){
+        return new Promise((resolve, reject)=>{
+          const s=document.createElement('script'); s.src=src; s.async=true;
+          s.onload=()=>resolve(); s.onerror=()=>reject(new Error('Failed to load '+src));
+          document.head.appendChild(s);
+        });
+      }
+      window.ensureExcelJS = async function(){
+        if (!window.ExcelJS){
+          await loadScript('https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js');
+        }
+        return window.ExcelJS;
+      };
+      window.ensureJsPDF = async function(){
+        if (!(window.jspdf && window.jspdf.jsPDF)){
+          await loadScript('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
+        }
+        if (!window.__autoTableLoaded){
+          await loadScript('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js');
+          window.__autoTableLoaded = true;
+        }
+        return window.jspdf && window.jspdf.jsPDF;
+      };
+    })();
+   </script>
   <style>
     body { font-family: system-ui, Arial, sans-serif; margin:0; }
     .wrap { max-width:1100px; margin:20px auto; padding:0 16px; }
@@ -56,12 +81,12 @@
   </div>
 
   <script>
-  (async function(){
+  window.addEventListener('DOMContentLoaded', ()=>{ (async function(){
     const user = await ensureAuthedAndRenderNav(); if (!user) return;
     let data = await api('/api/items');
     let selected = new Set();
     const canEdit = (user.role==='admin'||user.role==='supervisor');
-    const canImportExport = (user.role==='admin'||user.role==='supervisor'||user.role==='teknisi');
+    const canImportExport = (user.role==='admin'||user.role==='supervisor');
 
     const columns = [
       { key:'__sel', label:'Sel' },
@@ -164,6 +189,7 @@
       modal.onclick = (ev)=>{ if (ev.target === modal) close(); };
     }
     function render(){
+       perfStart && perfStart('items.render');
        const q = document.getElementById('search').value;
        const filtered = filterData(data, q);
        const start = (page-1)*rows; const end = start+rows;
@@ -201,7 +227,9 @@
          </tr>`;
        }).join('') + '</tbody>';
        document.getElementById('table').innerHTML = `<table>${header}${body}</table>`;
-       const pages = Math.max(1, Math.ceil(filtered.length/rows));
+  applyTablePerformanceHints('table');
+  perfEnd && perfEnd('items.render', `q="${q}" n=${data?.length||0} filtered=${filtered.length} pageRows=${rowsData.length}`);
+  const pages = Math.max(1, Math.ceil(filtered.length/rows));
        document.getElementById('pagination').innerHTML = Array.from({length: pages}, (_,i)=>`<button data-p='${i+1}' ${i+1===page?'style="font-weight:700"':''}>${i+1}</button>`).join(' ');
        document.querySelectorAll('#pagination button').forEach(b=>b.onclick = ()=>{ page = parseInt(b.getAttribute('data-p')); render();});
        // Select-all per halaman saat klik header "Sel"
@@ -212,54 +240,67 @@
          render();
        };
        // Bind checkbox select per-baris
-       document.querySelectorAll("input[type='checkbox'][data-id]").forEach(cb=> cb.onchange = ()=>{ const id = +cb.getAttribute('data-id'); if (cb.checked) selected.add(id); else selected.delete(id); });
-       // Bind tombol Edit/Hapus setelah render tabel
-       document.querySelectorAll('button[data-edit]').forEach(b=> b.onclick = ()=> openModal('Edit Item', data.find(x=> x.id==b.getAttribute('data-edit'))));
-       document.querySelectorAll('button[data-del]').forEach(b=> b.onclick = async ()=>{
-         if(confirm('Hapus?')){
-           const delId = +b.getAttribute('data-del');
-           await api('/api/items/'+delId, { method:'DELETE' });
-           if (selected.has(delId)) selected.delete(delId);
-           data = await api('/api/items');
-           render();
+       // Delegasi event untuk checkbox select per-baris agar tidak memasang listener per row
+       // Handler ini dipasang sekali pada container tabel dan akan menangani perubahan pada semua checkbox di dalamnya
+       // (change event bubbling didukung, dan tableContainer dipertahankan di DOM)
+       const tableContainer = document.getElementById('table');
+       if (tableContainer){
+         if (!tableContainer.dataset.cbDelegated){
+           tableContainer.addEventListener('change', (ev)=>{
+             const cb = ev.target.closest("input[type='checkbox'][data-id]");
+             if (!cb) return;
+             const id = +cb.getAttribute('data-id');
+             if (cb.checked) selected.add(id); else selected.delete(id);
+           });
+           tableContainer.dataset.cbDelegated = '1';
          }
-       });
-+      // Bind perubahan status inline
-       document.querySelectorAll('select[data-status]').forEach(sel=>{
-         sel.onchange = async ()=>{
-           const id = sel.getAttribute('data-status');
-           const item = data.find(x=> String(x.id)===String(id));
-           if (!item) return;
-           const payload = { code:item.code, nama:item.nama, unit:item.unit, description:item.description, status: String(sel.value||'').toLowerCase() };
-           try{
-             await api('/api/items/'+item.id, { method:'PUT', body: payload });
-             data = await api('/api/items');
-             render();
-           }catch(e){ console.error('Update status error:', e); alert('Gagal memperbarui status item'); }
-         };
-       });
-       // Bind tombol View (read-only) untuk non-editor
-       document.querySelectorAll('button[data-view]').forEach(b=> b.onclick = ()=>{
-         const itm = data.find(x=> x.id==b.getAttribute('data-view'));
-         if (itm) openView('Detail Item', itm);
-       });
-       // Klik pada sel (selain kolom Aksi) untuk membuka modal Edit Item, abaikan klik pada kontrol interaktif
-      document.querySelectorAll('#table tbody tr').forEach(tr=>{
-        tr.addEventListener('click', (ev)=>{
-          const td = ev.target.closest('td');
-          if (!td) return;
-          // abaikan klik pada kontrol interaktif di dalam sel
-          if (ev.target.closest('select, input, textarea, button, a')) return;
-          const isActionCol = (td.cellIndex === tr.cells.length - 1);
-          if (isActionCol) return;
-          const id = tr.getAttribute('data-id');
-          const item = data.find(x=> String(x.id) === String(id));
-          if (item) openModal('Edit Item', item);
-        });
-      });
+       }
+       // Bind tombol Edit/Hapus setelah render tabel
+       // document.querySelectorAll('button[data-edit]').forEach(b=> b.onclick = ()=> openModal('Edit Item', data.find(x=> x.id==b.getAttribute('data-edit'))));
+       // document.querySelectorAll('button[data-del]').forEach(b=> b.onclick = async ()=>{
+       //  if(await confirmDialog('Hapus item ini?')){
+       //     const delId = +b.getAttribute('data-del');
+       //     await api('/api/items/'+delId, { method:'DELETE' });
+       //     if (selected.has(delId)) selected.delete(delId);
+       //     data = await api('/api/items');
+       //     render();
+       //   }
+       // });
+       
+       // Event delegation pada container tabel untuk tombol aksi
+       if (tableContainer){
+         if (!tableContainer.dataset.clickDelegated){
+           tableContainer.addEventListener('click', async (ev)=>{
+             const btn = ev.target.closest('button');
+             if (!btn) return;
+             // Edit
+             if (btn.hasAttribute('data-edit')){
+               const id = btn.getAttribute('data-edit');
+               const item = data.find(x=> String(x.id)===String(id));
+               if (item) openModal('Edit Item', item);
+               return;
+             }
+             // Delete
+             if (btn.hasAttribute('data-del')){
+               if (!(await confirmDialog('Hapus item ini?'))) return;
+               const delId = +btn.getAttribute('data-del');
+               try{
+                 btn.disabled = true;
+                 await api('/api/items/'+delId, { method:'DELETE' });
+                 if (selected.has(delId)) selected.delete(delId);
+                 data = await api('/api/items');
+                 render();
+               }catch(e){ console.error('Delete item error:', e); alert(e && e.error ? e.error : 'Gagal menghapus item'); }
+               finally{ btn.disabled = false; }
+               return;
+             }
+           });
+           tableContainer.dataset.clickDelegated = '1';
+         }
+       }
     }
 
-    document.getElementById('search').oninput = render;
+    document.getElementById('search').oninput = debounce(render, 200);
     document.getElementById('rowsPerPage').onchange = (e)=>{ rows = parseInt(e.target.value); page=1; render(); };
     // ... existing code ...
     const addBtn = document.getElementById('addBtn');
@@ -275,7 +316,7 @@
     if (bulkBtn) bulkBtn.onclick = async ()=>{
       if (!canEdit) return alert('Tidak punya akses');
       if (!selected || selected.size===0) return alert('Tidak ada yang dipilih');
-      if (!confirm('Hapus data yang terpilih?')) return;
+      if (!(await confirmDialog('Hapus data yang terpilih?'))) return;
       try{
         bulkBtn.disabled = true;
         const ids = Array.from(selected);
@@ -309,6 +350,7 @@
     const btnExportExcel = document.getElementById('exportExcel');
     if (btnExportExcel) btnExportExcel.onclick = async ()=>{
       try{
+        await window.ensureExcelJS();
         if (!window.ExcelJS){ alert('Library ExcelJS tidak tersedia.'); return; }
         const wb = new ExcelJS.Workbook();
         const ws = wb.addWorksheet('Items');
@@ -357,6 +399,7 @@
     if (btnImportExcel) btnImportExcel.onclick = async ()=>{
        try{
         if (!canImportExport) { alert('Tidak punya akses untuk import.'); return; }
+        await window.ensureExcelJS();
         if (!window.ExcelJS){ alert('Library ExcelJS tidak tersedia.'); return; }
         const input = document.createElement('input');
         input.type = 'file'; input.accept = '.xlsx';
@@ -405,8 +448,9 @@
 
     // Export PDF
     const btnExportPDF = document.getElementById('exportPDF');
-    if (btnExportPDF) btnExportPDF.onclick = ()=>{
+    if (btnExportPDF) btnExportPDF.onclick = async ()=>{
       try{
+        await window.ensureJsPDF();
         if (window.jspdf && window.jspdf.jsPDF){
           const { jsPDF } = window.jspdf;
           const doc = new jsPDF({ orientation:'landscape', unit:'pt', format:'a4' });
@@ -434,7 +478,7 @@
      };
 
     render();
-  })();
+  })(); });
   </script>
 </body>
 </html>

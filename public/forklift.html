@@ -4,11 +4,35 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Forklifts</title>
-  <script src="/common.js"></script>
-  <!-- Export libraries -->
-  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+  <script src="/common.js" defer></script>
+  <!-- Export libraries (lazy-loaded on demand) -->
+  <script>
+    (function(){
+      function loadScript(src){
+        return new Promise((resolve, reject)=>{
+          const s=document.createElement('script'); s.src=src; s.async=true;
+          s.onload=()=>resolve(); s.onerror=()=>reject(new Error('Failed to load '+src));
+          document.head.appendChild(s);
+        });
+      }
+      window.ensureExcelJS = async function(){
+        if (!window.ExcelJS){
+          await loadScript('https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js');
+        }
+        return window.ExcelJS;
+      };
+      window.ensureJsPDF = async function(){
+        if (!(window.jspdf && window.jspdf.jsPDF)){
+          await loadScript('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
+        }
+        if (!window.__autoTableLoaded){
+          await loadScript('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js');
+          window.__autoTableLoaded = true;
+        }
+        return window.jspdf && window.jspdf.jsPDF;
+      };
+    })();
+   </script>
   <style>
     body { font-family: system-ui, Arial, sans-serif; margin:0; }
     .wrap { max-width:1100px; margin:20px auto; padding:0 16px; }
@@ -46,7 +70,7 @@
   </div>
 
   <div id="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.3); align-items:center; justify-content:center;">
-    <div style="background:#fff; padding:16px; border-radius:8px; width:520px; max-width:95vw;">
+    <div style="background:#fff; padding:16px; border-radius:8px; width:520px; max-width:95vw; max-height:90vh; overflow:auto; -webkit-overflow-scrolling:touch;">
       <h3 id="modalTitle" style="margin-top:0;">Tambah Forklift</h3>
       <div id="form"></div>
       <div style="text-align:right; margin-top:10px;">
@@ -57,7 +81,7 @@
   </div>
 
   <script>
-  (async function(){
+  window.addEventListener('DOMContentLoaded', ()=>{ (async function(){
     const user = await ensureAuthedAndRenderNav(); if (!user) return;
     let data = await api('/api/forklifts');
     let selected = new Set();
@@ -159,6 +183,7 @@ function sortRows(rows){
     }
 
     function render(){
+      perfStart && perfStart('forklift.render');
       const q = document.getElementById('search').value;
       const filtered = filterData(data, q);
       const sorted = sortRows(filtered);
@@ -189,6 +214,8 @@ function sortRows(rows){
         </tr>`;
       }).join('') + '</tbody>';
       document.getElementById('table').innerHTML = `<table>${header}${body}</table>`;
+      applyTablePerformanceHints('table');
+      perfEnd && perfEnd('forklift.render', `q="${q}" n=${data?.length||0} filtered=${filtered.length} pageRows=${rowsData.length}`);
       
       // Select-all per halaman saat klik header "Sel"
       const selHeader = document.querySelector('th.sel-header');
@@ -198,23 +225,50 @@ function sortRows(rows){
         render();
       };
 
-      document.querySelectorAll("input[type='checkbox'][data-id]").forEach(cb=>cb.onchange = ()=>{ const id=+cb.getAttribute('data-id'); if(cb.checked) selected.add(id); else selected.delete(id);});
-      document.querySelectorAll('button[data-edit]').forEach(b=>b.onclick = ()=>openModal('Edit Forklift', data.find(x=>x.id==b.getAttribute('data-edit'))));
-      document.querySelectorAll('button[data-del]').forEach(b=>b.onclick = async ()=>{
-        if (!confirm('Hapus Data Berikut ?')) return;
-        try {
-          b.disabled = true;
-          await api('/api/forklifts/'+b.getAttribute('data-del'), { method:'DELETE' });
-          data = await api('/api/forklifts');
-          render();
-        } catch (e) {
-          console.error('Delete forklift error:', e);
-          const msg = (e && e.error) ? e.error : 'Gagal menghapus data';
-          alert(msg);
-        } finally {
-          b.disabled = false;
+      // Event delegation pada container tabel: checkbox & tombol aksi
+      const tableContainer = document.getElementById('table');
+      if (tableContainer){
+        // Delegasi perubahan checkbox per-baris (select)
+        if (!tableContainer.dataset.cbDelegated){
+          tableContainer.addEventListener('change', (ev)=>{
+            const cb = ev.target.closest("input[type='checkbox'][data-id]");
+            if (!cb) return;
+            const id = +cb.getAttribute('data-id');
+            if (cb.checked) selected.add(id); else selected.delete(id);
+          });
+          tableContainer.dataset.cbDelegated = '1';
         }
-      });
+        // Delegasi klik tombol Edit/Hapus
+        if (!tableContainer.dataset.clickDelegated){
+          tableContainer.addEventListener('click', async (ev)=>{
+            const btn = ev.target.closest('button');
+            if (!btn) return;
+            if (btn.hasAttribute('data-edit')){
+              const id = btn.getAttribute('data-edit');
+              const item = data.find(x=> String(x.id)===String(id));
+              if (item) openModal('Edit Forklift', item);
+              return;
+            }
+            if (btn.hasAttribute('data-del')){
+              if (!(await confirmDialog('Hapus data forklift ini?'))) return;
+              try{
+                btn.disabled = true;
+                const id = btn.getAttribute('data-del');
+                await api('/api/forklifts/'+id, { method:'DELETE' });
+                data = await api('/api/forklifts');
+                render();
+              }catch(e){
+                console.error('Delete forklift error:', e);
+                alert((e && e.error) ? e.error : 'Gagal menghapus data');
+              }finally{
+                btn.disabled = false;
+              }
+              return;
+            }
+          });
+          tableContainer.dataset.clickDelegated = '1';
+        }
+      }
       // Header sort handlers
       document.querySelectorAll('#table th[data-key]').forEach(th=>{
         th.onclick = ()=>{
@@ -230,13 +284,13 @@ function sortRows(rows){
       document.querySelectorAll('#pagination button').forEach(b=>b.onclick = ()=>{ page = parseInt(b.getAttribute('data-p')); render();});
     }
 
-    document.getElementById('search').oninput = render;
+    document.getElementById('search').oninput = debounce(render, 200);
     document.getElementById('rowsPerPage').onchange = (e)=>{ rows = parseInt(e.target.value); page=1; render(); };
     document.getElementById('addBtn').onclick = ()=> openModal('Tambah Forklift', {});
     document.getElementById('bulkDeleteBtn').onclick = async ()=>{
       if (!(user.role==='admin'||user.role==='supervisor')) return alert('Tidak punya akses');
       if (selected.size===0) return alert('Tidak ada yang dipilih');
-      if (!confirm('Hapus data yang terpilih ?')) return;
+      if (!(await confirmDialog('Hapus data yang terpilih ?'))) return;
       try {
         const ids = Array.from(selected);
         await api('/api/forklifts/bulk-delete', { method:'POST', body: { ids } });
@@ -262,6 +316,7 @@ function sortRows(rows){
 
     document.getElementById('exportExcel').onclick = async ()=>{
       try {
+        await window.ensureExcelJS();
         if (!window.ExcelJS) { alert('Library ExcelJS tidak tersedia.'); return; }
         const exportCols = columns.filter(c=> c.key !== '__sel' && c.key !== '__act');
 
@@ -323,7 +378,9 @@ function sortRows(rows){
 
     // Import Excel -> baca file XLSX (format sama dengan export), kirim ke server untuk di-insert/update
     document.getElementById('importExcel').onclick = async ()=>{
+      if (user.role==='teknisi') { alert('Tidak punya akses untuk import.'); return; }
       try {
+        await window.ensureExcelJS();
         if (!window.ExcelJS) { alert('Library ExcelJS tidak tersedia.'); return; }
         const input = document.createElement('input');
         input.type = 'file';
@@ -378,8 +435,9 @@ function sortRows(rows){
         alert('Gagal import Excel.');
       }
     };
-    document.getElementById('exportPDF').onclick = ()=>{
+    document.getElementById('exportPDF').onclick = async ()=>{
       try {
+        await window.ensureJsPDF();
         if (window.jspdf && window.jspdf.jsPDF){
           const { jsPDF } = window.jspdf;
           const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'A4' });
@@ -415,7 +473,9 @@ function sortRows(rows){
       document.getElementById('modalTitle').textContent = title;
       document.getElementById('form').innerHTML = formHtml(item);
       document.getElementById('modal').style.display = 'flex';
-      document.getElementById('cancelBtn').onclick = ()=> document.getElementById('modal').style.display = 'none';
+      document.getElementById('cancelBtn').onclick = ()=> { modal.style.display = 'none'; };
+      // click-away: tutup saat klik backdrop saja (bukan konten)
+      modal.onclick = (ev)=>{ if (ev.target === modal) modal.style.display = 'none'; };
       document.getElementById('saveBtn').onclick = async ()=>{
         try {
           const ownerChecked = document.querySelector("input[name='f_owner_group']:checked");
@@ -437,7 +497,7 @@ function sortRows(rows){
             await api('/api/forklifts', { method:'POST', body: payload });
             alert('Forklift baru berhasil ditambahkan');
           }
-          document.getElementById('modal').style.display='none';
+          modal.style.display='none';
           data = await api('/api/forklifts'); render();
         } catch (e) {
           console.error('Forklift save error:', e);
@@ -450,7 +510,7 @@ function sortRows(rows){
     // Hapus event listener yang memanggil load() karena fungsi load tidak ada di forklift.html
     // (tidak ada perubahan lain)
     render();
-  })();
+   })(); });
   </script>
 </body>
 </html>

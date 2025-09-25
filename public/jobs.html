@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Jobs</title>
-  <script src="/common.js"></script>
+  <script src="/common.js" defer></script>
   <style>
     body { font-family: system-ui, Arial, sans-serif; margin:0; }
     .wrap { max-width:1000px; margin:20px auto; padding:0 16px; }
@@ -270,7 +270,7 @@
   </div>
 
   <script>
-  (async function(){
+  window.addEventListener('DOMContentLoaded', ()=>{ (async function(){
     const user = await ensureAuthedAndRenderNav(); if (!user) return;
     const forklifts = await api('/api/forklifts');
     const items = await api('/api/items');
@@ -663,7 +663,7 @@
         alert(e.error || 'Gagal simpan');
       }
     };
-  })();
-  </script>
+  })(); });
+   </script>
 </body>
 </html>

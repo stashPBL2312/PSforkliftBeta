@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Dashboard</title>
-  <script src="/common.js"></script>
+  <script src="/common.js" defer></script>
   <style>
     body { font-family: system-ui, Arial, sans-serif; margin:0; background:#f5f7fb; }
     .wrap { max-width:1100px; margin:20px auto; padding:0 16px; }
@@ -78,7 +78,7 @@
   </div>
 
   <script>
-  (async function(){
+  window.addEventListener('DOMContentLoaded', ()=>{ (async function(){
     const user = await ensureAuthedAndRenderNav(); if (!user) return;
     const data = await api('/api/dashboard/metrics');
     // Ambil semua jobs agar kategori "Akan Datang" bisa menampilkan SEMUA PM mendatang (tidak terbatas 7 hari)
@@ -186,12 +186,12 @@
       document.getElementById('pagination').innerHTML = Array.from({length: pages}, (_,i)=>`<button data-p='${i+1}' ${i+1===page?'style="font-weight:700"':''}>${i+1}</button>`).join(' ');
       document.querySelectorAll('#pagination button').forEach(b=>b.onclick = ()=>{ page = parseInt(b.getAttribute('data-p')); render();});
     }
-    document.getElementById('search').oninput = render;
+    document.getElementById('search').oninput = debounce(render, 200);
     document.getElementById('rowsPerPage').onchange = (e)=>{ rows = parseInt(e.target.value); page=1; render(); };
     const pmCatEl = document.getElementById('pmCategory');
     if (pmCatEl){ pmCatEl.onchange = ()=>{ category = pmCatEl.value; page=1; pmData = getDatasetForCategory(category); render(); }; }
     render();
-  })();
+  })(); });
   </script>
 </body>
 </html>

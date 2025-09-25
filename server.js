@@ -6,6 +6,7 @@ const path = require('path');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const SQLiteStore = require('connect-sqlite3')(session);
+const compression = require('compression');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -35,6 +36,13 @@ app.use(
 // Ensure DB exists and bootstrap schema
 function initDb() {
   const db = new sqlite3.Database(DB_FILE);
+  // Terapkan PRAGMA runtime untuk koneksi aktif (beberapa PRAGMA perlu di-set per koneksi)
+  try{
+    db.exec(
+      "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA temp_store = MEMORY; PRAGMA cache_size = -8000; PRAGMA busy_timeout = 3000;",
+      (pErr)=>{ if (pErr) console.warn('Runtime PRAGMA error:', pErr); }
+    );
+  }catch(e){ console.warn('Failed to apply runtime PRAGMA:', e); }
   const schema = fs.readFileSync(SCHEMA_FILE, 'utf-8');
   db.exec(schema, async (err) => {
     if (err) {
@@ -67,13 +75,22 @@ if (!fs.existsSync(DB_FILE)) {
 }
 const db = initDb();
 
-// Static files
-app.use(express.static(path.join(__dirname, 'public')));
+// Compression for faster responses
+app.use(compression());
+// Static files with caching in production
+app.use(express.static(path.join(__dirname, 'public'), isProd ? { maxAge: '7d', etag: true, lastModified: true } : {}));
 
 // Lightweight health endpoint (no auth)
-app.get('/health', (req, res) => {
-  res.set('Cache-Control','no-store');
-  res.type('text/plain').send('ok');
+app.get('/healthz', (req, res) => {
+  res.json({ ok: true });
+});
+
+// Add simple cache headers for GET APIs in production
+app.use((req, res, next) => {
+  if (isProd && req.method === 'GET' && req.path.startsWith('/api/')) {
+    res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+  }
+  next();
 });
 
 // Helpers
@@ -154,18 +171,29 @@ function all(sql, params = []) {
 // Dashboard endpoints
 app.get('/api/dashboard/metrics', requireLogin, async (req, res) => {
   try {
+    // Gunakan perbandingan string ISO tanggal agar bisa memanfaatkan indeks pada kolom tanggal
+    const now = new Date(); const tz = now.getTimezoneOffset();
+    const isoNow = new Date(now.getTime() - tz*60000).toISOString().slice(0,10);
+    const weekEnd = new Date(now.getTime() + 7*24*60*60*1000);
+    const isoWeekEnd = new Date(weekEnd.getTime() - tz*60000).toISOString().slice(0,10);
+    const base = new Date(now.getTime()); base.setHours(0,0,0,0);
+    const monthStartDate = new Date(base.getTime()); monthStartDate.setDate(1);
+    const nextMonthStartDate = new Date(monthStartDate.getTime()); nextMonthStartDate.setMonth(nextMonthStartDate.getMonth()+1);
+    const isoMonthStart = new Date(monthStartDate.getTime() - tz*60000).toISOString().slice(0,10);
+    const isoNextMonthStart = new Date(nextMonthStartDate.getTime() - tz*60000).toISOString().slice(0,10);
+
     const [totalForklifts, active, maint, totalJobs, jobsThisMonth, maintJobs, pmLate, pmWeek, pmMonth, pmUpcoming] = await Promise.all([
       get('SELECT COUNT(*) as c FROM forklifts'),
       get("SELECT COUNT(*) as c FROM forklifts WHERE status='active'"),
       get("SELECT COUNT(*) as c FROM forklifts WHERE status='maintenance'"),
       get('SELECT COUNT(*) as c FROM jobs'),
-      get("SELECT COUNT(*) as c FROM jobs WHERE strftime('%Y-%m', tanggal)=strftime('%Y-%m','now')"),
+      get("SELECT COUNT(*) as c FROM jobs WHERE tanggal>=? AND tanggal<?", [isoMonthStart, isoNextMonthStart]),
       // Maintenance Jobs harus dihitung dari service records (pekerjaan='PM'), bukan dari tabel jobs
       get("SELECT COUNT(*) as c FROM records WHERE pekerjaan='PM'"),
-      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' as forklift, j.next_pm as jadwal_pm, 'Terlambat' as status, j.teknisi as teknisi_terakhir, j.tanggal as service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND date(j.next_pm)<date('now') ORDER BY j.next_pm ASC"),
-      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' as forklift, j.next_pm as jadwal_pm, 'Minggu Ini' as status, j.teknisi as teknisi_terakhir, j.tanggal as service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND date(j.next_pm) BETWEEN date('now') AND date('now','+7 days') ORDER BY j.next_pm ASC"),
-      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' as forklift, j.next_pm as jadwal_pm, 'Bulan Ini' as status, j.teknisi as teknisi_terakhir, j.tanggal as service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND strftime('%Y-%m', j.next_pm)=strftime('%Y-%m','now') ORDER BY j.next_pm ASC"),
-      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' as forklift, j.next_pm as jadwal_pm, 'Akan Datang' as status, j.teknisi as teknisi_terakhir, j.tanggal as service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND date(j.next_pm)>date('now','+7 days') ORDER BY j.next_pm ASC"),
+      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' as forklift, j.next_pm as jadwal_pm, 'Terlambat' as status, j.teknisi as teknisi_terakhir, j.tanggal as service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND j.next_pm<? ORDER BY j.next_pm ASC", [isoNow]),
+      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' as forklift, j.next_pm as jadwal_pm, 'Minggu Ini' as status, j.teknisi as teknisi_terakhir, j.tanggal as service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND j.next_pm BETWEEN ? AND ? ORDER BY j.next_pm ASC", [isoNow, isoWeekEnd]),
+      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' as forklift, j.next_pm as jadwal_pm, 'Bulan Ini' as status, j.teknisi as teknisi_terakhir, j.tanggal as service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND j.next_pm>=? AND j.next_pm<? ORDER BY j.next_pm ASC", [isoMonthStart, isoNextMonthStart]),
+      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' as forklift, j.next_pm as jadwal_pm, 'Akan Datang' as status, j.teknisi as teknisi_terakhir, j.tanggal as service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND j.next_pm>? ORDER BY j.next_pm ASC", [isoWeekEnd]),
     ]);
     res.json({
       totalForklifts: totalForklifts.c || 0,
@@ -191,7 +219,6 @@ app.get('/api/dashboard/metrics', requireLogin, async (req, res) => {
     db.run("ALTER TABLE users ADD COLUMN name TEXT", (err)=>{ /* abaikan jika kolom sudah ada */ });
   } catch (e) { /* noop */ }
 })();
-
 // Migration ringan: tambah kolom location di records (snapshot lokasi forklift saat itu)
 (function ensureRecordsLocationColumn(){
   try {
@@ -331,51 +358,44 @@ app.post('/api/forklifts/bulk-delete', requireRole('admin','supervisor'), async 
   }
 });
 
-// Import forklifts via Excel (rows format must match Export: Brand..Status (A..I))
+// Import Forklifts dari Excel (format sama seperti export)
 app.post('/api/forklifts/import', requireRole('admin','supervisor'), async (req, res) => {
   const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows : [];
   let inserted = 0, updated = 0; const errors = [];
 
-  function normalizeStatus(s){
-    const v = String(s||'').trim().toLowerCase();
-    if (v === 'active' || v === 'aktif') return 'active';
-    if (v === 'maintenance' || v === 'maint' || v === 'maintain') return 'maintenance';
-    if (v === 'retired' || v === 'nonaktif' || v === 'retire') return 'retired';
-    // default
-    return 'active';
-  }
-
-  if (rows.length === 0) return res.json({ inserted, updated, errors });
+  const norm = (v) => String(v ?? '').trim();
 
   try {
+    if (!rows.length) return res.json({ inserted, updated, errors });
     await run('BEGIN');
     for (let i = 0; i < rows.length; i++){
-      try {
+      try{
         let { brand, type, eq_no, serial, location, powertrain, owner, tahun, status } = rows[i] || {};
-        brand = String(brand||'').trim();
-        type = String(type||'').trim();
-        eq_no = String(eq_no||'').trim();
-        serial = String(serial||'').trim();
-        location = String(location||'').trim();
-        powertrain = String(powertrain||'').trim();
-        owner = String(owner||'').trim();
-        const t = parseInt(String(tahun ?? '').replace(/\D+/g,'')) || null;
-        status = normalizeStatus(status);
+        brand = norm(brand);
+        type = norm(type);
+        eq_no = norm(eq_no);
+        serial = norm(serial);
+        location = norm(location);
+        powertrain = norm(powertrain);
+        owner = norm(owner);
+        const tahunVal = (tahun === null || tahun === undefined || String(tahun).trim() === '') ? null : (parseInt(String(tahun).replace(/\D+/g,'') || '0', 10) || null);
+        status = norm(status).toLowerCase();
+        if (!['active','maintenance','retired'].includes(status)) status = null;
 
-        if (!eq_no && !serial) { errors.push({ index: i+2, error: 'Missing EQ No and Serial' }); continue; }
+        if (!eq_no && !serial){ errors.push({ index: i+2, error: 'EQ No atau Serial wajib diisi' }); continue; }
 
         let existing = null;
-        if (eq_no) existing = await get('SELECT id FROM forklifts WHERE eq_no=?', [eq_no]);
-        if (!existing && serial) existing = await get('SELECT id FROM forklifts WHERE serial=?', [serial]);
+        if (eq_no){ existing = await get('SELECT id FROM forklifts WHERE eq_no=?', [eq_no]); }
+        if (!existing && serial){ existing = await get('SELECT id FROM forklifts WHERE serial=?', [serial]); }
 
         if (existing){
-          await run('UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=? WHERE id=?', [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, t, status, existing.id]);
+          await run('UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=? WHERE id=?', [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, tahunVal, status||null, existing.id]);
           updated++;
         } else {
-          await run('INSERT INTO forklifts (brand,type,eq_no,serial,location,powertrain,owner,tahun,status) VALUES (?,?,?,?,?,?,?,?,?)', [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, t, status]);
+          await run('INSERT INTO forklifts (brand,type,eq_no,serial,location,powertrain,owner,tahun,status) VALUES (?,?,?,?,?,?,?,?,?)', [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, tahunVal, status||null]);
           inserted++;
         }
-      } catch (e) {
+      } catch(e){
         errors.push({ index: i+2, error: String(e && e.message || 'SQL error') });
       }
     }
@@ -383,49 +403,7 @@ app.post('/api/forklifts/import', requireRole('admin','supervisor'), async (req,
     res.json({ inserted, updated, errors });
   } catch (e) {
     await run('ROLLBACK');
-    res.status(400).json({ error: 'Import failed' });
-  }
-});
-app.put('/api/forklifts/:id', requireRole('admin','supervisor'), async (req, res) => {
-  const { brand, type, eq_no, serial, location, powertrain, owner, tahun, status } = req.body;
-  try {
-    await run('UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=? WHERE id=?', [brand,type,eq_no,serial,location,powertrain,owner,tahun,status, req.params.id]);
-    res.json({ ok: true });
-  } catch (e) {
-    let msg = 'Forklift update failed';
-    const em = String(e && e.message || '');
-    if ((e && e.code === 'SQLITE_CONSTRAINT') || /constraint/i.test(em)){
-      if (em.includes('forklifts.eq_no')) msg = 'EQ No sudah terdaftar';
-      else if (em.includes('forklifts.serial')) msg = 'Serial sudah terdaftar';
-      else msg = 'Gagal menyimpan: pelanggaran constraint';
-    }
-    res.status(400).json({ error: msg });
-  }
-});
-app.delete('/api/forklifts/:id', requireRole('admin','supervisor'), async (req, res) => {
-  try {
-    const id = req.params.id;
-    // Hapus child records terlebih dahulu untuk memenuhi foreign key constraints
-    await run('DELETE FROM records WHERE forklift_id=?', [id]);
-    await run('DELETE FROM jobs WHERE forklift_id=?', [id]);
-    await run('DELETE FROM forklifts WHERE id=?', [id]);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ error: 'Forklift delete failed' });
-  }
-});
-app.post('/api/forklifts/bulk-delete', requireRole('admin','supervisor'), async (req, res) => {
-  const { ids } = req.body;
-  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'No ids' });
-  try {
-    const placeholders = ids.map(() => '?').join(',');
-    // Hapus child records terlebih dahulu untuk memenuhi foreign key constraints
-    await run(`DELETE FROM records WHERE forklift_id IN (${placeholders})`, ids);
-    await run(`DELETE FROM jobs WHERE forklift_id IN (${placeholders})`, ids);
-    await run(`DELETE FROM forklifts WHERE id IN (${placeholders})`, ids);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ error: 'Bulk delete failed' });
+    res.status(400).json({ error: 'Forklifts import failed' });
   }
 });
 
@@ -586,9 +564,9 @@ app.get('/api/records', requireLogin, async (req, res) => {
     let sql = `SELECT r.*, (SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=r.forklift_id) as forklift, r.location as forklift_location, COALESCE((SELECT j.next_pm FROM jobs j WHERE j.report_no=r.report_no AND j.forklift_id=r.forklift_id AND j.jenis='PM' ORDER BY j.id DESC LIMIT 1), (SELECT j.next_pm FROM jobs j WHERE j.jenis='PM' AND j.forklift_id=r.forklift_id ORDER BY j.id DESC LIMIT 1)) as next_pm FROM records r WHERE 1=1`;
     // Filter by forklift
     if (forklift_id) { sql += ' AND r.forklift_id=?'; params.push(forklift_id); }
-    // Range filter
-    if (start) { sql += ' AND date(r.tanggal)>=date(?)'; params.push(start); }
-    if (end) { sql += ' AND date(r.tanggal)<=date(?)'; params.push(end); }
+    // Range filter (gunakan perbandingan string ISO agar bisa gunakan indeks)
+    if (start) { sql += ' AND r.tanggal>=?'; params.push(start); }
+    if (end) { sql += ' AND r.tanggal<=?'; params.push(end); }
     if (q) {
       sql += ' AND (r.description LIKE ? OR r.recommendation LIKE ? OR r.items_used LIKE ? OR r.report_no LIKE ? OR r.teknisi LIKE ? OR r.location LIKE ? OR EXISTS (SELECT 1 FROM forklifts f WHERE f.id=r.forklift_id AND (COALESCE(f.eq_no,"") LIKE ? OR COALESCE(f.brand,"") LIKE ? OR COALESCE(f.type,"") LIKE ? OR COALESCE(f.location,"") LIKE ?)))';
       params.push(`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`);

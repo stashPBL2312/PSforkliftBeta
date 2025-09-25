@@ -4,11 +4,35 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Records</title>
-  <script src="/common.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+  <script src="/common.js" defer></script>
+  <!-- Export libraries (lazy-loaded on demand); XLSX removed -->
+  <script>
+    (function(){
+      function loadScript(src){
+        return new Promise((resolve, reject)=>{
+          const s=document.createElement('script'); s.src=src; s.async=true;
+          s.onload=()=>resolve(); s.onerror=()=>reject(new Error('Failed to load '+src));
+          document.head.appendChild(s);
+        });
+      }
+      window.ensureExcelJS = async function(){
+        if (!window.ExcelJS){
+          await loadScript('https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js');
+        }
+        return window.ExcelJS;
+      };
+      window.ensureJsPDF = async function(){
+        if (!(window.jspdf && window.jspdf.jsPDF)){
+          await loadScript('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
+        }
+        if (!window.__autoTableLoaded){
+          await loadScript('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js');
+          window.__autoTableLoaded = true;
+        }
+        return window.jspdf && window.jspdf.jsPDF;
+      };
+    })();
+  </script>
   <style>
     body { font-family: system-ui, Arial, sans-serif; margin:0; }
     .wrap { max-width:1200px; margin:20px auto; padding:0 16px; }
@@ -251,7 +275,7 @@
   </div>
 
   <script>
-  (async function(){
+  window.addEventListener('DOMContentLoaded', ()=>{ (async function(){
     const user = await ensureAuthedAndRenderNav(); if (!user) return;
     const forklifts = await api('/api/forklifts');
     const fkCache = Array.isArray(forklifts) ? forklifts : [];
@@ -776,6 +800,7 @@ async function load(){
 }
 
 function render(){
+  perfStart && perfStart('records.render');
   const startIdx = (page-1)*rowsPerPage;
   const endIdx = startIdx + rowsPerPage;
   currentRows = data.slice(startIdx, endIdx).map(x=>Object.assign({}, x));
@@ -837,6 +862,8 @@ function render(){
 
   const tableEl = document.getElementById('table');
   if (tableEl) tableEl.innerHTML = `<div class="table-scroll"><table style="min-width:900px">${header}${body}</table></div>`;
+  applyTablePerformanceHints('table');
+  perfEnd && perfEnd('records.render', `n=${data?.length||0} pageRows=${currentRows.length}`);
 
   // Select-all per halaman saat klik header "Sel"
   const selHeader = document.querySelector('th.sel-header');
@@ -856,23 +883,43 @@ function render(){
     };
   });
 
-  // Checkbox + actions handlers
-  document.querySelectorAll("#table input[type='checkbox'][data-id]").forEach(cb=>{
-    cb.onchange = ()=>{ const id = +cb.getAttribute('data-id'); if (cb.checked) selected.add(id); else selected.delete(id); };
-  });
-  document.querySelectorAll('#table button[data-edit]').forEach(btn=>{
-    btn.onclick = ()=>{ const id = +btn.getAttribute('data-edit'); const item = currentRows.find(r=>r.id===id) || data.find(r=>r.id===id); if (item) openEditModal(item); };
-  });
-  document.querySelectorAll('#table button[data-detail]').forEach(btn=>{
-    btn.onclick = ()=>{ const id = +btn.getAttribute('data-detail'); const item = currentRows.find(r=>r.id===id) || data.find(r=>r.id===id); if (item) openEditModal(item, true); };
-  });
-  document.querySelectorAll('#table button[data-del]').forEach(btn=>{
-    btn.onclick = async ()=>{
-      const id = +btn.getAttribute('data-del');
-      if (!confirm('Hapus record ini?')) return;
-      try{ await api('/api/records/'+id, { method:'DELETE' }); await load(); } catch(e){ alert(e && e.error ? e.error : 'Gagal menghapus'); }
-    };
-  });
+  // Delegasi event untuk checkbox agar tidak memasang listener per row
+  const tableContainer = document.getElementById('table');
+  if (tableContainer){
+    if (!tableContainer.dataset.cbDelegated){
+      tableContainer.addEventListener('change', (ev)=>{
+        const cb = ev.target.closest("input[type='checkbox'][data-id]");
+        if (!cb) return;
+        const id = +cb.getAttribute('data-id');
+        if (cb.checked) selected.add(id); else selected.delete(id);
+      });
+      tableContainer.dataset.cbDelegated = '1';
+    }
+  }
+  if (tableContainer){
+    tableContainer.addEventListener('click', async (ev)=>{
+      const btn = ev.target.closest('button');
+      if (!btn) return;
+      if (btn.hasAttribute('data-edit')){
+        const id = +btn.getAttribute('data-edit');
+        const item = currentRows.find(r=>r.id===id) || data.find(r=>r.id===id);
+        if (item) openEditModal(item);
+        return;
+      }
+      if (btn.hasAttribute('data-detail')){
+        const id = +btn.getAttribute('data-detail');
+        const item = currentRows.find(r=>r.id===id) || data.find(r=>r.id===id);
+        if (item) openEditModal(item, true);
+        return;
+      }
+      if (btn.hasAttribute('data-del')){
+        const id = +btn.getAttribute('data-del');
+        if (!(await confirmDialog('Hapus record ini?'))) return;
+        try{ await api('/api/records/'+id, { method:'DELETE' }); await load(); } catch(e){ alert(e && e.error ? e.error : 'Gagal menghapus'); }
+        return;
+      }
+    });
+  }
 
   // Pagination
   const pages = Math.max(1, Math.ceil(data.length / rowsPerPage));
@@ -1042,6 +1089,7 @@ function downloadBlob(filename, blob){
 const btnExcel = document.getElementById('exportExcel');
 if (btnExcel) btnExcel.onclick = async ()=>{
   try{
+    await window.ensureExcelJS();
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Records');
     // Set column widths to widen table and avoid squished text
@@ -1102,8 +1150,9 @@ if (btnExcel) btnExcel.onclick = async ()=>{
 // Import Excel
 const btnImport = document.getElementById('importExcel');
 if (btnImport) btnImport.onclick = async ()=>{
+  if (user.role==='teknisi') { alert('Tidak punya akses untuk import.'); return; }
   try{
-    if (!window.ExcelJS){ alert('Library ExcelJS tidak tersedia.'); return; }
+    await window.ensureExcelJS();
     const input = document.createElement('input');
     input.type = 'file'; input.accept = '.xlsx';
     input.onchange = async (e)=>{
@@ -1150,6 +1199,7 @@ if (btnImport) btnImport.onclick = async ()=>{
 const btnPDF = document.getElementById('exportPDF');
 if (btnPDF) btnPDF.onclick = async ()=>{
   try{
+    await window.ensureJsPDF();
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation:'l', unit:'pt', format:'a4' });
     const head = [['Tanggal','Report No','Forklift','Location','Pekerjaan','Teknisi','Next PM','Description','Recommendation','Items Used']];
@@ -1168,7 +1218,7 @@ if (btnPDF) btnPDF.onclick = async ()=>{
 const bulkBtn = document.getElementById('bulkDeleteBtn');
 if (bulkBtn) bulkBtn.onclick = async ()=>{
   if (!selected || selected.size===0){ alert('Pilih record terlebih dahulu'); return; }
-  if (!confirm('Hapus semua record terpilih?')) return;
+  if (!(await confirmDialog('Hapus semua record terpilih?'))) return;
   try{
     const ids = Array.from(selected);
     for (const id of ids){ await api('/api/records/'+id, { method:'DELETE' }); }
@@ -1181,7 +1231,7 @@ if (bulkBtn) bulkBtn.onclick = async ()=>{
 renderTechTags();
 renderFkTags();
 await load();
-})();
+})(); });
   </script>
 </body>
 </html>
