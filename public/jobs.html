@@ -669,6 +669,8 @@
 
         // Fokus kembali ke forklift untuk input cepat berikutnya
         if (fkInputEl) fkInputEl.focus();
+      // Jika jenis adalah PM, kembalikan default teks deskripsi PM
+      if (typeof updateJenis === 'function') updateJenis();
       } catch (e) { /* ignore */ }
     }
 
