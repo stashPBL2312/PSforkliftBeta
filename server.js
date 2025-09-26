@@ -78,7 +78,19 @@ const db = initDb();
 // Compression for faster responses
 app.use(compression());
 // Static files with caching in production
-app.use(express.static(path.join(__dirname, 'public'), isProd ? { maxAge: '7d', etag: true, lastModified: true } : {}));
+app.use(express.static(path.join(__dirname, 'public'), isProd ? {
+  etag: true,
+  lastModified: true,
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=60');
+    }
+  }
+} : {}));
 
 // Lightweight health endpoint (no auth)
 app.get('/healthz', (req, res) => {
@@ -89,15 +101,31 @@ app.get('/healthz', (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ ok: true });
 });
-// Add simple cache headers for GET APIs in production
+// Add simple cache headers for GET APIs in production (disabled for real-time)
 app.use((req, res, next) => {
   if (isProd && req.method === 'GET' && req.path.startsWith('/api/')) {
-    res.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+    // Disabled caching to ensure fresh responses
+    res.set('Cache-Control', 'no-store');
+    res.set('CDN-Cache-Control', 'no-store');
+    res.set('Surrogate-Control', 'no-store');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+  }
+  next();
+});
+// Disable caching for API responses to ensure real-time updates (esp. behind proxies/CDN)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    res.set('Cache-Control', 'no-store');
+    res.set('CDN-Cache-Control', 'no-store');
+    res.set('Surrogate-Control', 'no-store');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.set('Vary', 'Cookie, Authorization');
   }
   next();
 });
 
-// Helpers
 function requireLogin(req, res, next) {
   if (!req.session.user) return res.status(401).json({ error: 'Unauthorized' });
   next();

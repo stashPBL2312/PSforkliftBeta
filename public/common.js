@@ -17,8 +17,11 @@
 })();
 
 async function api(path, opts={}){
-  opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers||{});
+  opts.headers = Object.assign({ 'Content-Type': 'application/json', 'Cache-Control':'no-store' }, opts.headers||{});
   if (opts.body && typeof opts.body !== 'string') opts.body = JSON.stringify(opts.body);
+  // Ensure cookies are always sent and no browser cache is used
+  if (!('credentials' in opts)) opts.credentials = 'include';
+  if (!('cache' in opts)) opts.cache = 'no-store';
   const r = await fetch(path, opts);
   if (r.status === 401) { location.href = '/login.html'; return Promise.reject('Unauthorized'); }
   const data = await r.json().catch(()=>({}));
