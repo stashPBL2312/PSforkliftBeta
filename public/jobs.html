@@ -622,6 +622,56 @@
     // Autofill when forklift changes for Workshop (if not manually edited)
     // removed: fSel.onchange handler, replaced by suggest selection handler
 
+    function resetJobForm(){
+      try {
+        // Forklift
+        if (typeof jobForkliftId !== 'undefined') jobForkliftId = null;
+        const fkInputEl = document.getElementById('fk_input');
+        if (fkInputEl) fkInputEl.value = '';
+        if (fkSuggest){ fkSuggest.innerHTML=''; fkSuggest.style.display='none'; }
+
+        // Tanggal
+        const tglEl = document.getElementById('tanggal');
+        if (tglEl) tglEl.value = '';
+
+        // Teknisi
+        if (Array.isArray(selectedTech)) selectedTech.length = 0;
+        if (typeof renderTechTags === 'function') renderTechTags();
+        if (techInput) techInput.value = '';
+        if (techSuggest){ techSuggest.innerHTML=''; techSuggest.style.display='none'; }
+
+        // Report No
+        const rptEl = document.getElementById('report_no');
+        if (rptEl) rptEl.value = '';
+        if (typeof reportDirty !== 'undefined') reportDirty = false;
+
+        // Deskripsi & Rekomendasi (RTE)
+        const descEl = document.getElementById('description');
+        if (descEl) descEl.textContent = '';
+        const recEl = document.getElementById('recommendation');
+        if (recEl) recEl.textContent = '';
+
+        // Items free text (Lapangan)
+        const itemsFreeEl = document.getElementById('items_free');
+        if (itemsFreeEl) itemsFreeEl.textContent = '';
+
+        // Items chosen (Workshop/PM)
+        if (Array.isArray(chosen)) chosen.length = 0;
+        if (typeof renderChosen === 'function') renderChosen();
+        if (itemInput) itemInput.value = '';
+        if (itemQtyEl) itemQtyEl.value = '1';
+        if (itemSuggest){ itemSuggest.innerHTML=''; itemSuggest.style.display='none'; }
+
+        // Next PM
+        const nextDateEl = document.getElementById('next_pm_date');
+        if (nextDateEl) nextDateEl.value = '';
+        document.querySelectorAll('input[name="nextpm"]').forEach(r=> r.checked = false);
+
+        // Fokus kembali ke forklift untuk input cepat berikutnya
+        if (fkInputEl) fkInputEl.focus();
+      } catch (e) { /* ignore */ }
+    }
+
     document.getElementById('saveBtn').onclick = async ()=>{
       const jenis = jenisSel.value;
       const tanggal = document.getElementById('tanggal').value;
@@ -659,6 +709,7 @@
       try {
         const r = await api('/api/jobs', { method:'POST', body: payload });
         alert('Tersimpan. Report No: '+r.report_no);
+        resetJobForm();
       } catch (e) {
         alert(e.error || 'Gagal simpan');
       }
