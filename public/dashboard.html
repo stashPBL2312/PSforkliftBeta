@@ -67,6 +67,11 @@
           <option value="week">Minggu Ini</option>
           <option value="upcoming">Akan Datang</option>
         </select>
+        <select id="ptFilter" title="Filter Powertrain" aria-label="Filter Powertrain">
+          <option value="all" selected>All</option>
+          <option value="electric">Electric</option>
+          <option value="diesel">Diesel</option>
+        </select>
         <input id="search" placeholder="Cari..." style="margin-left:auto;" />
         <select id="rowsPerPage">
           <option>10</option><option>15</option><option>25</option>
@@ -85,25 +90,47 @@
     let allJobs = [];
     try { allJobs = await api('/api/jobs'); } catch(e){ allJobs = []; }
     // Ambil daftar forklifts untuk normalisasi row jika API metrics tidak menyertakan label forklift
-    let fkMap = {};
+    let fkMeta = {}; // by id
+    let fkByEq = {}; // by eq_no (lowercased)
     try {
       const forklifts = await api('/api/forklifts');
-      forklifts.forEach(f=>{ fkMap[f.id] = `${f.brand} ${f.type} (${f.eq_no})`; });
+      forklifts.forEach(f=>{
+        const eq = String(f.eq_no||'').trim().toLowerCase();
+        fkMeta[f.id] = { label: `${f.brand} ${f.type} (${f.eq_no})`, powertrain: String(f.powertrain||'') };
+        if (eq) fkByEq[eq] = { label: `${f.brand} ${f.type} (${f.eq_no})`, powertrain: String(f.powertrain||'') };
+      });
     } catch(e){ /* abaikan jika gagal, hanya berdampak pada label forklift */ }
 
     function parseISODate(s){ const d = new Date(s); return Number.isNaN(d.getTime())?null:d; }
+    function parseEqNoFromLabel(str){
+      const m = /\(([^)]+)\)\s*$/.exec(String(str||''));
+      return m ? String(m[1]).trim().toLowerCase() : '';
+    }
     function normalizeRow(r){
       const jadwal = r.jadwal_pm || r.next_pm || '';
+      const eqFromLabel = parseEqNoFromLabel(r.forklift);
+      const ptrain = r.powertrain
+        || (r.forklift_id && fkMeta[r.forklift_id] && fkMeta[r.forklift_id].powertrain)
+        || (eqFromLabel && fkByEq[eqFromLabel] && fkByEq[eqFromLabel].powertrain)
+        || '';
       return {
-        forklift: r.forklift || (r.forklift_id && fkMap[r.forklift_id]) || (r.forklift_id ? `#${r.forklift_id}` : ''),
+        forklift: r.forklift || (r.forklift_id && fkMeta[r.forklift_id] && fkMeta[r.forklift_id].label) || (eqFromLabel && fkByEq[eqFromLabel] && fkByEq[eqFromLabel].label) || (r.forklift_id ? `#${r.forklift_id}` : ''),
         jadwal_pm: jadwal,
         status: r.status || '',
         teknisi_terakhir: r.teknisi_terakhir || r.teknisi || '',
         service_terakhir: r.service_terakhir || r.tanggal || '',
+        powertrain: ptrain,
       };
     }
     function normalizeList(list){ return (Array.isArray(list)?list:[]).map(normalizeRow); }
     function byDateRange(list, predicate){ return normalizeList(list).filter(row=>{ const d=parseISODate(row.jadwal_pm); if(!d) return false; const today=new Date(); today.setHours(0,0,0,0); d.setHours(0,0,0,0); const next7 = new Date(today); next7.setDate(today.getDate()+7); return predicate({ d, today, next7 }); }); }
+    function ptCategoryOf(powertrain){
+      const s = String(powertrain||'').trim().toLowerCase();
+      if (!s) return '';
+      if (s.includes('electric') || s.includes('manual') || s.includes('instrument') || s.includes('tools')) return 'electric';
+      if (s.includes('diesel') || s.includes('lpg')) return 'diesel';
+      return '';
+    }
     function getDatasetForCategory(cat){
       if (cat==='late'){
         const src = Array.isArray(data.pmLate) && data.pmLate.length ? data.pmLate : (Array.isArray(data.pmMonth) ? data.pmMonth : []);
@@ -179,7 +206,14 @@
 
     function render(){
       const q = document.getElementById('search').value;
-      const filtered = filterData(pmData, q);
+      let base = pmData;
+      // Terapkan filter powertrain hanya untuk kategori Terlambat
+      const ptSel = document.getElementById('ptFilter');
+      const ptVal = (ptSel && ptSel.value) ? ptSel.value : 'all';
+      if (category==='late' && ptVal !== 'all'){
+        base = (Array.isArray(base)?base:[]).filter(r => ptCategoryOf(r.powertrain) === ptVal);
+      }
+      const filtered = filterData(base, q);
       const start = (page-1)*rows; const end = start+rows;
       simpleTable('pmTable', columns, filtered.slice(start,end));
       const pages = Math.max(1, Math.ceil(filtered.length/rows));
@@ -190,6 +224,8 @@
     document.getElementById('rowsPerPage').onchange = (e)=>{ rows = parseInt(e.target.value); page=1; render(); };
     const pmCatEl = document.getElementById('pmCategory');
     if (pmCatEl){ pmCatEl.onchange = ()=>{ category = pmCatEl.value; page=1; pmData = getDatasetForCategory(category); render(); }; }
+    const ptEl = document.getElementById('ptFilter');
+    if (ptEl){ ptEl.onchange = ()=>{ page=1; render(); }; }
     render();
   })(); });
   </script>
