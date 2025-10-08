@@ -89,32 +89,19 @@
     // Ambil semua jobs agar kategori "Akan Datang" bisa menampilkan SEMUA PM mendatang (tidak terbatas 7 hari)
     let allJobs = [];
     try { allJobs = await api('/api/jobs'); } catch(e){ allJobs = []; }
-    // Ambil daftar forklifts untuk normalisasi row jika API metrics tidak menyertakan label forklift
+    // Ambil daftar forklifts untuk fallback label/powertrain jika ada data kosong
     let fkMeta = {}; // by id
-    let fkByEq = {}; // by eq_no (lowercased)
     try {
       const forklifts = await api('/api/forklifts');
-      forklifts.forEach(f=>{
-        const eq = String(f.eq_no||'').trim().toLowerCase();
-        fkMeta[f.id] = { label: `${f.brand} ${f.type} (${f.eq_no})`, powertrain: String(f.powertrain||'') };
-        if (eq) fkByEq[eq] = { label: `${f.brand} ${f.type} (${f.eq_no})`, powertrain: String(f.powertrain||'') };
-      });
+      forklifts.forEach(f=>{ fkMeta[f.id] = { label: `${f.brand} ${f.type} (${f.eq_no})`, powertrain: String(f.powertrain||'') }; });
     } catch(e){ /* abaikan jika gagal, hanya berdampak pada label forklift */ }
 
     function parseISODate(s){ const d = new Date(s); return Number.isNaN(d.getTime())?null:d; }
-    function parseEqNoFromLabel(str){
-      const m = /\(([^)]+)\)\s*$/.exec(String(str||''));
-      return m ? String(m[1]).trim().toLowerCase() : '';
-    }
     function normalizeRow(r){
       const jadwal = r.jadwal_pm || r.next_pm || '';
-      const eqFromLabel = parseEqNoFromLabel(r.forklift);
-      const ptrain = r.powertrain
-        || (r.forklift_id && fkMeta[r.forklift_id] && fkMeta[r.forklift_id].powertrain)
-        || (eqFromLabel && fkByEq[eqFromLabel] && fkByEq[eqFromLabel].powertrain)
-        || '';
+      const ptrain = r.powertrain || (r.forklift_id && fkMeta[r.forklift_id] && fkMeta[r.forklift_id].powertrain) || '';
       return {
-        forklift: r.forklift || (r.forklift_id && fkMeta[r.forklift_id] && fkMeta[r.forklift_id].label) || (eqFromLabel && fkByEq[eqFromLabel] && fkByEq[eqFromLabel].label) || (r.forklift_id ? `#${r.forklift_id}` : ''),
+        forklift: r.forklift || (r.forklift_id && fkMeta[r.forklift_id] && fkMeta[r.forklift_id].label) || (r.forklift_id ? `#${r.forklift_id}` : ''),
         jadwal_pm: jadwal,
         status: r.status || '',
         teknisi_terakhir: r.teknisi_terakhir || r.teknisi || '',
@@ -207,10 +194,10 @@
     function render(){
       const q = document.getElementById('search').value;
       let base = pmData;
-      // Terapkan filter powertrain hanya untuk kategori Terlambat
+      // Terapkan filter powertrain untuk semua kategori (Terlambat, Minggu Ini, Akan Datang)
       const ptSel = document.getElementById('ptFilter');
       const ptVal = (ptSel && ptSel.value) ? ptSel.value : 'all';
-      if (category==='late' && ptVal !== 'all'){
+      if (ptVal !== 'all'){
         base = (Array.isArray(base)?base:[]).filter(r => ptCategoryOf(r.powertrain) === ptVal);
       }
       const filtered = filterData(base, q);
