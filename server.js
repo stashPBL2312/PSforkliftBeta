@@ -144,7 +144,7 @@ function requireRole(...roles) {
 // Auth routes
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
-  db.get('SELECT * FROM users WHERE email = ?', [email], async (err, user) => {
+  db.get("SELECT * FROM users WHERE email = ? AND (deleted_at IS NULL)", [email], async (err, user) => {
     if (err) return res.status(500).json({ error: 'DB error' });
     if (!user) return res.status(400).json({ error: 'Invalid credentials' });
     const ok = await bcrypt.compare(password, user.password);
@@ -215,17 +215,17 @@ app.get('/api/dashboard/metrics', requireLogin, async (req, res) => {
     const isoNextMonthStart = new Date(nextMonthStartDate.getTime() - tz*60000).toISOString().slice(0,10);
 
     const [totalForklifts, active, maint, totalJobs, jobsThisMonth, maintJobs, pmLate, pmWeek, pmMonth, pmUpcoming] = await Promise.all([
-      get('SELECT COUNT(*) as c FROM forklifts'),
-      get("SELECT COUNT(*) as c FROM forklifts WHERE status='active'"),
-      get("SELECT COUNT(*) as c FROM forklifts WHERE status='maintenance'"),
-      get('SELECT COUNT(*) as c FROM jobs'),
-      get("SELECT COUNT(*) as c FROM jobs WHERE tanggal>=? AND tanggal<?", [isoMonthStart, isoNextMonthStart]),
+      get('SELECT COUNT(*) as c FROM forklifts WHERE deleted_at IS NULL'),
+      get("SELECT COUNT(*) as c FROM forklifts WHERE status='active' AND deleted_at IS NULL"),
+      get("SELECT COUNT(*) as c FROM forklifts WHERE status='maintenance' AND deleted_at IS NULL"),
+      get('SELECT COUNT(*) as c FROM jobs WHERE deleted_at IS NULL'),
+      get("SELECT COUNT(*) as c FROM jobs WHERE deleted_at IS NULL AND tanggal>=? AND tanggal<?", [isoMonthStart, isoNextMonthStart]),
       // Maintenance Jobs harus dihitung dari service records (pekerjaan='PM'), bukan dari tabel jobs
-      get("SELECT COUNT(*) as c FROM records WHERE pekerjaan='PM'"),
-      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' AS forklift, j.forklift_id AS forklift_id, f.powertrain AS powertrain, j.next_pm AS jadwal_pm, 'Terlambat' AS status, j.teknisi AS teknisi_terakhir, j.tanggal AS service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND j.next_pm<? ORDER BY j.next_pm ASC", [isoNow]),
-      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' AS forklift, j.forklift_id AS forklift_id, f.powertrain AS powertrain, j.next_pm AS jadwal_pm, 'Minggu Ini' AS status, j.teknisi AS teknisi_terakhir, j.tanggal AS service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND j.next_pm BETWEEN ? AND ? ORDER BY j.next_pm ASC", [isoNow, isoWeekEnd]),
-      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' AS forklift, j.forklift_id AS forklift_id, f.powertrain AS powertrain, j.next_pm AS jadwal_pm, 'Bulan Ini' AS status, j.teknisi AS teknisi_terakhir, j.tanggal AS service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND j.next_pm>=? AND j.next_pm<? ORDER BY j.next_pm ASC", [isoMonthStart, isoNextMonthStart]),
-      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' AS forklift, j.forklift_id AS forklift_id, f.powertrain AS powertrain, j.next_pm AS jadwal_pm, 'Akan Datang' AS status, j.teknisi AS teknisi_terakhir, j.tanggal AS service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND j.next_pm>? ORDER BY j.next_pm ASC", [isoWeekEnd]),
+      get("SELECT COUNT(*) as c FROM records WHERE pekerjaan='PM' AND deleted_at IS NULL"),
+      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' AS forklift, j.forklift_id AS forklift_id, f.powertrain AS powertrain, j.next_pm AS jadwal_pm, 'Terlambat' AS status, j.teknisi AS teknisi_terakhir, j.tanggal AS service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND j.next_pm<? AND j.deleted_at IS NULL AND f.deleted_at IS NULL ORDER BY j.next_pm ASC", [isoNow]),
+      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' AS forklift, j.forklift_id AS forklift_id, f.powertrain AS powertrain, j.next_pm AS jadwal_pm, 'Minggu Ini' AS status, j.teknisi AS teknisi_terakhir, j.tanggal AS service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND j.next_pm BETWEEN ? AND ? AND j.deleted_at IS NULL AND f.deleted_at IS NULL ORDER BY j.next_pm ASC", [isoNow, isoWeekEnd]),
+      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' AS forklift, j.forklift_id AS forklift_id, f.powertrain AS powertrain, j.next_pm AS jadwal_pm, 'Bulan Ini' AS status, j.teknisi AS teknisi_terakhir, j.tanggal AS service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND j.next_pm>=? AND j.next_pm<? AND j.deleted_at IS NULL AND f.deleted_at IS NULL ORDER BY j.next_pm ASC", [isoMonthStart, isoNextMonthStart]),
+      all("SELECT f.brand||' '||f.type||' ('||f.eq_no||')' AS forklift, j.forklift_id AS forklift_id, f.powertrain AS powertrain, j.next_pm AS jadwal_pm, 'Akan Datang' AS status, j.teknisi AS teknisi_terakhir, j.tanggal AS service_terakhir FROM jobs j JOIN forklifts f ON f.id=j.forklift_id WHERE j.jenis='PM' AND j.next_pm IS NOT NULL AND j.next_pm>? AND j.deleted_at IS NULL AND f.deleted_at IS NULL ORDER BY j.next_pm ASC", [isoWeekEnd]),
     ]);
     res.json({
       totalForklifts: totalForklifts.c || 0,
@@ -259,8 +259,48 @@ app.get('/api/dashboard/metrics', requireLogin, async (req, res) => {
     db.run("UPDATE records SET location=(SELECT location FROM forklifts f WHERE f.id=records.forklift_id) WHERE location IS NULL OR location=''", ()=>{});
   } catch (e) { /* noop */ }
 })();
+// Migration ringan: tambahkan kolom audit (created_at, updated_at, deleted_at) jika belum ada
+(function ensureAuditColumns(){
+  try {
+    // Users
+    db.run("ALTER TABLE users ADD COLUMN created_at TEXT", ()=>{});
+    db.run("ALTER TABLE users ADD COLUMN updated_at TEXT", ()=>{});
+    db.run("ALTER TABLE users ADD COLUMN deleted_at TEXT", ()=>{});
+    // Forklifts
+    db.run("ALTER TABLE forklifts ADD COLUMN created_at TEXT", ()=>{});
+    db.run("ALTER TABLE forklifts ADD COLUMN updated_at TEXT", ()=>{});
+    db.run("ALTER TABLE forklifts ADD COLUMN deleted_at TEXT", ()=>{});
+    // Items
+    db.run("ALTER TABLE items ADD COLUMN created_at TEXT", ()=>{});
+    db.run("ALTER TABLE items ADD COLUMN updated_at TEXT", ()=>{});
+    db.run("ALTER TABLE items ADD COLUMN deleted_at TEXT", ()=>{});
+    // Jobs: pastikan semua kolom audit ada
+    db.run("ALTER TABLE jobs ADD COLUMN created_at TEXT", ()=>{});
+    db.run("ALTER TABLE jobs ADD COLUMN updated_at TEXT", ()=>{});
+    db.run("ALTER TABLE jobs ADD COLUMN deleted_at TEXT", ()=>{});
+    // Records
+    db.run("ALTER TABLE records ADD COLUMN created_at TEXT", ()=>{});
+    db.run("ALTER TABLE records ADD COLUMN updated_at TEXT", ()=>{});
+    db.run("ALTER TABLE records ADD COLUMN deleted_at TEXT", ()=>{});
+
+    // Backfill nilai untuk baris lama agar tidak NULL
+    db.run("UPDATE users SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)", ()=>{});
+    db.run("UPDATE users SET updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)", ()=>{});
+    db.run("UPDATE forklifts SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)", ()=>{});
+    db.run("UPDATE forklifts SET updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)", ()=>{});
+    db.run("UPDATE items SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)", ()=>{});
+    db.run("UPDATE items SET updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)", ()=>{});
+    db.run("UPDATE records SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)", ()=>{});
+    db.run("UPDATE records SET updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)", ()=>{});
+    // Jobs sudah punya created_at/updated_at di schema; tetap backfill jika perlu
+    db.run("UPDATE jobs SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)", ()=>{});
+    db.run("UPDATE jobs SET updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)", ()=>{});
+    // Checkpoint WAL supaya perubahan schema terlihat di DB Browser
+    db.run("PRAGMA wal_checkpoint(FULL)", ()=>{});
+  } catch (e) { /* noop */ }
+})();
 app.get('/api/users', requireRole('admin'), async (req, res) => {
-  const rows = await all('SELECT id, email, name, role FROM users ORDER BY id DESC');
+  const rows = await all("SELECT id, email, name, role FROM users WHERE deleted_at IS NULL ORDER BY id DESC");
   res.json(rows);
 });
 app.post('/api/users', requireRole('admin'), async (req, res) => {
@@ -301,7 +341,7 @@ app.put('/api/users/:id', requireRole('admin'), async (req, res) => {
 });
 app.delete('/api/users/:id', requireRole('admin'), async (req, res) => {
   try {
-    await run('DELETE FROM users WHERE id=?', [req.params.id]);
+    await run("UPDATE users SET deleted_at = datetime('now') WHERE id=?", [req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'User delete failed' });
@@ -314,10 +354,10 @@ app.get('/api/technicians', requireLogin, async (req, res) => {
     const q = (req.query.q || '').trim();
     if (q) {
       const like = `%${q}%`;
-      const rows = await all("SELECT id, name, email FROM users WHERE role='teknisi' AND (COALESCE(name,'') LIKE ? OR email LIKE ?) ORDER BY name, email LIMIT 20", [like, like]);
+      const rows = await all("SELECT id, name, email FROM users WHERE role='teknisi' AND deleted_at IS NULL AND (COALESCE(name,'') LIKE ? OR email LIKE ?) ORDER BY name, email LIMIT 20", [like, like]);
       return res.json(rows);
     }
-    const rows = await all("SELECT id, name, email FROM users WHERE role='teknisi' ORDER BY name, email LIMIT 100", []);
+    const rows = await all("SELECT id, name, email FROM users WHERE role='teknisi' AND deleted_at IS NULL ORDER BY name, email LIMIT 100", []);
     res.json(rows);
   } catch (e) {
     res.status(500).json({ error: 'Failed to load technicians' });
@@ -325,7 +365,7 @@ app.get('/api/technicians', requireLogin, async (req, res) => {
 });
 app.get('/api/forklifts', requireLogin, async (req, res) => {
   try {
-    const rows = await all('SELECT * FROM forklifts ORDER BY id DESC', []);
+    const rows = await all("SELECT * FROM forklifts WHERE deleted_at IS NULL ORDER BY id DESC", []);
     res.json(rows);
   } catch (e) {
     res.status(400).json({ error: 'Forklifts query failed' });
@@ -350,7 +390,7 @@ app.post('/api/forklifts', requireRole('admin','supervisor'), async (req, res) =
 app.put('/api/forklifts/:id', requireRole('admin','supervisor'), async (req, res) => {
   const { brand, type, eq_no, serial, location, powertrain, owner, tahun, status } = req.body;
   try {
-    await run('UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=? WHERE id=?', [brand,type,eq_no,serial,location,powertrain,owner,tahun,status, req.params.id]);
+    await run("UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=?, updated_at = datetime('now') WHERE id=?", [brand,type,eq_no,serial,location,powertrain,owner,tahun,status, req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     let msg = 'Forklift update failed';
@@ -366,10 +406,10 @@ app.put('/api/forklifts/:id', requireRole('admin','supervisor'), async (req, res
 app.delete('/api/forklifts/:id', requireRole('admin','supervisor'), async (req, res) => {
   try {
     const id = req.params.id;
-    // Hapus child records terlebih dahulu untuk memenuhi foreign key constraints
-    await run('DELETE FROM records WHERE forklift_id=?', [id]);
-    await run('DELETE FROM jobs WHERE forklift_id=?', [id]);
-    await run('DELETE FROM forklifts WHERE id=?', [id]);
+    // Soft delete child records dan jobs untuk menjaga data dapat direcover
+    await run("UPDATE records SET deleted_at = datetime('now') WHERE forklift_id=?", [id]);
+    await run("UPDATE jobs SET deleted_at = datetime('now') WHERE forklift_id=?", [id]);
+    await run("UPDATE forklifts SET deleted_at = datetime('now') WHERE id=?", [id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Forklift delete failed' });
@@ -380,10 +420,10 @@ app.post('/api/forklifts/bulk-delete', requireRole('admin','supervisor'), async 
   if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'No ids' });
   try {
     const placeholders = ids.map(() => '?').join(',');
-    // Hapus child records terlebih dahulu untuk memenuhi foreign key constraints
-    await run(`DELETE FROM records WHERE forklift_id IN (${placeholders})`, ids);
-    await run(`DELETE FROM jobs WHERE forklift_id IN (${placeholders})`, ids);
-    await run(`DELETE FROM forklifts WHERE id IN (${placeholders})`, ids);
+    // Soft delete child records dan jobs
+    await run(`UPDATE records SET deleted_at = datetime('now') WHERE forklift_id IN (${placeholders})`, ids);
+    await run(`UPDATE jobs SET deleted_at = datetime('now') WHERE forklift_id IN (${placeholders})`, ids);
+    await run(`UPDATE forklifts SET deleted_at = datetime('now') WHERE id IN (${placeholders})`, ids);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Bulk delete failed' });
@@ -417,11 +457,11 @@ app.post('/api/forklifts/import', requireRole('admin','supervisor'), async (req,
         if (!eq_no && !serial){ errors.push({ index: i+2, error: 'EQ No atau Serial wajib diisi' }); continue; }
 
         let existing = null;
-        if (eq_no){ existing = await get('SELECT id FROM forklifts WHERE eq_no=?', [eq_no]); }
-        if (!existing && serial){ existing = await get('SELECT id FROM forklifts WHERE serial=?', [serial]); }
+        if (eq_no){ existing = await get('SELECT id FROM forklifts WHERE eq_no=? AND deleted_at IS NULL', [eq_no]); }
+        if (!existing && serial){ existing = await get('SELECT id FROM forklifts WHERE serial=? AND deleted_at IS NULL', [serial]); }
 
         if (existing){
-          await run('UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=? WHERE id=?', [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, tahunVal, status||null, existing.id]);
+          await run("UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=?, updated_at = datetime('now') WHERE id=?", [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, tahunVal, status||null, existing.id]);
           updated++;
         } else {
           await run('INSERT INTO forklifts (brand,type,eq_no,serial,location,powertrain,owner,tahun,status) VALUES (?,?,?,?,?,?,?,?,?)', [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, tahunVal, status||null]);
@@ -441,7 +481,7 @@ app.post('/api/forklifts/import', requireRole('admin','supervisor'), async (req,
 
 // Items CRUD
 app.get('/api/items', requireLogin, async (req, res) => {
-  const rows = await all('SELECT * FROM items ORDER BY id DESC');
+  const rows = await all("SELECT * FROM items WHERE deleted_at IS NULL ORDER BY id DESC");
   res.json(rows);
 });
 app.post('/api/items', requireRole('admin','supervisor'), async (req, res) => {
@@ -456,7 +496,7 @@ app.post('/api/items', requireRole('admin','supervisor'), async (req, res) => {
 app.put('/api/items/:id', requireRole('admin','supervisor'), async (req, res) => {
   const { code, nama, unit, description, status } = req.body;
   try {
-    await run('UPDATE items SET code=?, nama=?, unit=?, description=?, status=? WHERE id=?', [code,nama,unit,description,status, req.params.id]);
+    await run("UPDATE items SET code=?, nama=?, unit=?, description=?, status=?, updated_at = datetime('now') WHERE id=?", [code,nama,unit,description,status, req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Item update failed' });
@@ -464,7 +504,7 @@ app.put('/api/items/:id', requireRole('admin','supervisor'), async (req, res) =>
 });
 app.delete('/api/items/:id', requireRole('admin','supervisor'), async (req, res) => {
   try {
-    await run('DELETE FROM items WHERE id=?', [req.params.id]);
+    await run("UPDATE items SET deleted_at = datetime('now') WHERE id=?", [req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Item delete failed' });
@@ -501,13 +541,13 @@ app.get('/api/jobs/next-report', requireLogin, async (req, res) => {
     const prefix = reportPrefixForPowertrain(fk && fk.powertrain);
     // Ambil sumber penomoran dari service records saat ini, bukan dari tabel jobs,
     // agar jika record W00005 dihapus maka next kembali ke W00005 (bukan W00006)
-    const rows = await all(`SELECT report_no FROM records WHERE report_no LIKE ? AND pekerjaan='Workshop' ORDER BY id DESC LIMIT 100`, [prefix+'%']);
+    const rows = await all(`SELECT report_no FROM records WHERE report_no LIKE ? AND pekerjaan='Workshop' AND deleted_at IS NULL ORDER BY id DESC LIMIT 100`, [prefix+'%']);
     const report_no = nextReportNo(prefix, rows);
     res.json({ report_no, prefix });
   }catch(e){ res.status(400).json({ error: 'Gagal ambil nomor' }); }
 });
 app.get('/api/jobs', requireLogin, async (req, res) => {
-  const rows = await all('SELECT * FROM jobs ORDER BY id DESC');
+  const rows = await all("SELECT * FROM jobs WHERE deleted_at IS NULL ORDER BY id DESC");
   res.json(rows);
 });
 app.post('/api/jobs', requireRole('admin','supervisor','teknisi'), async (req, res) => {
@@ -552,7 +592,7 @@ app.put('/api/jobs/:id', requireRole('admin','supervisor'), async (req, res) => 
     // Ambil data lama untuk sinkronisasi ke records
     const old = await get('SELECT report_no, forklift_id FROM jobs WHERE id=?', [req.params.id]);
 
-    await run('UPDATE jobs SET jenis=?, forklift_id=?, tanggal=?, teknisi=?, report_no=?, description=?, recommendation=?, items_used=?, next_pm=? WHERE id=?', [jenis,forklift_id,tanggal,teknisi,report_no,description,recommendation,items_used,next_pm || null, req.params.id]);
+    await run("UPDATE jobs SET jenis=?, forklift_id=?, tanggal=?, teknisi=?, report_no=?, description=?, recommendation=?, items_used=?, next_pm=?, updated_at = datetime('now') WHERE id=?", [jenis,forklift_id,tanggal,teknisi,report_no,description,recommendation,items_used,next_pm || null, req.params.id]);
 
     // Sinkronkan ke service records agar statistik Maintenance Jobs (berbasis records) ikut berubah ketika job diubah
     if (old && old.report_no) {
@@ -579,9 +619,9 @@ app.delete('/api/jobs/:id', requireRole('admin','supervisor'), async (req, res) 
     // Hapus service record terkait agar statistik Maintenance Jobs (records) ikut berkurang
     const old = await get('SELECT report_no, forklift_id FROM jobs WHERE id=?', [req.params.id]);
     if (old && old.report_no) {
-      await run('DELETE FROM records WHERE report_no=? AND forklift_id=?', [old.report_no, old.forklift_id]);
+      await run("UPDATE records SET deleted_at = datetime('now') WHERE report_no=? AND forklift_id=?", [old.report_no, old.forklift_id]);
     }
-    await run('DELETE FROM jobs WHERE id=?', [req.params.id]);
+    await run("UPDATE jobs SET deleted_at = datetime('now') WHERE id=?", [req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Job delete failed' });
@@ -593,7 +633,7 @@ app.get('/api/records', requireLogin, async (req, res) => {
   try {
     const { q, forklift_id, start, end } = req.query;
     const params = [];
-    let sql = `SELECT r.*, (SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=r.forklift_id) as forklift, r.location as forklift_location, COALESCE((SELECT j.next_pm FROM jobs j WHERE j.report_no=r.report_no AND j.forklift_id=r.forklift_id AND j.jenis='PM' ORDER BY j.id DESC LIMIT 1), (SELECT j.next_pm FROM jobs j WHERE j.jenis='PM' AND j.forklift_id=r.forklift_id ORDER BY j.id DESC LIMIT 1)) as next_pm FROM records r WHERE 1=1`;
+    let sql = `SELECT r.*, (SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=r.forklift_id) as forklift, r.location as forklift_location, COALESCE((SELECT j.next_pm FROM jobs j WHERE j.report_no=r.report_no AND j.forklift_id=r.forklift_id AND j.jenis='PM' AND j.deleted_at IS NULL ORDER BY j.id DESC LIMIT 1), (SELECT j.next_pm FROM jobs j WHERE j.jenis='PM' AND j.forklift_id=r.forklift_id AND j.deleted_at IS NULL ORDER BY j.id DESC LIMIT 1)) as next_pm FROM records r WHERE r.deleted_at IS NULL`;
     // Filter by forklift
     if (forklift_id) { sql += ' AND r.forklift_id=?'; params.push(forklift_id); }
     // Range filter (gunakan perbandingan string ISO agar bisa gunakan indeks)
@@ -640,7 +680,7 @@ app.post('/api/records/import', requireRole('admin','supervisor'), async (req, r
 
         if (!fkStr){ errors.push({ index: i+2, error: 'Forklift kosong' }); continue; }
         const eq = parseEqNo(fkStr);
-        const fk = await get('SELECT id, location FROM forklifts WHERE eq_no=?', [eq]);
+        const fk = await get('SELECT id, location FROM forklifts WHERE eq_no=? AND deleted_at IS NULL', [eq]);
         if (!fk){ errors.push({ index: i+2, error: `Forklift tidak ditemukan untuk EQ No: ${eq}` }); continue; }
 
         // Snapshot location jika kolom Location kosong
@@ -651,11 +691,11 @@ app.post('/api/records/import', requireRole('admin','supervisor'), async (req, r
         // Upsert berdasarkan (report_no, forklift_id)
         let existing = null;
         if (report_no) {
-          existing = await get('SELECT id FROM records WHERE report_no=? AND forklift_id=?', [report_no, fk.id]);
+          existing = await get('SELECT id FROM records WHERE report_no=? AND forklift_id=? AND deleted_at IS NULL', [report_no, fk.id]);
         }
 
         if (existing){
-          await run('UPDATE records SET tanggal=?, report_no=?, forklift_id=?, pekerjaan=?, teknisi=?, description=?, recommendation=?, items_used=?, location=? WHERE id=?', [tanggal||null, report_no||null, fk.id, pekerjaan||null, teknisi||null, description||null, recommendation||null, items_used||null, loc||null, existing.id]);
+          await run("UPDATE records SET tanggal=?, report_no=?, forklift_id=?, pekerjaan=?, teknisi=?, description=?, recommendation=?, items_used=?, location=?, updated_at = datetime('now') WHERE id=?", [tanggal||null, report_no||null, fk.id, pekerjaan||null, teknisi||null, description||null, recommendation||null, items_used||null, loc||null, existing.id]);
           updated++;
         } else {
           await run('INSERT INTO records (tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, location) VALUES (?,?,?,?,?,?,?,?,?)', [tanggal||null, report_no||null, fk.id, pekerjaan||null, teknisi||null, description||null, recommendation||null, items_used||null, loc||null]);
@@ -706,7 +746,7 @@ app.put('/api/records/:id', requireLogin, async (req, res) => {
       const fk = await get('SELECT location FROM forklifts WHERE id=?', [forklift_id]);
       locVal = fk ? fk.location : null;
     }
-    await run('UPDATE records SET tanggal=?, report_no=?, forklift_id=?, pekerjaan=?, teknisi=?, description=?, recommendation=?, items_used=?, location=? WHERE id=?', [tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, locVal || null, req.params.id]);
+    await run("UPDATE records SET tanggal=?, report_no=?, forklift_id=?, pekerjaan=?, teknisi=?, description=?, recommendation=?, items_used=?, location=?, updated_at = datetime('now') WHERE id=?", [tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, locVal || null, req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Record update failed' });
@@ -717,7 +757,7 @@ app.delete('/api/records/:id', requireLogin, async (req, res) => {
   try {
     const user = req.session.user;
     if (user.role === 'admin' || user.role === 'supervisor') {
-      await run('DELETE FROM records WHERE id=?', [req.params.id]);
+      await run("UPDATE records SET deleted_at = datetime('now') WHERE id=?", [req.params.id]);
       return res.json({ message: 'ok' });
     }
     if (user.role === 'teknisi') {
@@ -727,7 +767,7 @@ app.delete('/api/records/:id', requireLogin, async (req, res) => {
       const name = String(user.name || '').toLowerCase();
       const assigned = low.includes(email) || (!!name && low.includes(name));
       if (!assigned) return res.status(403).json({ error: 'Forbidden' });
-      await run('DELETE FROM records WHERE id=?', [req.params.id]);
+      await run("UPDATE records SET deleted_at = datetime('now') WHERE id=?", [req.params.id]);
       return res.json({ message: 'ok' });
     }
     return res.status(403).json({ error: 'Forbidden' });
@@ -744,7 +784,7 @@ app.post('/api/records/bulk-delete', requireLogin, async (req, res) => {
 
     if (user.role === 'admin' || user.role === 'supervisor') {
       const placeholders = ids.map(()=>'?').join(',');
-      await run(`DELETE FROM records WHERE id IN (${placeholders})`, ids);
+      await run(`UPDATE records SET deleted_at = datetime('now') WHERE id IN (${placeholders})`, ids);
       return res.json({ message: 'ok', deleted: ids.length });
     }
 
@@ -760,7 +800,7 @@ app.post('/api/records/bulk-delete', requireLogin, async (req, res) => {
       }).map(r=>r.id);
       if (!ownIds.length) return res.status(403).json({ error: 'Tidak ada record milik Anda dalam pilihan' });
       const ph2 = ownIds.map(()=>'?').join(',');
-      await run(`DELETE FROM records WHERE id IN (${ph2})`, ownIds);
+      await run(`UPDATE records SET deleted_at = datetime('now') WHERE id IN (${ph2})`, ownIds);
       return res.json({ message: 'ok', deleted: ownIds.length });
     }
 
@@ -777,4 +817,57 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+});
+// Restore a soft-deleted user (admin only)
+app.post('/api/users/:id/restore', requireRole('admin'), async (req, res) => {
+  try {
+    await run("UPDATE users SET deleted_at = NULL, updated_at = datetime('now') WHERE id=?", [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'User restore failed' });
+  }
+});
+// Restore a soft-deleted forklift and related jobs/records
+app.post('/api/forklifts/:id/restore', requireRole('admin','supervisor'), async (req, res) => {
+  try {
+    const id = req.params.id;
+    await run("UPDATE forklifts SET deleted_at = NULL, updated_at = datetime('now') WHERE id=?", [id]);
+    await run("UPDATE jobs SET deleted_at = NULL, updated_at = datetime('now') WHERE forklift_id=?", [id]);
+    await run("UPDATE records SET deleted_at = NULL, updated_at = datetime('now') WHERE forklift_id=?", [id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Forklift restore failed' });
+  }
+});
+// Restore a soft-deleted item
+app.post('/api/items/:id/restore', requireRole('admin','supervisor'), async (req, res) => {
+  try {
+    await run("UPDATE items SET deleted_at = NULL, updated_at = datetime('now') WHERE id=?", [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Item restore failed' });
+  }
+});
+// Restore a soft-deleted job and its linked record
+app.post('/api/jobs/:id/restore', requireRole('admin','supervisor'), async (req, res) => {
+  try {
+    const id = req.params.id;
+    const job = await get('SELECT report_no, forklift_id FROM jobs WHERE id=?', [id]);
+    await run("UPDATE jobs SET deleted_at = NULL, updated_at = datetime('now') WHERE id=?", [id]);
+    if (job && job.report_no) {
+      await run("UPDATE records SET deleted_at = NULL, updated_at = datetime('now') WHERE report_no=? AND forklift_id=?", [job.report_no, job.forklift_id]);
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Job restore failed' });
+  }
+});
+// Restore a soft-deleted record
+app.post('/api/records/:id/restore', requireRole('admin','supervisor'), async (req, res) => {
+  try {
+    await run("UPDATE records SET deleted_at = NULL, updated_at = datetime('now') WHERE id=?", [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Record restore failed' });
+  }
 });

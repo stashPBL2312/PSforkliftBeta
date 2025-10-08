@@ -208,6 +208,7 @@
           <button id="apply">Reset</button>
           <button id="importExcel">Import Excel</button>
           <button id="exportExcel">Export Excel</button>
+          <button id="exportCSV">Export CSV</button>
           <button id="exportPDF">Export PDF</button>
           <button id="bulkDeleteBtn">Hapus Terpilih</button>
         </div>
@@ -1239,6 +1240,30 @@ if (btnPDF) btnPDF.onclick = async ()=>{
   }catch(e){ console.error(e); alert('Gagal export PDF'); }
 };
 
+// Export CSV
+const btnCSV = document.getElementById('exportCSV');
+if (btnCSV) btnCSV.onclick = async ()=>{
+  try{
+    const useSelected = selected && selected.size>0;
+    const idSet = useSelected ? new Set(Array.from(selected)) : null;
+    const rowsSource = useSelected ? (data||[]).filter(r=> idSet.has(r.id)) : (data||[]);
+    const headers = ['Tanggal','Report No','Forklift','Location','Pekerjaan','Teknisi','Next PM','Description','Recommendation','Items Used'];
+    const lines = [];
+    lines.push(headers.map(h=> '"'+String(h).replace(/"/g,'""')+'"').join(','));
+    for (const r of rowsSource){
+      const vals = [r.tanggal||'', r.report_no||'', r.forklift||'', r.forklift_location||'', r.pekerjaan||'', r.teknisi||'', r.next_pm||'', r.description||'', r.recommendation||'', r.items_used||''];
+      const row = vals.map(s=>{
+        const str = String(s);
+        const quoted = /[",\n]/.test(str) ? '"'+str.replace(/"/g,'""')+'"' : str;
+        return quoted;
+      }).join(',');
+      lines.push(row);
+    }
+    const blob = new Blob([lines.join('\n')], { type:'text/csv;charset=utf-8' });
+    downloadBlob('records.csv', blob);
+  }catch(e){ console.error(e); alert('Gagal export CSV'); }
+};
+
 // Bulk delete selected
 const bulkBtn = document.getElementById('bulkDeleteBtn');
 if (bulkBtn) bulkBtn.onclick = async ()=>{
@@ -1246,9 +1271,9 @@ if (bulkBtn) bulkBtn.onclick = async ()=>{
   if (!(await confirmDialog('Hapus semua record terpilih?'))) return;
   try{
     const ids = Array.from(selected);
-    const results = await Promise.allSettled(ids.map(id=> api('/api/records/'+id, { method:'DELETE' })));
-    const ok = results.filter(r=> r.status==='fulfilled').length;
-    const fail = results.length - ok;
+    const resp = await api('/api/records/bulk-delete', { method:'POST', body:{ ids } });
+    const ok = resp && typeof resp.deleted==='number' ? resp.deleted : ids.length;
+    const fail = ids.length - ok;
     selected.clear();
     await load();
     if (fail>0){ alert(`Bulk delete selesai. Sukses: ${ok}, Gagal: ${fail}`); }

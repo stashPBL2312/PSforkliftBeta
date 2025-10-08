@@ -10,7 +10,10 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT UNIQUE NOT NULL,
   password TEXT NOT NULL,
   role TEXT CHECK(role IN ('admin','supervisor','teknisi')) NOT NULL,
-  name TEXT
+  name TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now')),
+  deleted_at TEXT
 );
 -- Indexes for users
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
@@ -26,7 +29,10 @@ CREATE TABLE IF NOT EXISTS forklifts (
   powertrain TEXT,
   owner TEXT,
   tahun INTEGER,
-  status TEXT CHECK(status IN ('active','maintenance','retired'))
+  status TEXT CHECK(status IN ('active','maintenance','retired')),
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now')),
+  deleted_at TEXT
 );
 -- Indexes for forklifts
 CREATE INDEX IF NOT EXISTS idx_forklifts_eq_no ON forklifts(eq_no);
@@ -44,7 +50,10 @@ CREATE TABLE IF NOT EXISTS items (
   nama TEXT,
   unit TEXT,
   description TEXT,
-  status TEXT
+  status TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now')),
+  deleted_at TEXT
 );
 -- Indexes for items
 CREATE INDEX IF NOT EXISTS idx_items_code ON items(code);
@@ -66,6 +75,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   next_pm TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now')),
+  deleted_at TEXT,
   FOREIGN KEY(forklift_id) REFERENCES forklifts(id)
 );
 -- Indexes for jobs used by queries
@@ -86,6 +96,9 @@ CREATE TABLE IF NOT EXISTS records (
   recommendation TEXT,
   items_used TEXT,
   location TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now')),
+  deleted_at TEXT,
   FOREIGN KEY(forklift_id) REFERENCES forklifts(id)
 );
 -- Indexes for records
