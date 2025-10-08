@@ -274,6 +274,16 @@
     const user = await ensureAuthedAndRenderNav(); if (!user) return;
     const forklifts = await api('/api/forklifts');
     const items = await api('/api/items');
+    // Indexing untuk pencarian cepat (_q) tanpa mengubah perilaku
+    function indexFk(rows){
+      try { (rows||[]).forEach(r=>{ const vals=[r.location,r.eq_no,r.brand,r.type,r.powertrain]; r._q = vals.map(v=> String(v||'').toLowerCase()).join(' | '); }); } catch {}
+      return rows;
+    }
+    function indexItems(rows){
+      try { (rows||[]).forEach(r=>{ const vals=[r.code,r.nama,r.status]; r._q = vals.map(v=> String(v||'').toLowerCase()).join(' | '); }); } catch {}
+      return rows;
+    }
+    indexFk(forklifts); indexItems(items);
     // Hasil pencarian teknisi via AJAX
     let lastTechResults = [];
     let techReqSeq = 0;
@@ -283,6 +293,8 @@
     const fkInput = document.getElementById('fk_input');
     const fkSuggest = document.getElementById('fkSuggest');
     const fkClear = document.getElementById('fk_clear');
+    // Hint performa untuk dropdown suggest agar render ringan
+    ;[fkSuggest].forEach(el=>{ try{ if(el && !el.dataset.perfApplied){ el.style.contentVisibility = el.style.contentVisibility || 'auto'; el.style.containIntrinsicSize = el.style.containIntrinsicSize || '120px'; el.dataset.perfApplied='1'; } }catch{} });
     let jobForkliftId = null;
     if (fkClear) {
       fkClear.addEventListener('click', ()=>{
@@ -295,7 +307,8 @@
     function filterFk(q){
       const s = String(q||'').toLowerCase();
       if (!s) return fkCache;
-      return fkCache.filter(f=> [f.location, f.eq_no, f.brand, f.type, f.powertrain].some(v=> String(v||'').toLowerCase().includes(s)) );
+      try { return fkCache.filter(f=> String(f._q||'').includes(s)); }
+      catch { return fkCache.filter(f=> [f.location, f.eq_no, f.brand, f.type, f.powertrain].some(v=> String(v||'').toLowerCase().includes(s)) ); }
     }
     function renderFkSuggest(){
       if (!fkInput || !fkSuggest) return;
@@ -344,6 +357,7 @@
     const techInput = document.getElementById('teknisi_input');
     const techTags = document.getElementById('teknisi_tags');
     const techSuggest = document.getElementById('techSuggest');
+    ;[techSuggest].forEach(el=>{ try{ if(el && !el.dataset.perfApplied){ el.style.contentVisibility = el.style.contentVisibility || 'auto'; el.style.containIntrinsicSize = el.style.containIntrinsicSize || '120px'; el.dataset.perfApplied='1'; } }catch{} });
     let selectedTech = [];
     // helper debounce
     const makeDebounce = (fn, delay=250)=>{ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), delay); }; };
@@ -484,12 +498,14 @@
     // Item suggest (dropdown) mirip forklift/teknisi
     const itemInput = document.getElementById('itemSearch');
     const itemSuggest = document.getElementById('itemSuggest');
+    ;[itemSuggest].forEach(el=>{ try{ if(el && !el.dataset.perfApplied){ el.style.contentVisibility = el.style.contentVisibility || 'auto'; el.style.containIntrinsicSize = el.style.containIntrinsicSize || '120px'; el.dataset.perfApplied='1'; } }catch{} });
     const itemQtyEl = document.getElementById('itemQty');
 
     function filterItems(q){
       const s = String(q||'').toLowerCase();
       if (!s) return items;
-      return items.filter(i=> Object.values(i).some(v=> String(v||'').toLowerCase().includes(s)) );
+      try { return items.filter(i=> String(i._q||'').includes(s)); }
+      catch { return items.filter(i=> Object.values(i).some(v=> String(v||'').toLowerCase().includes(s)) ); }
     }
 
     function renderItemSuggest(){

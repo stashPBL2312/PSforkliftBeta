@@ -84,6 +84,16 @@
   window.addEventListener('DOMContentLoaded', ()=>{ (async function(){
     const user = await ensureAuthedAndRenderNav(); if (!user) return;
     let data = await api('/api/forklifts');
+    function indexRows(rows){
+      try{
+        (rows||[]).forEach(r=>{
+          const vals = [r.brand, r.type, r.eq_no, r.serial, r.location, r.powertrain, r.owner, r.tahun, r.status];
+          r._q = vals.map(v=> String(v||'').toLowerCase()).join(' | ');
+        });
+      }catch{}
+      return rows;
+    }
+    data = indexRows(data);
     let selected = new Set();
 
     const columns = [
@@ -182,10 +192,18 @@ function sortRows(rows){
       `;
     }
 
+    function fastFilter(rows, keyword){
+      if (!keyword) return rows;
+      const q = String(keyword).toLowerCase();
+      try { return (rows||[]).filter(r=> String(r._q||'').includes(q)); }
+      catch { return filterData(rows||[], keyword); }
+    }
     function render(){
       perfStart && perfStart('forklift.render');
+      // Pastikan data selalu ter-index untuk pencarian cepat
+      data = indexRows(data);
       const q = document.getElementById('search').value;
-      const filtered = filterData(data, q);
+      const filtered = fastFilter(data, q);
       const sorted = sortRows(filtered);
       const start = (page-1)*rows; const end = start+rows;
       const rowsData = sorted.slice(start,end).map(x=>Object.assign({}, x));
@@ -256,6 +274,7 @@ function sortRows(rows){
                 const id = btn.getAttribute('data-del');
                 await api('/api/forklifts/'+id, { method:'DELETE' });
                 data = await api('/api/forklifts');
+                data = indexRows(data);
                 render();
               }catch(e){
                 console.error('Delete forklift error:', e);
@@ -296,6 +315,7 @@ function sortRows(rows){
         await api('/api/forklifts/bulk-delete', { method:'POST', body: { ids } });
         selected.clear();
         data = await api('/api/forklifts');
+        data = indexRows(data);
         render();
         alert('Bulk delete sukses');
       } catch (e) {

@@ -96,6 +96,9 @@
       forklifts.forEach(f=>{ fkMeta[f.id] = { label: `${f.brand} ${f.type} (${f.eq_no})`, powertrain: String(f.powertrain||'') }; });
     } catch(e){ /* abaikan jika gagal, hanya berdampak pada label forklift */ }
 
+    // Terapkan hint performa pada kontainer tabel untuk mempercepat paint/layout
+    try { applyTablePerformanceHints('pmTable'); } catch(_) {}
+
     function parseISODate(s){ const d = new Date(s); return Number.isNaN(d.getTime())?null:d; }
     function normalizeRow(r){
       const jadwal = r.jadwal_pm || r.next_pm || '';
@@ -117,6 +120,27 @@
       if (s.includes('electric') || s.includes('manual') || s.includes('instrument') || s.includes('tools')) return 'electric';
       if (s.includes('diesel') || s.includes('lpg')) return 'diesel';
       return '';
+    }
+    // Indexing untuk mempercepat filter: powertrain (_pt) dan query gabungan (_q)
+    function indexRows(list){
+      const arr = Array.isArray(list)?list:[];
+      for (let i=0;i<arr.length;i++){
+        const r = arr[i];
+        // Precompute kategori powertrain agar filter cepat
+        r._pt = ptCategoryOf(r.powertrain);
+        // Precompute string pencarian agar filter keyword tidak memanggil Object.values setiap kali
+        r._q = (
+          (r.forklift||'')+'|'+(r.jadwal_pm||'')+'|'+(r.status||'')+'|'+(r.teknisi_terakhir||'')+'|'+(r.service_terakhir||'')
+        ).toLowerCase();
+      }
+      return arr;
+    }
+    function fastFilter(data, keyword){
+      if (!keyword) return data;
+      const q = String(keyword||'').toLowerCase();
+      const base = Array.isArray(data)?data:[];
+      // Gunakan _q jika tersedia; fallback ke filterData umum untuk kompatibilitas
+      return base.filter(r => (r._q ? r._q.includes(q) : Object.values(r).some(v => String(v||'').toLowerCase().includes(q))));
     }
     function getDatasetForCategory(cat){
       if (cat==='late'){
@@ -188,7 +212,11 @@
       { key:'service_terakhir', label:'Tanggal Service Terakhir' },
     ];
 
-    let pmData = getDatasetForCategory(category);
+    // Bangun dataset terindeks untuk semua kategori sekali, agar perpindahan kategori instan
+    const datasetLate = indexRows(getDatasetForCategory('late'));
+    const datasetWeek = indexRows(getDatasetForCategory('week'));
+    const datasetUpcoming = indexRows(getDatasetForCategory('upcoming'));
+    let pmData = (category==='late'?datasetLate:(category==='week'?datasetWeek:datasetUpcoming));
     let page = 1; let rows = 10;
 
     function render(){
@@ -198,9 +226,9 @@
       const ptSel = document.getElementById('ptFilter');
       const ptVal = (ptSel && ptSel.value) ? ptSel.value : 'all';
       if (ptVal !== 'all'){
-        base = (Array.isArray(base)?base:[]).filter(r => ptCategoryOf(r.powertrain) === ptVal);
+        base = (Array.isArray(base)?base:[]).filter(r => r._pt === ptVal);
       }
-      const filtered = filterData(base, q);
+      const filtered = fastFilter(base, q);
       const start = (page-1)*rows; const end = start+rows;
       simpleTable('pmTable', columns, filtered.slice(start,end));
       const pages = Math.max(1, Math.ceil(filtered.length/rows));
@@ -210,7 +238,11 @@
     document.getElementById('search').oninput = debounce(render, 200);
     document.getElementById('rowsPerPage').onchange = (e)=>{ rows = parseInt(e.target.value); page=1; render(); };
     const pmCatEl = document.getElementById('pmCategory');
-    if (pmCatEl){ pmCatEl.onchange = ()=>{ category = pmCatEl.value; page=1; pmData = getDatasetForCategory(category); render(); }; }
+    if (pmCatEl){ pmCatEl.onchange = ()=>{
+      category = pmCatEl.value; page=1;
+      pmData = (category==='late'?datasetLate:(category==='week'?datasetWeek:datasetUpcoming));
+      render();
+    }; }
     const ptEl = document.getElementById('ptFilter');
     if (ptEl){ ptEl.onchange = ()=>{ page=1; render(); }; }
     render();

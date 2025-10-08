@@ -110,6 +110,29 @@
     // daftar opsi status untuk select list
     const statusList = ['Available','Unavailable'];
 
+    // Indexing ringan untuk pencarian cepat tanpa mengubah hasil
+    function indexRows(rows){
+      if (!Array.isArray(rows)) return;
+      for (const r of rows){
+        const s = [r.code, r.nama, r.unit, r.description, r.status]
+          .map(v=> String(v||'').toLowerCase())
+          .join(' ');
+        r._q = s;
+      }
+    }
+
+    // Pencarian cepat berbasis _q (AND untuk setiap kata)
+    function fastFilter(rows, q){
+      const query = String(q||'').trim().toLowerCase();
+      if (!query) return rows || [];
+      const parts = query.split(/\s+/);
+      return (rows||[]).filter(r=>{
+        const s = r._q || '';
+        for (const p of parts){ if (s.indexOf(p)===-1) return false; }
+        return true;
+      });
+    }
+
     function formHtml(item={}){
       const stOptions = statusList.map(v=>`<option value="${v}">${v}</option>`).join('');
       return `
@@ -153,14 +176,19 @@
           status: String(document.getElementById('f_status').value||'').toLowerCase(),
         };
         try{
-          if (item && item.id){
+          const created = !(item && item.id);
+          if (!created){
             await api('/api/items/'+item.id, { method:'PUT', body: payload });
           } else {
             await api('/api/items', { method:'POST', body: payload });
           }
           modal.style.display='none';
           data = await api('/api/items');
+          indexRows(data);
           render();
+          if (created) {
+            alert('Item berhasil ditambahkan');
+          }
         }catch(e){ console.error('Save item error:', e); alert('Gagal menyimpan item'); }
       };
     }
@@ -191,7 +219,7 @@
     function render(){
        perfStart && perfStart('items.render');
        const q = document.getElementById('search').value;
-       const filtered = filterData(data, q);
+       const filtered = q ? fastFilter(data, q) : (data||[]);
        const start = (page-1)*rows; const end = start+rows;
        const rowsData = filtered.slice(start,end).map(x=>Object.assign({}, x));
        currentRows = rowsData;
@@ -246,11 +274,37 @@
        const tableContainer = document.getElementById('table');
        if (tableContainer){
          if (!tableContainer.dataset.cbDelegated){
-           tableContainer.addEventListener('change', (ev)=>{
+           tableContainer.addEventListener('change', async (ev)=>{
+             // Checkbox selection per-baris
              const cb = ev.target.closest("input[type='checkbox'][data-id]");
-             if (!cb) return;
-             const id = +cb.getAttribute('data-id');
-             if (cb.checked) selected.add(id); else selected.delete(id);
+             if (cb){
+               const id = +cb.getAttribute('data-id');
+               if (cb.checked) selected.add(id); else selected.delete(id);
+               return;
+             }
+             // Inline update status (khusus admin/supervisor)
+             const sel = ev.target.closest("select[data-status]");
+             if (sel){
+               if (!canEdit) return; // safety: hanya admin/supervisor
+               const id = +sel.getAttribute('data-status');
+               const newStatus = String(sel.value||'').toLowerCase();
+               try{
+                 sel.disabled = true;
+                 const item = (data||[]).find(x=> Number(x.id)===id);
+                 const payload = {
+                   code: String(item?.code||''),
+                   nama: String(item?.nama||''),
+                   unit: String(item?.unit||''),
+                   description: String(item?.description||''),
+                   status: newStatus,
+                 };
+                 await api('/api/items/'+id, { method:'PUT', body: payload });
+                 data = await api('/api/items');
+                 indexRows(data);
+                 render();
+               }catch(e){ console.error('Update status error:', e); alert('Gagal menyimpan status'); }
+               finally{ sel.disabled = false; }
+             }
            });
            tableContainer.dataset.cbDelegated = '1';
          }
@@ -269,35 +323,43 @@
        
        // Event delegation pada container tabel untuk tombol aksi
        if (tableContainer){
-         if (!tableContainer.dataset.clickDelegated){
-           tableContainer.addEventListener('click', async (ev)=>{
-             const btn = ev.target.closest('button');
-             if (!btn) return;
-             // Edit
-             if (btn.hasAttribute('data-edit')){
-               const id = btn.getAttribute('data-edit');
-               const item = data.find(x=> String(x.id)===String(id));
-               if (item) openModal('Edit Item', item);
-               return;
-             }
-             // Delete
-             if (btn.hasAttribute('data-del')){
-               if (!(await confirmDialog('Hapus item ini?'))) return;
-               const delId = +btn.getAttribute('data-del');
-               try{
-                 btn.disabled = true;
-                 await api('/api/items/'+delId, { method:'DELETE' });
-                 if (selected.has(delId)) selected.delete(delId);
-                 data = await api('/api/items');
-                 render();
-               }catch(e){ console.error('Delete item error:', e); alert(e && e.error ? e.error : 'Gagal menghapus item'); }
-               finally{ btn.disabled = false; }
-               return;
-             }
-           });
-           tableContainer.dataset.clickDelegated = '1';
-         }
-       }
+       if (!tableContainer.dataset.clickDelegated){
+          tableContainer.addEventListener('click', async (ev)=>{
+            const btn = ev.target.closest('button');
+            if (!btn) return;
+            // Edit
+            if (btn.hasAttribute('data-edit')){
+              const id = btn.getAttribute('data-edit');
+              const item = data.find(x=> String(x.id)===String(id));
+              if (item) openModal('Edit Item', item);
+              return;
+            }
+            // View (untuk role non-editor, termasuk Teknisi)
+            if (btn.hasAttribute('data-view')){
+              const id = btn.getAttribute('data-view');
+              const item = data.find(x=> String(x.id)===String(id));
+              if (item) openView('Lihat Item', item);
+              return;
+            }
+            // Delete
+            if (btn.hasAttribute('data-del')){
+              if (!(await confirmDialog('Hapus item ini?'))) return;
+              const delId = +btn.getAttribute('data-del');
+              try{
+                btn.disabled = true;
+                await api('/api/items/'+delId, { method:'DELETE' });
+                if (selected.has(delId)) selected.delete(delId);
+                data = await api('/api/items');
+                indexRows(data);
+                render();
+              }catch(e){ console.error('Delete item error:', e); alert(e && e.error ? e.error : 'Gagal menghapus item'); }
+              finally{ btn.disabled = false; }
+              return;
+            }
+          });
+          tableContainer.dataset.clickDelegated = '1';
+        }
+      }
     }
 
     document.getElementById('search').oninput = debounce(render, 200);
@@ -325,6 +387,7 @@
         const fail = results.length - ok;
         selected.clear();
         data = await api('/api/items');
+        indexRows(data);
         render();
         alert(`Bulk delete selesai. Sukses: ${ok}${fail?`, Gagal: ${fail}`:''}`);
       }catch(e){
@@ -440,7 +503,7 @@
             }catch(e){ console.error('Import row error:', e); errors++; }
           }
           alert(`Import selesai. Inserted: ${inserted}, Updated: ${updated}${errors?`, Errors: ${errors}`:''}`);
-          data = await api('/api/items'); render();
+          data = await api('/api/items'); indexRows(data); render();
         };
         input.click();
       }catch(e){ console.error('Gagal import Excel:', e); alert('Gagal import Excel.'); }
@@ -477,6 +540,8 @@
       }catch(e){ console.error('Export PDF error:', e); alert('Gagal export PDF.'); }
      };
 
+    // Index data untuk pencarian cepat, lalu render
+    indexRows(data);
     render();
   })(); });
   </script>

@@ -184,7 +184,7 @@
           <div id="forklift_tags" class="chips chips-inline"></div>
         </div>
         <input id="forklift_input" placeholder="Ketik untuk cari forklift..." autocomplete="off" />
-        <div id="fkSuggest" class="suggest" style="display:none;"></div>
+        <div id="fkSuggest" class="suggest" style="display:none; content-visibility:auto; contain-intrinsic-size: 120px;"></div>
       </div>
 
       <div class="toolbar-row">
@@ -200,7 +200,7 @@
             <div id="teknisi_tags" class="chips chips-inline"></div>
           </div>
           <input id="teknisi_input" placeholder="Ketik untuk cari teknisi..." autocomplete="off" />
-          <div id="techSuggest" class="suggest" style="display:none;"></div>
+          <div id="techSuggest" class="suggest" style="display:none; content-visibility:auto; contain-intrinsic-size: 120px;"></div>
         </div>
         <div class="actions">
           <label for="rowsPerPage">Rows</label>
@@ -227,7 +227,7 @@
             <div class="input-suggest-wrap fk" style="position:relative;">
               <input id="ed_forklift_input" placeholder="Ketik untuk cari forklift..." autocomplete="off" />
               <button type="button" class="clear-btn" aria-label="Clear" title="Clear">&times;</button>
-              <div id="edFkSuggest" class="suggest" style="display:none;"></div>
+              <div id="edFkSuggest" class="suggest" style="display:none; content-visibility:auto; contain-intrinsic-size: 120px;"></div>
             </div>
           </label>
           <label>Pekerjaan
@@ -242,7 +242,7 @@
             <div id="ed_teknisi_tags" class="chips"></div>
             <div class="input-suggest-wrap" style="position:relative;">
               <input id="ed_teknisi_input" placeholder="Ketik untuk cari teknisi..." autocomplete="off" />
-              <div id="edTechSuggest" class="suggest" style="display:none;"></div>
+              <div id="edTechSuggest" class="suggest" style="display:none; content-visibility:auto; contain-intrinsic-size: 120px;"></div>
             </div>
             <div class="muted" style="font-size:11px; color:#777;">Klik hasil untuk menambahkan. Hapus dengan tanda × pada chip.</div>
           </div>
@@ -254,7 +254,7 @@
             <div style="display:flex; gap:8px; align-items:center;">
               <div class="input-suggest-wrap" style="position:relative; flex:1;">
                 <input id="ed_itemSearch" placeholder="Cari item..." autocomplete="off" />
-                <div id="edItemSuggest" class="suggest" style="display:none;"></div>
+                <div id="edItemSuggest" class="suggest" style="display:none; content-visibility:auto; contain-intrinsic-size: 120px;"></div>
               </div>
               <div style="display:flex; gap:6px; align-items:center;">
                 <label for="ed_itemQty" style="font-size:12px; color:#555;">Qty</label>
@@ -558,6 +558,16 @@
     let selected = new Set();
     let currentRows = [];
 
+    // Indexing ringan untuk pencarian/penyaringan cepat (internal)
+    function indexRows(rows){
+      if (!Array.isArray(rows)) return;
+      for (const r of rows){
+        r._q = [r.tanggal, r.report_no, r.forklift, r.forklift_location, r.pekerjaan, r.teknisi, r.next_pm, r.description, r.recommendation, r.items_used]
+          .map(v=> String(v||'').toLowerCase())
+          .join(' ');
+      }
+    }
+
     // Columns for table and export (keep keys in sync with export handlers)
     const columns = [
       { key: '__sel', label: '' },
@@ -791,6 +801,7 @@ async function load(){
     }
     // Apply sorting
     data = sortRows(rows);
+    indexRows(data);
     page = 1;
     render();
   } catch(e){
@@ -897,6 +908,7 @@ function render(){
     }
   }
   if (tableContainer){
+    if (!tableContainer.dataset.clickDelegated){
     tableContainer.addEventListener('click', async (ev)=>{
       const btn = ev.target.closest('button');
       if (!btn) return;
@@ -919,6 +931,8 @@ function render(){
         return;
       }
     });
+    tableContainer.dataset.clickDelegated = '1';
+    }
   }
 
   // Pagination
@@ -971,6 +985,17 @@ function openEditModal(item, readOnly=false){
   }
   edTechInput.value = (edTechInput.value||'').trim();
   edTechSuggest.style.display = (edTechInput.value) ? 'block' : 'none';
+  // Prefill chips teknisi dari record agar tidak perlu pilih ulang
+  try{
+    const rawTech = String(item.teknisi||'');
+    const labels = rawTech.split(',').map(s=> s.trim()).filter(Boolean);
+    edSelectedTech = [];
+    for (const lbl of labels){
+      const exists = edSelectedTech.some(x=> String(x.label||'').toLowerCase() === lbl.toLowerCase());
+      if (!exists) edSelectedTech.push({ id: null, label: lbl });
+    }
+    if (typeof renderEdTechTags === 'function') renderEdTechTags();
+  }catch(_){}
   if (readOnly){
     // Matikan semua input & suggest di modal
     ['ed_tanggal','ed_report_no','ed_pekerjaan','ed_location','ed_description','ed_recommendation','ed_items_used'].forEach(id=>{
@@ -1048,7 +1073,7 @@ function openEditModal(item, readOnly=false){
 
 // Real-time triggers
 const qEl = document.getElementById('q');
-if (qEl) qEl.oninput = load;
+if (qEl) qEl.oninput = makeDebounce(load, 250);
 const startEl = document.getElementById('start');
 if (startEl) startEl.onchange = load;
 const endEl = document.getElementById('end');
@@ -1221,9 +1246,12 @@ if (bulkBtn) bulkBtn.onclick = async ()=>{
   if (!(await confirmDialog('Hapus semua record terpilih?'))) return;
   try{
     const ids = Array.from(selected);
-    for (const id of ids){ await api('/api/records/'+id, { method:'DELETE' }); }
+    const results = await Promise.allSettled(ids.map(id=> api('/api/records/'+id, { method:'DELETE' })));
+    const ok = results.filter(r=> r.status==='fulfilled').length;
+    const fail = results.length - ok;
     selected.clear();
     await load();
+    if (fail>0){ alert(`Bulk delete selesai. Sukses: ${ok}, Gagal: ${fail}`); }
   }catch(e){ console.error(e); alert('Gagal hapus massal'); }
 };
 
