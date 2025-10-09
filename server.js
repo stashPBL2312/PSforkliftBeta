@@ -10,15 +10,27 @@ const SQLiteStore = require('connect-sqlite3')(session);
 const compression = require('compression');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+// Prisma requires DATABASE_URL at runtime; provide sane fallback to local SQLite
+if (!process.env.DATABASE_URL) {
+  const sqlitePath = path.join(__dirname, 'db.sqlite');
+  const rel = 'file:./db.sqlite';
+  try {
+    if (!fs.existsSync(sqlitePath)) fs.writeFileSync(sqlitePath, '');
+  } catch {}
+  process.env.DATABASE_URL = rel;
+}
 // Admin panel dependencies & Prisma client selection (SQLite vs MySQL)
-let AdminJS, AdminJSExpress, AdminJSPrismaDatabase, AdminJSPrismaResource, PrismaClient;
+let AdminJS, ComponentLoader, AdminJSExpress, AdminJSPrismaDatabase, AdminJSPrismaResource, PrismaClient;
 let prismaClientSource = null;
 let prismaModuleRef = null;
 const safeRequire = (mod) => { try { return require(mod); } catch { return null; } };
 // Load AdminJS pieces defensively
 {
   const m = safeRequire('adminjs');
-  if (m) AdminJS = m.default || m.AdminJS || m;
+  if (m) {
+    AdminJS = m.default || m.AdminJS || m;
+    ComponentLoader = m.ComponentLoader || ComponentLoader;
+  }
 }
 AdminJSExpress = safeRequire('@adminjs/express');
 const prismaAdapter = safeRequire('@adminjs/prisma');
@@ -47,6 +59,19 @@ if (prismaAdapter) {
 }
 
 const app = express();
+// Global Node error handlers for visibility in terminal
+process.on('unhandledRejection', (reason, promise) => {
+  try {
+    console.error('[Node] Unhandled Rejection:', { reason: (reason && reason.message) ? reason.message : String(reason) });
+    if (reason && reason.stack) console.error(reason.stack);
+  } catch {}
+});
+process.on('uncaughtException', (err) => {
+  try {
+    console.error('[Node] Uncaught Exception:', err && err.message ? err.message : err);
+    if (err && err.stack) console.error(err.stack);
+  } catch {}
+});
 const PORT = process.env.PORT || 3000;
 const DB_FILE = path.join(__dirname, 'db.sqlite');
 const SCHEMA_FILE = path.join(__dirname, 'schema.sql');
@@ -125,6 +150,21 @@ console.log('[AdminJS] ENABLE_ADMIN=', process.env.ENABLE_ADMIN === '1', 'useMyS
 
 // Compression for faster responses
 app.use(compression());
+// Request/Response logging for API and AdminJS
+app.use((req, res, next) => {
+  try {
+    if (req.path.startsWith('/api') || req.path.startsWith('/admin')) {
+      const start = Date.now();
+      const user = req.session && req.session.user ? { id: req.session.user.id, role: req.session.user.role, email: req.session.user.email } : null;
+      console.log(`[REQ] ${req.method} ${req.originalUrl}`, { user });
+      res.on('finish', () => {
+        const ms = Date.now() - start;
+        console.log(`[RES] ${req.method} ${req.originalUrl} -> ${res.statusCode}`, { ms });
+      });
+    }
+  } catch {}
+  next();
+});
 // Basic rate limiting: protect API and login endpoint
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false });
 app.use('/api/', apiLimiter);
@@ -165,10 +205,24 @@ if (process.env.ENABLE_ADMIN === '1' && AdminJS && AdminJSPrismaDatabase && Admi
         const d = new Date(Date.now() + 7 * 60 * 60 * 1000); // UTC+7
         return d.toISOString().slice(0, 19).replace('T', ' ');
       };
+      // Gunakan ComponentLoader (AdminJS v7) untuk komponen kustom
+      let componentLoader;
+      try {
+        componentLoader = new ComponentLoader();
+      } catch (e) {
+        try {
+          const mod = await import('adminjs');
+          const CL = mod?.ComponentLoader;
+          componentLoader = new CL();
+        } catch (e2) {
+          throw new Error('ComponentLoader unavailable');
+        }
+      }
       const clientModuleOpt = prismaClientSource === '@prisma/client' ? null : prismaModuleRef;
       const admin = new AdminJS({
       rootPath: '/admin',
       branding: { companyName: 'PS Forklift Admin' },
+      componentLoader,
       resources: [
         {
           resource: {
@@ -178,7 +232,8 @@ if (process.env.ENABLE_ADMIN === '1' && AdminJS && AdminJSPrismaDatabase && Admi
           },
           options: {
             properties: {
-              password: { isVisible: { list: false, show: false, edit: true }, isRequired: true },
+              id: { isVisible: { list: true, filter: true, show: true, edit: true } },
+              password: { isVisible: { list: false, show: false, edit: true }, isRequired: false },
               deleted_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
               created_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
               updated_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
@@ -195,9 +250,13 @@ if (process.env.ENABLE_ADMIN === '1' && AdminJS && AdminJSPrismaDatabase && Admi
                 before: async (request) => {
                   const payload = request?.payload || {};
                   // Hash password jika diisi
-                  if (payload.password && typeof payload.password === 'string' && payload.password.trim()) {
-                    const hashed = await bcrypt.hash(payload.password, 10);
-                    payload.password = hashed;
+                  if (typeof payload.password === 'string') {
+                    const raw = payload.password.trim();
+                    if (!raw) {
+                      throw new Error('Password wajib diisi');
+                    }
+                    const isBcrypt = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(raw);
+                    payload.password = isBcrypt ? raw : await bcrypt.hash(raw, 10);
                   }
                   // Set audit timestamps ke WIB untuk konsistensi
                   payload.created_at = nowISO();
@@ -209,20 +268,52 @@ if (process.env.ENABLE_ADMIN === '1' && AdminJS && AdminJSPrismaDatabase && Admi
               edit: {
                 before: async (request) => {
                   const payload = request?.payload || {};
+                  // Izinkan perubahan ID langsung dari form edit
+                  if (payload && typeof payload.id !== 'undefined') {
+                    const currentId = Number(request?.params?.recordId || payload.id);
+                    const newIdRaw = String(payload.id).trim();
+                    if (newIdRaw && String(currentId) !== newIdRaw) {
+                      if (!/^\d+$/.test(newIdRaw)) throw new Error('ID baru tidak valid (harus angka bulat positif)');
+                      const newId = parseInt(newIdRaw, 10);
+                      if (newId <= 0) throw new Error('ID baru harus lebih dari 0');
+                      const exists = await get('SELECT id FROM users WHERE id=?', [newId]);
+                      if (exists) throw new Error('ID baru sudah digunakan');
+                      payload.__newId = newId;
+                      delete payload.id;
+                    }
+                  }
                   // Jika password kosong, jangan overwrite; jika diisi, hash
                   if (typeof payload.password === 'string') {
                     const raw = payload.password.trim();
                     if (!raw) {
                       delete payload.password;
                     } else {
-                      const hashed = await bcrypt.hash(raw, 10);
-                      payload.password = hashed;
+                      const isBcrypt = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(raw);
+                      payload.password = isBcrypt ? raw : await bcrypt.hash(raw, 10);
                     }
                   }
                   // Update audit timestamp WIB
                   payload.updated_at = nowISO();
                   request.payload = payload;
                   return request;
+                },
+                after: async (response, request, context) => {
+                  try {
+                    const payload = request?.payload || {};
+                    const currentId = Number(context?.record?.param('id'));
+                    const newId = Number(payload.__newId || 0);
+                    if (newId && newId !== currentId) {
+                      await run('BEGIN');
+                      await run('UPDATE users SET id=? WHERE id=?', [newId, currentId]);
+                      await run('COMMIT');
+                      const updated = await context.resource.findOne(String(newId));
+                      return { record: updated?.toJSON(), notice: { message: `ID user diubah ke ${newId}`, type: 'success' } };
+                    }
+                  } catch (e) {
+                    try { await run('ROLLBACK'); } catch {}
+                    return { record: context?.record?.toJSON(), notice: { message: 'Gagal ubah ID: ' + String(e && e.message || 'error'), type: 'error' } };
+                  }
+                  return response;
                 },
               },
               delete: { isAccessible: false },
@@ -279,6 +370,7 @@ if (process.env.ENABLE_ADMIN === '1' && AdminJS && AdminJSPrismaDatabase && Admi
             // Gunakan EQ No sebagai title agar field reference menampilkan label yang jelas
             titleProperty: 'eq_no',
             properties: {
+              id: { isVisible: { list: true, filter: true, show: true, edit: true } },
               deleted_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
               created_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
               updated_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
@@ -289,6 +381,45 @@ if (process.env.ENABLE_ADMIN === '1' && AdminJS && AdminJSPrismaDatabase && Admi
               list: {
                 before: async (request) => {
                   return request;
+                },
+              },
+              edit: {
+                before: async (request) => {
+                  const payload = request?.payload || {};
+                  if (payload && typeof payload.id !== 'undefined') {
+                    const currentId = Number(request?.params?.recordId || payload.id);
+                    const newIdRaw = String(payload.id).trim();
+                    if (newIdRaw && String(currentId) !== newIdRaw) {
+                      if (!/^\d+$/.test(newIdRaw)) throw new Error('ID baru tidak valid (harus angka bulat positif)');
+                      const newId = parseInt(newIdRaw, 10);
+                      if (newId <= 0) throw new Error('ID baru harus lebih dari 0');
+                      const exists = await get('SELECT id FROM forklifts WHERE id=?', [newId]);
+                      if (exists) throw new Error('ID baru sudah digunakan');
+                      payload.__newId = newId;
+                      delete payload.id;
+                    }
+                  }
+                  return request;
+                },
+                after: async (response, request, context) => {
+                  try {
+                    const payload = request?.payload || {};
+                    const currentId = Number(context?.record?.param('id'));
+                    const newId = Number(payload.__newId || 0);
+                    if (newId && newId !== currentId) {
+                      await run('BEGIN');
+                      await run('UPDATE jobs SET forklift_id=? WHERE forklift_id=?', [newId, currentId]);
+                      await run('UPDATE records SET forklift_id=? WHERE forklift_id=?', [newId, currentId]);
+                      await run('UPDATE forklifts SET id=? WHERE id=?', [newId, currentId]);
+                      await run('COMMIT');
+                      const updated = await context.resource.findOne(String(newId));
+                      return { record: updated?.toJSON(), notice: { message: `ID forklift diubah ke ${newId}`, type: 'success' } };
+                    }
+                  } catch (e) {
+                    try { await run('ROLLBACK'); } catch {}
+                    return { record: context?.record?.toJSON(), notice: { message: 'Gagal ubah ID: ' + String(e && e.message || 'error'), type: 'error' } };
+                  }
+                  return response;
                 },
               },
               delete: { isAccessible: false },
@@ -351,6 +482,7 @@ if (process.env.ENABLE_ADMIN === '1' && AdminJS && AdminJSPrismaDatabase && Admi
           },
           options: {
             properties: {
+              id: { isVisible: { list: true, filter: true, show: true, edit: true } },
               deleted_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
               created_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
               updated_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
@@ -361,6 +493,43 @@ if (process.env.ENABLE_ADMIN === '1' && AdminJS && AdminJSPrismaDatabase && Admi
               list: {
                 before: async (request) => {
                   return request;
+                },
+              },
+              edit: {
+                before: async (request) => {
+                  const payload = request?.payload || {};
+                  if (payload && typeof payload.id !== 'undefined') {
+                    const currentId = Number(request?.params?.recordId || payload.id);
+                    const newIdRaw = String(payload.id).trim();
+                    if (newIdRaw && String(currentId) !== newIdRaw) {
+                      if (!/^\d+$/.test(newIdRaw)) throw new Error('ID baru tidak valid (harus angka bulat positif)');
+                      const newId = parseInt(newIdRaw, 10);
+                      if (newId <= 0) throw new Error('ID baru harus lebih dari 0');
+                      const exists = await get('SELECT id FROM items WHERE id=?', [newId]);
+                      if (exists) throw new Error('ID baru sudah digunakan');
+                      payload.__newId = newId;
+                      delete payload.id;
+                    }
+                  }
+                  return request;
+                },
+                after: async (response, request, context) => {
+                  try {
+                    const payload = request?.payload || {};
+                    const currentId = Number(context?.record?.param('id'));
+                    const newId = Number(payload.__newId || 0);
+                    if (newId && newId !== currentId) {
+                      await run('BEGIN');
+                      await run('UPDATE items SET id=? WHERE id=?', [newId, currentId]);
+                      await run('COMMIT');
+                      const updated = await context.resource.findOne(String(newId));
+                      return { record: updated?.toJSON(), notice: { message: `ID item diubah ke ${newId}`, type: 'success' } };
+                    }
+                  } catch (e) {
+                    try { await run('ROLLBACK'); } catch {}
+                    return { record: context?.record?.toJSON(), notice: { message: 'Gagal ubah ID: ' + String(e && e.message || 'error'), type: 'error' } };
+                  }
+                  return response;
                 },
               },
               delete: { isAccessible: false },
@@ -415,6 +584,7 @@ if (process.env.ENABLE_ADMIN === '1' && AdminJS && AdminJSPrismaDatabase && Admi
           },
           options: {
             properties: {
+              id: { isVisible: { list: true, filter: true, show: true, edit: true } },
               deleted_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
               created_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
               updated_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
@@ -429,6 +599,43 @@ if (process.env.ENABLE_ADMIN === '1' && AdminJS && AdminJSPrismaDatabase && Admi
               list: {
                 before: async (request) => {
                   return request;
+                },
+              },
+              edit: {
+                before: async (request) => {
+                  const payload = request?.payload || {};
+                  if (payload && typeof payload.id !== 'undefined') {
+                    const currentId = Number(request?.params?.recordId || payload.id);
+                    const newIdRaw = String(payload.id).trim();
+                    if (newIdRaw && String(currentId) !== newIdRaw) {
+                      if (!/^\d+$/.test(newIdRaw)) throw new Error('ID baru tidak valid (harus angka bulat positif)');
+                      const newId = parseInt(newIdRaw, 10);
+                      if (newId <= 0) throw new Error('ID baru harus lebih dari 0');
+                      const exists = await get('SELECT id FROM jobs WHERE id=?', [newId]);
+                      if (exists) throw new Error('ID baru sudah digunakan');
+                      payload.__newId = newId;
+                      delete payload.id;
+                    }
+                  }
+                  return request;
+                },
+                after: async (response, request, context) => {
+                  try {
+                    const payload = request?.payload || {};
+                    const currentId = Number(context?.record?.param('id'));
+                    const newId = Number(payload.__newId || 0);
+                    if (newId && newId !== currentId) {
+                      await run('BEGIN');
+                      await run('UPDATE jobs SET id=? WHERE id=?', [newId, currentId]);
+                      await run('COMMIT');
+                      const updated = await context.resource.findOne(String(newId));
+                      return { record: updated?.toJSON(), notice: { message: `ID job diubah ke ${newId}`, type: 'success' } };
+                    }
+                  } catch (e) {
+                    try { await run('ROLLBACK'); } catch {}
+                    return { record: context?.record?.toJSON(), notice: { message: 'Gagal ubah ID: ' + String(e && e.message || 'error'), type: 'error' } };
+                  }
+                  return response;
                 },
               },
               new: {
@@ -515,6 +722,7 @@ if (process.env.ENABLE_ADMIN === '1' && AdminJS && AdminJSPrismaDatabase && Admi
           },
           options: {
             properties: {
+              id: { isVisible: { list: true, filter: true, show: true, edit: true } },
               deleted_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
               created_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
               updated_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
@@ -529,6 +737,46 @@ if (process.env.ENABLE_ADMIN === '1' && AdminJS && AdminJSPrismaDatabase && Admi
               list: {
                 before: async (request) => {
                   return request;
+                },
+              },
+              edit: {
+                before: async (request) => {
+                  if (request && request.payload && typeof request.payload.forklift_id !== 'undefined' && request.payload.forklift_id !== null && request.payload.forklift_id !== '') {
+                    request.payload.forklift_id = Number(request.payload.forklift_id);
+                  }
+                  // Izinkan perubahan ID langsung dari form edit
+                  if (request && request.payload && typeof request.payload.id !== 'undefined') {
+                    const currentId = Number(request?.params?.recordId || request.payload.id);
+                    const newIdRaw = String(request.payload.id).trim();
+                    if (newIdRaw && String(currentId) !== newIdRaw) {
+                      if (!/^\d+$/.test(newIdRaw)) throw new Error('ID baru tidak valid (harus angka bulat positif)');
+                      const newId = parseInt(newIdRaw, 10);
+                      if (newId <= 0) throw new Error('ID baru harus lebih dari 0');
+                      const exists = await get('SELECT id FROM records WHERE id=?', [newId]);
+                      if (exists) throw new Error('ID baru sudah digunakan');
+                      request.payload.__newId = newId;
+                      delete request.payload.id;
+                    }
+                  }
+                  return request;
+                },
+                after: async (response, request, context) => {
+                  try {
+                    const payload = request?.payload || {};
+                    const currentId = Number(context?.record?.param('id'));
+                    const newId = Number(payload.__newId || 0);
+                    if (newId && newId !== currentId) {
+                      await run('BEGIN');
+                      await run('UPDATE records SET id=? WHERE id=?', [newId, currentId]);
+                      await run('COMMIT');
+                      const updated = await context.resource.findOne(String(newId));
+                      return { record: updated?.toJSON(), notice: { message: `ID record diubah ke ${newId}`, type: 'success' } };
+                    }
+                  } catch (e) {
+                    try { await run('ROLLBACK'); } catch {}
+                    return { record: context?.record?.toJSON(), notice: { message: 'Gagal ubah ID: ' + String(e && e.message || 'error'), type: 'error' } };
+                  }
+                  return response;
                 },
               },
               new: {
@@ -687,17 +935,58 @@ function requireRole(...roles) {
 }
 
 // Auth routes
-const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: isProd ? 10 : 1000, standardHeaders: true, legacyHeaders: false });
 app.post('/api/login', loginLimiter, (req, res) => {
   const { email, password } = req.body;
+  // Tolak jika input password menyerupai bcrypt-hash untuk mencegah penggunaan hash sebagai kredensial
+  if (typeof password === 'string') {
+    const raw = password.trim();
+    const looksLikeBcrypt = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(raw);
+    if (looksLikeBcrypt) {
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
+  }
   db.get("SELECT * FROM users WHERE email = ? AND (deleted_at IS NULL)", [email], async (err, user) => {
     if (err) return res.status(500).json({ error: 'DB error' });
     if (!user) return res.status(400).json({ error: 'Invalid credentials' });
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) return res.status(400).json({ error: 'Invalid credentials' });
-    req.session.user = { id: user.id, email: user.email, role: user.role, name: user.name || null };
-    res.json({ message: 'ok', user: req.session.user });
+
+    // Hindari session fixation dan pastikan sesi tersimpan sebelum respon
+    req.session.regenerate((regenErr) => {
+      if (regenErr) return res.status(500).json({ error: 'Session error' });
+      req.session.user = { id: user.id, email: user.email, role: user.role, name: user.name || null };
+      req.session.save((saveErr) => {
+        if (saveErr) return res.status(500).json({ error: 'Session save error' });
+        res.json({ message: 'ok', user: req.session.user });
+      });
+    });
   });
+});
+
+// Admin recovery (disabled unless RECOVERY_TOKEN set)
+app.post('/api/admin/recover', async (req, res) => {
+  try {
+    const RECOVERY_TOKEN = process.env.RECOVERY_TOKEN;
+    if (!RECOVERY_TOKEN) return res.status(404).json({ error: 'Recovery disabled' });
+    const token = (req.body && req.body.token) || (req.query && req.query.token) || '';
+    if (token !== RECOVERY_TOKEN) return res.status(403).json({ error: 'Forbidden' });
+
+    const email = (process.env.ADMIN_EMAIL || 'admin@local').trim();
+    const newPassword = process.env.ADMIN_PASSWORD || 'admin123';
+    const hash = await bcrypt.hash(newPassword, 10);
+
+    const existing = await get('SELECT id FROM users WHERE email=?', [email]);
+    if (existing && existing.id) {
+      await run("UPDATE users SET password=?, role='admin', deleted_at=NULL, updated_at = datetime('now','+7 hours') WHERE id=?", [hash, existing.id]);
+      return res.json({ ok: true, email, updated: true });
+    } else {
+      const r = await run("INSERT INTO users (email, password, role, name, created_at, updated_at) VALUES (?,?, 'admin', NULL, datetime('now','+7 hours'), datetime('now','+7 hours'))", [email, hash]);
+      return res.json({ ok: true, email, created: true, id: r.id });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Server error' });
+  }
 });
 
 app.post('/api/logout', (req, res) => {
@@ -718,11 +1007,44 @@ app.get('/api/me', async (req, res) => {
   }catch(e){ res.json({ user: req.session.user || null }); }
 });
 
+// Frontend client logging endpoint (no auth to capture login page errors)
+app.post('/api/logs/client', async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const level = (payload.level || 'info').toUpperCase();
+    const user = req.session && req.session.user ? { id: req.session.user.id, role: req.session.user.role, email: req.session.user.email, name: req.session.user.name || null } : null;
+    const info = {
+      url: payload.url || req.headers.referer || req.originalUrl,
+      ua: payload.ua || req.headers['user-agent'],
+      message: payload.message || '',
+      stack: payload.stack || null,
+      meta: payload.meta || null,
+      user,
+      ip: req.ip,
+    };
+    console.log(`[CLIENT ${level}]`, info);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[CLIENT LOG ERROR]', e && e.message ? e.message : e);
+    res.status(500).json({ ok: false });
+  }
+});
+
 // CRUD Utilities
 function run(sql, params = []) {
   return new Promise((resolve, reject) => {
+    const start = Date.now();
+    try { console.log('[SQL RUN]', sql, Array.isArray(params) ? params : []); } catch {}
     db.run(sql, params, function (err) {
-      if (err) return reject(err);
+      if (err) {
+        try {
+          console.error('[SQL ERROR RUN]', err && err.message ? err.message : err, { sql, params });
+          if (err && err.stack) console.error(err.stack);
+        } catch {}
+        return reject(err);
+      }
+      const ms = Date.now() - start;
+      try { console.log('[SQL RUN OK]', { ms, changes: this.changes, lastID: this.lastID }); } catch {}
       resolve({ id: this.lastID, changes: this.changes });
     });
   });
@@ -730,8 +1052,18 @@ function run(sql, params = []) {
 
 function get(sql, params = []) {
   return new Promise((resolve, reject) => {
+    const start = Date.now();
+    try { console.log('[SQL GET]', sql, Array.isArray(params) ? params : []); } catch {}
     db.get(sql, params, function (err, row) {
-      if (err) return reject(err);
+      if (err) {
+        try {
+          console.error('[SQL ERROR GET]', err && err.message ? err.message : err, { sql, params });
+          if (err && err.stack) console.error(err.stack);
+        } catch {}
+        return reject(err);
+      }
+      const ms = Date.now() - start;
+      try { console.log('[SQL GET OK]', { ms, rowCount: row ? 1 : 0 }); } catch {}
       resolve(row);
     });
   });
@@ -739,8 +1071,18 @@ function get(sql, params = []) {
 
 function all(sql, params = []) {
   return new Promise((resolve, reject) => {
+    const start = Date.now();
+    try { console.log('[SQL ALL]', sql, Array.isArray(params) ? params : []); } catch {}
     db.all(sql, params, function (err, rows) {
-      if (err) return reject(err);
+      if (err) {
+        try {
+          console.error('[SQL ERROR ALL]', err && err.message ? err.message : err, { sql, params });
+          if (err && err.stack) console.error(err.stack);
+        } catch {}
+        return reject(err);
+      }
+      const ms = Date.now() - start;
+      try { console.log('[SQL ALL OK]', { ms, rows: Array.isArray(rows) ? rows.length : 0 }); } catch {}
       resolve(rows);
     });
   });
@@ -981,10 +1323,16 @@ app.post('/api/forklifts/import', requireRole('admin','supervisor'), async (req,
   const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows : [];
   let inserted = 0, updated = 0; const errors = [];
 
+  // Debug: log request size
+  try { console.log(`[import/forklifts] start, rows=${rows.length}`); } catch {}
+
   const norm = (v) => String(v ?? '').trim();
 
   try {
-    if (!rows.length) return res.json({ inserted, updated, errors });
+    if (!rows.length) {
+      try { console.warn('[import/forklifts] no rows provided'); } catch {}
+      return res.json({ inserted, updated, errors });
+    }
     await run('BEGIN');
     for (let i = 0; i < rows.length; i++){
       try{
@@ -1002,11 +1350,26 @@ app.post('/api/forklifts/import', requireRole('admin','supervisor'), async (req,
 
         if (!eq_no && !serial){ errors.push({ index: i+2, error: 'EQ No atau Serial wajib diisi' }); continue; }
 
-        let existing = null;
-        if (eq_no){ existing = await get('SELECT id FROM forklifts WHERE eq_no=? AND deleted_at IS NULL', [eq_no]); }
-        if (!existing && serial){ existing = await get('SELECT id FROM forklifts WHERE serial=? AND deleted_at IS NULL', [serial]); }
+        // Cari existing tanpa filter deleted_at (agar tidak gagal karena UNIQUE saat ada soft-deleted)
+        let byEq = null, bySerial = null;
+        if (eq_no){ byEq = await get('SELECT id, deleted_at FROM forklifts WHERE eq_no=?', [eq_no]); }
+        if (serial){ bySerial = await get('SELECT id, deleted_at FROM forklifts WHERE serial=?', [serial]); }
 
+        // Konflik: eq_no dan serial menunjuk ke ID berbeda
+        if (byEq && bySerial && byEq.id !== bySerial.id){
+          const msg = `Konflik: EQ No terasosiasi ke ID ${byEq.id}, Serial ke ID ${bySerial.id}`;
+          try { console.error(`[import/forklifts] row=${i+2} conflict:`, msg); } catch {}
+          errors.push({ index: i+2, error: msg });
+          continue;
+        }
+
+        const existing = byEq || bySerial; // salah satu atau null
         if (existing){
+          // Jika soft-deleted, anggap restore saat import
+          if (existing.deleted_at){
+            await run("UPDATE forklifts SET deleted_at=NULL WHERE id=?", [existing.id]);
+            try { console.log(`[import/forklifts] row=${i+2} restore id=${existing.id}`); } catch {}
+          }
           await run("UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=?, updated_at = datetime('now','+7 hours') WHERE id=?", [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, tahunVal, status||null, existing.id]);
           updated++;
         } else {
@@ -1014,13 +1377,16 @@ app.post('/api/forklifts/import', requireRole('admin','supervisor'), async (req,
           inserted++;
         }
       } catch(e){
+        try { console.error(`[import/forklifts] row=${i+2} error:`, e && e.message || e); } catch {}
         errors.push({ index: i+2, error: String(e && e.message || 'SQL error') });
       }
     }
     await run('COMMIT');
+    try { console.log(`[import/forklifts] done: inserted=${inserted}, updated=${updated}, errors=${errors.length}`); } catch {}
     res.json({ inserted, updated, errors });
   } catch (e) {
     await run('ROLLBACK');
+    try { console.error('[import/forklifts] failed:', e && e.message || e); } catch {}
     res.status(400).json({ error: 'Forklifts import failed' });
   }
 });
@@ -1033,18 +1399,45 @@ app.get('/api/items', requireLogin, async (req, res) => {
 app.post('/api/items', requireRole('admin','supervisor'), async (req, res) => {
   const { code, nama, unit, description, status } = req.body;
   try {
-    const r = await run("INSERT INTO items (code, nama, unit, description, status, created_at, updated_at) VALUES (?,?,?,?,?, datetime('now','+7 hours'), datetime('now','+7 hours'))", [code,nama,unit,description,status]);
-    res.json({ id: r.id });
+    const norm = (v) => String(v ?? '').trim();
+    const c = norm(code);
+    if (!c) return res.status(400).json({ error: 'Code wajib diisi' });
+
+    const existing = await get('SELECT id, deleted_at FROM items WHERE code=?', [c]);
+    if (existing) {
+      // Jika soft-deleted, restore; jika aktif, update agar tidak kena UNIQUE
+      if (existing.deleted_at) {
+        await run("UPDATE items SET deleted_at=NULL, nama=?, unit=?, description=?, status=?, updated_at = datetime('now','+7 hours') WHERE id=?", [norm(nama)||null, norm(unit)||null, norm(description)||null, norm(status)||null, existing.id]);
+        return res.json({ id: existing.id, restored: true, updated: true });
+      } else {
+        await run("UPDATE items SET nama=?, unit=?, description=?, status=?, updated_at = datetime('now','+7 hours') WHERE id=?", [norm(nama)||null, norm(unit)||null, norm(description)||null, norm(status)||null, existing.id]);
+        return res.json({ id: existing.id, updated: true });
+      }
+    }
+
+    const r = await run("INSERT INTO items (code, nama, unit, description, status, created_at, updated_at) VALUES (?,?,?,?,?, datetime('now','+7 hours'), datetime('now','+7 hours'))", [c, norm(nama)||null, norm(unit)||null, norm(description)||null, norm(status)||null]);
+    res.json({ id: r.id, inserted: true });
   } catch (e) {
+    try { console.error('[items/create] error:', e && e.message || e); } catch {}
     res.status(400).json({ error: 'Item create failed' });
   }
 });
 app.put('/api/items/:id', requireRole('admin','supervisor'), async (req, res) => {
   const { code, nama, unit, description, status } = req.body;
   try {
-    await run("UPDATE items SET code=?, nama=?, unit=?, description=?, status=?, updated_at = datetime('now','+7 hours') WHERE id=?", [code,nama,unit,description,status, req.params.id]);
+    const norm = (v) => String(v ?? '').trim();
+    const id = parseInt(String(req.params.id||'0'),10);
+    const c = norm(code);
+    if (c) {
+      const existing = await get('SELECT id, deleted_at FROM items WHERE code=?', [c]);
+      if (existing && existing.id !== id) {
+        return res.status(400).json({ error: `Code sudah digunakan item id=${existing.id}` });
+      }
+    }
+    await run("UPDATE items SET code=?, nama=?, unit=?, description=?, status=?, updated_at = datetime('now','+7 hours') WHERE id=?", [c||null, norm(nama)||null, norm(unit)||null, norm(description)||null, norm(status)||null, id]);
     res.json({ ok: true });
   } catch (e) {
+    try { console.error('[items/update] error:', e && e.message || e); } catch {}
     res.status(400).json({ error: 'Item update failed' });
   }
 });
@@ -1205,6 +1598,9 @@ app.post('/api/records/import', requireRole('admin','supervisor'), async (req, r
   const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows : [];
   let inserted = 0, updated = 0; const errors = [];
 
+  // Debug: log request size
+  try { console.log(`[import/records] start, rows=${rows.length}`); } catch {}
+
   function parseEqNo(str){
     const s = String(str||'');
     const m = s.match(/\(([^)]+)\)\s*$/);
@@ -1212,7 +1608,10 @@ app.post('/api/records/import', requireRole('admin','supervisor'), async (req, r
   }
 
   try {
-    if (!rows.length) return res.json({ inserted, updated, errors });
+    if (!rows.length) {
+      try { console.warn('[import/records] no rows provided'); } catch {}
+      return res.json({ inserted, updated, errors });
+    }
     await run('BEGIN');
     for (let i = 0; i < rows.length; i++){
       try{
@@ -1229,8 +1628,13 @@ app.post('/api/records/import', requireRole('admin','supervisor'), async (req, r
 
         if (!fkStr){ errors.push({ index: i+2, error: 'Forklift kosong' }); continue; }
         const eq = parseEqNo(fkStr);
-        const fk = await get('SELECT id, location FROM forklifts WHERE eq_no=? AND deleted_at IS NULL', [eq]);
+        const fk = await get('SELECT id, location, deleted_at FROM forklifts WHERE eq_no=?', [eq]);
         if (!fk){ errors.push({ index: i+2, error: `Forklift tidak ditemukan untuk EQ No: ${eq}` }); continue; }
+        // Jika forklift soft-deleted, restore supaya import tetap jalan
+        if (fk.deleted_at){
+          await run("UPDATE forklifts SET deleted_at=NULL WHERE id=?", [fk.id]);
+          try { console.log(`[import/records] row=${i+2} restore forklift id=${fk.id}`); } catch {}
+        }
 
         // Snapshot location jika kolom Location kosong
         if (!loc){
@@ -1240,10 +1644,14 @@ app.post('/api/records/import', requireRole('admin','supervisor'), async (req, r
         // Upsert berdasarkan (report_no, forklift_id)
         let existing = null;
         if (report_no) {
-          existing = await get('SELECT id FROM records WHERE report_no=? AND forklift_id=? AND deleted_at IS NULL', [report_no, fk.id]);
+          existing = await get('SELECT id, deleted_at FROM records WHERE report_no=? AND forklift_id=?', [report_no, fk.id]);
         }
 
         if (existing){
+          if (existing.deleted_at){
+            await run("UPDATE records SET deleted_at=NULL WHERE id=?", [existing.id]);
+            try { console.log(`[import/records] row=${i+2} restore record id=${existing.id}`); } catch {}
+          }
           await run("UPDATE records SET tanggal=?, report_no=?, forklift_id=?, pekerjaan=?, teknisi=?, description=?, recommendation=?, items_used=?, location=?, updated_at = datetime('now','+7 hours') WHERE id=?", [tanggal||null, report_no||null, fk.id, pekerjaan||null, teknisi||null, description||null, recommendation||null, items_used||null, loc||null, existing.id]);
           updated++;
         } else {
@@ -1251,13 +1659,16 @@ app.post('/api/records/import', requireRole('admin','supervisor'), async (req, r
           inserted++;
         }
       } catch(e){
+        try { console.error(`[import/records] row=${i+2} error:`, e && e.message || e); } catch {}
         errors.push({ index: i+2, error: String(e && e.message || 'SQL error') });
       }
     }
     await run('COMMIT');
+    try { console.log(`[import/records] done: inserted=${inserted}, updated=${updated}, errors=${errors.length}`); } catch {}
     res.json({ inserted, updated, errors });
   } catch (e) {
     await run('ROLLBACK');
+    try { console.error('[import/records] failed:', e && e.message || e); } catch {}
     res.status(400).json({ error: 'Import failed' });
   }
 });
@@ -1306,6 +1717,11 @@ app.delete('/api/records/:id', requireLogin, async (req, res) => {
   try {
     const user = req.session.user;
     if (user.role === 'admin' || user.role === 'supervisor') {
+      // Jika record yang dihapus adalah PM, tandai job terkait sebagai terhapus agar jadwal PM di dashboard ikut hilang
+      const recInfo = await get('SELECT report_no, forklift_id, pekerjaan FROM records WHERE id=?', [req.params.id]);
+      if (recInfo && String(recInfo.pekerjaan).toUpperCase() === 'PM' && recInfo.report_no) {
+        await run("UPDATE jobs SET deleted_at = datetime('now','+7 hours') WHERE jenis='PM' AND report_no=? AND forklift_id=? AND deleted_at IS NULL", [recInfo.report_no, recInfo.forklift_id]);
+      }
       await run("UPDATE records SET deleted_at = datetime('now','+7 hours') WHERE id=?", [req.params.id]);
       return res.json({ message: 'ok' });
     }
@@ -1316,6 +1732,11 @@ app.delete('/api/records/:id', requireLogin, async (req, res) => {
       const name = String(user.name || '').toLowerCase();
       const assigned = low.includes(email) || (!!name && low.includes(name));
       if (!assigned) return res.status(403).json({ error: 'Forbidden' });
+      // Sinkronkan jadwal PM jika record PM milik teknisi dihapus
+      const recInfo2 = await get('SELECT report_no, forklift_id, pekerjaan FROM records WHERE id=?', [req.params.id]);
+      if (recInfo2 && String(recInfo2.pekerjaan).toUpperCase() === 'PM' && recInfo2.report_no) {
+        await run("UPDATE jobs SET deleted_at = datetime('now','+7 hours') WHERE jenis='PM' AND report_no=? AND forklift_id=? AND deleted_at IS NULL", [recInfo2.report_no, recInfo2.forklift_id]);
+      }
       await run("UPDATE records SET deleted_at = datetime('now','+7 hours') WHERE id=?", [req.params.id]);
       return res.json({ message: 'ok' });
     }
@@ -1333,6 +1754,13 @@ app.post('/api/records/bulk-delete', requireLogin, async (req, res) => {
 
     if (user.role === 'admin' || user.role === 'supervisor') {
       const placeholders = ids.map(()=>'?').join(',');
+      // Tandai jobs PM terkait sebagai terhapus sebelum menghapus records
+      const pmRows = await all(`SELECT report_no, forklift_id FROM records WHERE pekerjaan='PM' AND deleted_at IS NULL AND id IN (${placeholders})`, ids);
+      for (const r of pmRows) {
+        if (r.report_no) {
+          await run("UPDATE jobs SET deleted_at = datetime('now','+7 hours') WHERE jenis='PM' AND report_no=? AND forklift_id=? AND deleted_at IS NULL", [r.report_no, r.forklift_id]);
+        }
+      }
       await run(`UPDATE records SET deleted_at = datetime('now','+7 hours') WHERE id IN (${placeholders})`, ids);
       return res.json({ message: 'ok', deleted: ids.length });
     }
@@ -1349,6 +1777,13 @@ app.post('/api/records/bulk-delete', requireLogin, async (req, res) => {
       }).map(r=>r.id);
       if (!ownIds.length) return res.status(403).json({ error: 'Tidak ada record milik Anda dalam pilihan' });
       const ph2 = ownIds.map(()=>'?').join(',');
+      // Sinkronkan jobs PM untuk records milik teknisi yang dihapus
+      const pmRows2 = await all(`SELECT report_no, forklift_id FROM records WHERE pekerjaan='PM' AND deleted_at IS NULL AND id IN (${ph2})`, ownIds);
+      for (const r of pmRows2) {
+        if (r.report_no) {
+          await run("UPDATE jobs SET deleted_at = datetime('now','+7 hours') WHERE jenis='PM' AND report_no=? AND forklift_id=? AND deleted_at IS NULL", [r.report_no, r.forklift_id]);
+        }
+      }
       await run(`UPDATE records SET deleted_at = datetime('now','+7 hours') WHERE id IN (${ph2})`, ownIds);
       return res.json({ message: 'ok', deleted: ownIds.length });
     }
@@ -1362,6 +1797,16 @@ app.post('/api/records/bulk-delete', requireLogin, async (req, res) => {
 // Serve index to login by default
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+// Express error handler to surface errors in terminal
+app.use((err, req, res, next) => {
+  try {
+    const user = req.session && req.session.user ? { id: req.session.user.id, role: req.session.user.role, email: req.session.user.email } : null;
+    console.error('[Express Error]', { method: req.method, url: req.originalUrl, user, message: err && err.message ? err.message : String(err) });
+    if (err && err.stack) console.error(err.stack);
+  } catch {}
+  res.status(500).json({ error: 'Server error' });
 });
 
 app.listen(PORT, () => {
@@ -1414,7 +1859,13 @@ app.post('/api/jobs/:id/restore', requireRole('admin','supervisor'), async (req,
 // Restore a soft-deleted record
 app.post('/api/records/:id/restore', requireRole('admin','supervisor'), async (req, res) => {
   try {
- await run("UPDATE records SET deleted_at = NULL, updated_at = datetime('now','+7 hours') WHERE id=?", [req.params.id]);
+    // Pulihkan record
+    const rec = await get('SELECT report_no, forklift_id, pekerjaan FROM records WHERE id=?', [req.params.id]);
+    await run("UPDATE records SET deleted_at = NULL, updated_at = datetime('now','+7 hours') WHERE id=?", [req.params.id]);
+    // Jika ini adalah record PM, pulihkan job PM terkait agar jadwal kembali muncul di dashboard
+    if (rec && String(rec.pekerjaan).toUpperCase() === 'PM' && rec.report_no) {
+      await run("UPDATE jobs SET deleted_at = NULL, updated_at = datetime('now','+7 hours') WHERE jenis='PM' AND report_no=? AND forklift_id=?", [rec.report_no, rec.forklift_id]);
+    }
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Record restore failed' });

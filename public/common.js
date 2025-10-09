@@ -16,6 +16,55 @@
   }
 })();
 
+// --- Client logging hooks: send errors/warns to backend terminal ---
+(function(){
+  function postClientLog(payload){
+    try {
+      var url = '/api/logs/client';
+      // Avoid recursion when logging the logging endpoint itself
+      var isLoggingEndpoint = (location && location.pathname && location.pathname.indexOf('/api/logs/client') !== -1);
+      if (isLoggingEndpoint) return;
+      payload = Object.assign({ url: location && location.href || '', ua: navigator && navigator.userAgent || '' }, payload || {});
+      var body = JSON.stringify(payload);
+      if (navigator && navigator.sendBeacon){
+        try {
+          var blob = new Blob([body], { type: 'application/json' });
+          navigator.sendBeacon(url, blob);
+          return;
+        } catch {}
+      }
+      fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true, credentials: 'include' }).catch(function(){/* noop */});
+    } catch (e) { /* noop */ }
+  }
+  // Global error listeners
+  window.addEventListener('error', function(e){
+    try {
+      postClientLog({ level: 'error', message: e && e.message ? e.message : 'Window error', stack: e && e.error && e.error.stack ? e.error.stack : null, meta: { filename: e && e.filename, lineno: e && e.lineno, colno: e && e.colno } });
+    } catch {}
+  });
+  window.addEventListener('unhandledrejection', function(e){
+    try {
+      var reason = e && e.reason ? (e.reason.stack || e.reason.message || String(e.reason)) : 'Unhandled promise rejection';
+      postClientLog({ level: 'error', message: 'Unhandled rejection', stack: reason });
+    } catch {}
+  });
+  // Mirror console.error and console.warn
+  try {
+    var _err = console.error.bind(console);
+    var _warn = console.warn.bind(console);
+    console.error = function(){
+      try { postClientLog({ level: 'error', message: Array.prototype.map.call(arguments, function(a){ try { return (typeof a === 'object') ? JSON.stringify(a) : String(a); } catch { return String(a); } }).join(' ') }); } catch {}
+      _err.apply(console, arguments);
+    };
+    console.warn = function(){
+      try { postClientLog({ level: 'warn', message: Array.prototype.map.call(arguments, function(a){ try { return (typeof a === 'object') ? JSON.stringify(a) : String(a); } catch { return String(a); } }).join(' ') }); } catch {}
+      _warn.apply(console, arguments);
+    };
+    // Expose for api() to use
+    window.__postClientLog = postClientLog;
+  } catch {}
+})();
+
 async function api(path, opts={}){
   opts.headers = Object.assign({ 'Content-Type': 'application/json', 'Cache-Control':'no-store' }, opts.headers||{});
   if (opts.body && typeof opts.body !== 'string') opts.body = JSON.stringify(opts.body);
@@ -25,7 +74,14 @@ async function api(path, opts={}){
   const r = await fetch(path, opts);
   if (r.status === 401) { location.href = '/login.html'; return Promise.reject('Unauthorized'); }
   const data = await r.json().catch(()=>({}));
-  if (!r.ok) throw data;
+  if (!r.ok) {
+    try {
+      if (typeof window !== 'undefined' && window.__postClientLog && path !== '/api/logs/client') {
+        window.__postClientLog({ level: 'error', message: 'API error '+r.status+' '+path, meta: { status: r.status, method: opts && opts.method || 'GET', body: opts && opts.body || null }, stack: null });
+      }
+    } catch {}
+    throw data;
+  }
   return data;
 }
 
