@@ -1,0 +1,124 @@
+// Prisma schema for MySQL target (Tahap 4 - persiapan migrasi)
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma-mysql"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("MYSQL_DATABASE_URL")
+}
+
+model User {
+  id         Int       @id @default(autoincrement())
+  email      String    @unique
+  password   String
+  role       String
+  name       String?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  @@index([role], map: "idx_users_role")
+  @@map("users")
+}
+
+model Forklift {
+  id         Int       @id @default(autoincrement())
+  brand      String?
+  type       String?
+  eq_no      String?   @unique
+  serial     String?   @unique
+  location   String?
+  powertrain String?
+  owner      String?
+  tahun      Int?
+  status     String?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  jobs    Job[]
+  records Record[]
+
+  @@index([eq_no], map: "idx_forklifts_eq_no")
+  @@index([serial], map: "idx_forklifts_serial")
+  @@index([location], map: "idx_forklifts_location")
+  @@index([status], map: "idx_forklifts_status")
+  @@index([brand, type], map: "idx_forklifts_brand_type")
+  @@index([owner], map: "idx_forklifts_owner")
+  @@index([tahun], map: "idx_forklifts_tahun")
+  @@map("forklifts")
+}
+
+model Item {
+  id          Int       @id @default(autoincrement())
+  code        String    @unique
+  nama        String?
+  unit        String?
+  description String?
+  status      String?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  deleted_at  DateTime?
+
+  @@index([code], map: "idx_items_code")
+  @@index([nama], map: "idx_items_nama")
+  @@index([description], map: "idx_items_description")
+  @@index([status], map: "idx_items_status")
+  @@map("items")
+}
+
+model Job {
+  id             Int       @id @default(autoincrement())
+  jenis          String?
+  forklift_id    Int
+  tanggal        String
+  teknisi        String?
+  report_no      String?
+  description    String?
+  recommendation String?
+  items_used     String?
+  next_pm        String?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+  deleted_at     DateTime?
+
+  forklift Forklift @relation(fields: [forklift_id], references: [id])
+
+  @@index([forklift_id], map: "idx_jobs_forklift")
+  @@index([jenis], map: "idx_jobs_jenis")
+  @@index([report_no, forklift_id], map: "idx_jobs_report_forklift")
+  @@index([tanggal], map: "idx_jobs_tanggal")
+  @@map("jobs")
+}
+
+model Record {
+  id             Int       @id @default(autoincrement())
+  tanggal        String
+  report_no      String?
+  forklift_id    Int
+  pekerjaan      String
+  teknisi        String?
+  description    String?
+  recommendation String?
+  items_used     String?
+  location       String?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+  deleted_at     DateTime?
+
+  forklift Forklift @relation(fields: [forklift_id], references: [id])
+
+  @@index([tanggal], map: "idx_records_tanggal")
+  @@index([forklift_id], map: "idx_records_forklift")
+  @@index([report_no, forklift_id], map: "idx_records_report_forklift")
+  @@index([teknisi], map: "idx_records_teknisi")
+  @@index([pekerjaan], map: "idx_records_pekerjaan")
+  @@index([location], map: "idx_records_location")
+  @@index([description], map: "idx_records_description")
+  @@index([recommendation], map: "idx_records_recommendation")
+  @@index([items_used], map: "idx_records_items_used")
+  @@map("records")
+}

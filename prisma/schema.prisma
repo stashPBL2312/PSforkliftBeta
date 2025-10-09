@@ -1,0 +1,133 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+// Also generate the default client into node_modules/@prisma/client
+generator client2 {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         Int     @id @default(autoincrement())
+  email      String  @unique
+  password   String
+  role       String
+  name       String?
+  created_at String?
+  updated_at String?
+  deleted_at String?
+
+  @@map("users")
+  @@index([role], map: "idx_users_role")
+}
+
+model Forklift {
+  id          Int      @id @default(autoincrement())
+  brand       String?
+  type        String?
+  eq_no       String?  @unique
+  serial      String?  @unique
+  location    String?
+  powertrain  String?
+  owner       String?
+  tahun       Int?
+  status      String?
+  created_at  String?
+  updated_at  String?
+  deleted_at  String?
+
+  jobs    Job[]
+  records Record[]
+
+  @@map("forklifts")
+  @@index([eq_no], map: "idx_forklifts_eq_no")
+  @@index([serial], map: "idx_forklifts_serial")
+  @@index([location], map: "idx_forklifts_location")
+  @@index([status], map: "idx_forklifts_status")
+  @@index([brand, type], map: "idx_forklifts_brand_type")
+  @@index([owner], map: "idx_forklifts_owner")
+  @@index([tahun], map: "idx_forklifts_tahun")
+}
+
+model Item {
+  id          Int     @id @default(autoincrement())
+  code        String  @unique
+  nama        String?
+  unit        String?
+  description String?
+  status      String?
+  created_at  String?
+  updated_at  String?
+  deleted_at  String?
+
+  @@map("items")
+  @@index([code], map: "idx_items_code")
+  @@index([nama], map: "idx_items_nama")
+  @@index([description], map: "idx_items_description")
+  @@index([status], map: "idx_items_status")
+}
+
+model Job {
+  id            Int      @id @default(autoincrement())
+  jenis         String?
+  forklift_id   Int
+  tanggal       String
+  teknisi       String?
+  report_no     String?
+  description   String?
+  recommendation String?
+  items_used    String?
+  next_pm       String?
+  created_at    String?
+  updated_at    String?
+  deleted_at    String?
+
+  forklift Forklift @relation(fields: [forklift_id], references: [id])
+
+  @@map("jobs")
+  @@index([forklift_id], map: "idx_jobs_forklift")
+  @@index([jenis], map: "idx_jobs_jenis")
+  @@index([report_no, forklift_id], map: "idx_jobs_report_forklift")
+  @@index([tanggal], map: "idx_jobs_tanggal")
+}
+
+model Record {
+  id            Int      @id @default(autoincrement())
+  tanggal       String
+  report_no     String?
+  forklift_id   Int
+  pekerjaan     String
+  teknisi       String?
+  description   String?
+  recommendation String?
+  items_used    String?
+  location      String?
+  created_at    String?
+  updated_at    String?
+  deleted_at    String?
+
+  forklift Forklift @relation(fields: [forklift_id], references: [id])
+
+  @@map("records")
+  @@index([tanggal], map: "idx_records_tanggal")
+  @@index([forklift_id], map: "idx_records_forklift")
+  @@index([report_no, forklift_id], map: "idx_records_report_forklift")
+  @@index([teknisi], map: "idx_records_teknisi")
+  @@index([pekerjaan], map: "idx_records_pekerjaan")
+  @@index([location], map: "idx_records_location")
+  @@index([description], map: "idx_records_description")
+  @@index([recommendation], map: "idx_records_recommendation")
+  @@index([items_used], map: "idx_records_items_used")
+}

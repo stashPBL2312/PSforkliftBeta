@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const sqlite3 = require('sqlite3').verbose();
@@ -7,6 +8,43 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const SQLiteStore = require('connect-sqlite3')(session);
 const compression = require('compression');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+// Admin panel dependencies & Prisma client selection (SQLite vs MySQL)
+let AdminJS, AdminJSExpress, AdminJSPrismaDatabase, AdminJSPrismaResource, PrismaClient;
+let prismaClientSource = null;
+let prismaModuleRef = null;
+const safeRequire = (mod) => { try { return require(mod); } catch { return null; } };
+// Load AdminJS pieces defensively
+{
+  const m = safeRequire('adminjs');
+  if (m) AdminJS = m.default || m.AdminJS || m;
+}
+AdminJSExpress = safeRequire('@adminjs/express');
+const prismaAdapter = safeRequire('@adminjs/prisma');
+let getModelByName;
+if (prismaAdapter) {
+  ({ Database: AdminJSPrismaDatabase, Resource: AdminJSPrismaResource, getModelByName } = prismaAdapter);
+}
+// Discover Prisma Client independently of AdminJS
+{
+  let prismaModule = null;
+  const candidates = [
+    '@prisma/client',
+    path.join(__dirname, 'generated', 'prisma', 'index.js'),
+    path.join(__dirname, 'generated', 'prisma-mysql', 'index.js'),
+  ];
+  for (const c of candidates) {
+    const m = safeRequire(c);
+    if (m && m.PrismaClient) {
+      prismaModule = m;
+      prismaModuleRef = m;
+      prismaClientSource = c;
+      ({ PrismaClient } = m);
+      break;
+    }
+  }
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -23,6 +61,9 @@ const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toSt
 // Middleware
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
+// Hide framework fingerprinting & add security headers
+app.disable('x-powered-by');
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(
   session({
     secret: SESSION_SECRET,
@@ -75,8 +116,18 @@ if (!fs.existsSync(DB_FILE)) {
 }
 const db = initDb();
 
+// Initialize Prisma Client if available (for AdminJS resources)
+let prisma = null;
+if (PrismaClient) {
+  try { prisma = new PrismaClient(); } catch {}
+}
+console.log('[AdminJS] ENABLE_ADMIN=', process.env.ENABLE_ADMIN === '1', 'useMySQL=', process.env.USE_MYSQL === '1', 'prismaClientSource=', typeof prismaClientSource === 'string' ? prismaClientSource : 'none', 'prismaAvailable=', !!prisma);
+
 // Compression for faster responses
 app.use(compression());
+// Basic rate limiting: protect API and login endpoint
+const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false });
+app.use('/api/', apiLimiter);
 // Static files with caching in production
 app.use(express.static(path.join(__dirname, 'public'), isProd ? {
   etag: true,
@@ -91,6 +142,500 @@ app.use(express.static(path.join(__dirname, 'public'), isProd ? {
     }
   }
 } : {}));
+
+// Feature-flagged AdminJS panel at /admin, gated by existing session role 'admin'
+let ADMIN_MOUNTED = false;
+if (process.env.ENABLE_ADMIN === '1' && AdminJS && AdminJSPrismaDatabase && AdminJSPrismaResource && prisma) {
+  (async () => {
+    try {
+      // Load @adminjs/express dynamically if require failed (ESM-only)
+      if (!AdminJSExpress) {
+        try {
+          const mod = await import('@adminjs/express');
+          AdminJSExpress = mod?.default || mod;
+        } catch (e) {
+          console.warn('Failed to import @adminjs/express:', e.message);
+        }
+      }
+      if (!AdminJSExpress) throw new Error('AdminJSExpress unavailable');
+
+      AdminJS.registerAdapter({ Database: AdminJSPrismaDatabase, Resource: AdminJSPrismaResource });
+      // Format waktu WIB untuk konsistensi tampilan di AdminJS (YYYY-MM-DD HH:MM:SS)
+      const nowISO = () => {
+        const d = new Date(Date.now() + 7 * 60 * 60 * 1000); // UTC+7
+        return d.toISOString().slice(0, 19).replace('T', ' ');
+      };
+      const clientModuleOpt = prismaClientSource === '@prisma/client' ? null : prismaModuleRef;
+      const admin = new AdminJS({
+      rootPath: '/admin',
+      branding: { companyName: 'PS Forklift Admin' },
+      resources: [
+        {
+          resource: {
+            model: getModelByName ? getModelByName('User', prismaModuleRef) : undefined,
+            client: prisma,
+            ...(clientModuleOpt ? { clientModule: clientModuleOpt } : {})
+          },
+          options: {
+            properties: {
+              password: { isVisible: { list: false, show: false, edit: true }, isRequired: true },
+              deleted_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
+              created_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
+              updated_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
+            },
+            listProperties: ['id','email','role','name','created_at','updated_at','deleted_at'],
+            showProperties: ['id','email','role','name','created_at','updated_at','deleted_at'],
+            actions: {
+              list: {
+                before: async (request) => {
+                  return request;
+                },
+              },
+              new: {
+                before: async (request) => {
+                  const payload = request?.payload || {};
+                  // Hash password jika diisi
+                  if (payload.password && typeof payload.password === 'string' && payload.password.trim()) {
+                    const hashed = await bcrypt.hash(payload.password, 10);
+                    payload.password = hashed;
+                  }
+                  // Set audit timestamps ke WIB untuk konsistensi
+                  payload.created_at = nowISO();
+                  payload.updated_at = nowISO();
+                  request.payload = payload;
+                  return request;
+                },
+              },
+              edit: {
+                before: async (request) => {
+                  const payload = request?.payload || {};
+                  // Jika password kosong, jangan overwrite; jika diisi, hash
+                  if (typeof payload.password === 'string') {
+                    const raw = payload.password.trim();
+                    if (!raw) {
+                      delete payload.password;
+                    } else {
+                      const hashed = await bcrypt.hash(raw, 10);
+                      payload.password = hashed;
+                    }
+                  }
+                  // Update audit timestamp WIB
+                  payload.updated_at = nowISO();
+                  request.payload = payload;
+                  return request;
+                },
+              },
+              delete: { isAccessible: false },
+              softDelete: {
+                actionType: 'record', label: 'Soft Delete', icon: 'Trash', guard: 'Yakin soft-delete user ini?', component: false,
+                handler: async (req, res, context) => {
+                  const { record, resource } = context;
+                  const id = Number(record.param('id'));
+                  await prisma.user.update({ where: { id }, data: { deleted_at: nowISO(), updated_at: nowISO() } });
+                  const updated = await resource.findOne(record.id());
+                  return { record: updated?.toJSON(), notice: { message: 'User soft-deleted', type: 'success' } };
+                },
+              },
+              restore: {
+                actionType: 'record', label: 'Restore', icon: 'Undo', guard: 'Restore user ini?', component: false,
+                handler: async (req, res, context) => {
+                  const { record, resource } = context;
+                  const id = Number(record.param('id'));
+                  await prisma.user.update({ where: { id }, data: { deleted_at: null, updated_at: nowISO() } });
+                  const updated = await resource.findOne(record.id());
+                  return { record: updated?.toJSON(), notice: { message: 'User restored', type: 'success' } };
+                },
+              },
+              softDeleteMany: {
+                actionType: 'bulk', label: 'Soft Delete (Bulk)', icon: 'Trash', guard: 'Yakin soft-delete user terpilih?', component: false,
+                handler: async (req, res, context) => {
+                  const ids = (context.records || []).map(r => Number(r.param('id'))).filter(Boolean);
+                  if (ids.length) {
+                    await prisma.user.updateMany({ where: { id: { in: ids } }, data: { deleted_at: nowISO(), updated_at: nowISO() } });
+                  }
+                  return { records: context.records?.map(r => r.toJSON()), notice: { message: 'Users soft-deleted', type: 'success' } };
+                },
+              },
+              restoreMany: {
+                actionType: 'bulk', label: 'Restore (Bulk)', icon: 'Undo', guard: 'Restore user terpilih?', component: false,
+                handler: async (req, res, context) => {
+                  const ids = (context.records || []).map(r => Number(r.param('id'))).filter(Boolean);
+                  if (ids.length) {
+                    await prisma.user.updateMany({ where: { id: { in: ids } }, data: { deleted_at: null, updated_at: nowISO() } });
+                  }
+                  return { records: context.records?.map(r => r.toJSON()), notice: { message: 'Users restored', type: 'success' } };
+                },
+              },
+            },
+          },
+        },
+        {
+          resource: {
+            model: getModelByName ? getModelByName('Forklift', prismaModuleRef) : undefined,
+            client: prisma,
+            ...(clientModuleOpt ? { clientModule: clientModuleOpt } : {})
+          },
+          options: {
+            // Gunakan EQ No sebagai title agar field reference menampilkan label yang jelas
+            titleProperty: 'eq_no',
+            properties: {
+              deleted_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
+              created_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
+              updated_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
+            },
+            listProperties: ['id','brand','type','eq_no','location','status','created_at','updated_at','deleted_at'],
+            showProperties: ['id','brand','type','eq_no','serial','location','powertrain','owner','tahun','status','created_at','updated_at','deleted_at'],
+            actions: {
+              list: {
+                before: async (request) => {
+                  return request;
+                },
+              },
+              delete: { isAccessible: false },
+              softDelete: {
+                actionType: 'record', label: 'Soft Delete', icon: 'Trash', guard: 'Yakin soft-delete forklift ini (cascade)?', component: false,
+                handler: async (req, res, context) => {
+                  const { record, resource } = context;
+                  const id = Number(record.param('id'));
+                  await prisma.record.updateMany({ where: { forklift_id: id }, data: { deleted_at: nowISO(), updated_at: nowISO() } });
+                  await prisma.job.updateMany({ where: { forklift_id: id }, data: { deleted_at: nowISO(), updated_at: nowISO() } });
+                  await prisma.forklift.update({ where: { id }, data: { deleted_at: nowISO(), updated_at: nowISO() } });
+                  const updated = await resource.findOne(record.id());
+                  return { record: updated?.toJSON(), notice: { message: 'Forklift soft-deleted (cascade jobs & records)', type: 'success' } };
+                },
+              },
+              restore: {
+                actionType: 'record', label: 'Restore', icon: 'Undo', guard: 'Restore forklift ini (cascade)?', component: false,
+                handler: async (req, res, context) => {
+                  const { record, resource } = context;
+                  const id = Number(record.param('id'));
+                  await prisma.forklift.update({ where: { id }, data: { deleted_at: null, updated_at: nowISO() } });
+                  await prisma.job.updateMany({ where: { forklift_id: id }, data: { deleted_at: null, updated_at: nowISO() } });
+                  await prisma.record.updateMany({ where: { forklift_id: id }, data: { deleted_at: null, updated_at: nowISO() } });
+                  const updated = await resource.findOne(record.id());
+                  return { record: updated?.toJSON(), notice: { message: 'Forklift restored (cascade jobs & records)', type: 'success' } };
+                },
+              },
+              softDeleteMany: {
+                actionType: 'bulk', label: 'Soft Delete (Bulk)', icon: 'Trash', guard: 'Yakin soft-delete forklift terpilih (cascade)?', component: false,
+                handler: async (req, res, context) => {
+                  const ids = (context.records || []).map(r => Number(r.param('id'))).filter(Boolean);
+                  if (ids.length) {
+                    await prisma.record.updateMany({ where: { forklift_id: { in: ids } }, data: { deleted_at: nowISO(), updated_at: nowISO() } });
+                    await prisma.job.updateMany({ where: { forklift_id: { in: ids } }, data: { deleted_at: nowISO(), updated_at: nowISO() } });
+                    await prisma.forklift.updateMany({ where: { id: { in: ids } }, data: { deleted_at: nowISO(), updated_at: nowISO() } });
+                  }
+                  return { records: context.records?.map(r => r.toJSON()), notice: { message: 'Forklifts soft-deleted (cascade)', type: 'success' } };
+                },
+              },
+              restoreMany: {
+                actionType: 'bulk', label: 'Restore (Bulk)', icon: 'Undo', guard: 'Restore forklift terpilih (cascade)?', component: false,
+                handler: async (req, res, context) => {
+                  const ids = (context.records || []).map(r => Number(r.param('id'))).filter(Boolean);
+                  if (ids.length) {
+                    await prisma.forklift.updateMany({ where: { id: { in: ids } }, data: { deleted_at: null, updated_at: nowISO() } });
+                    await prisma.job.updateMany({ where: { forklift_id: { in: ids } }, data: { deleted_at: null, updated_at: nowISO() } });
+                    await prisma.record.updateMany({ where: { forklift_id: { in: ids } }, data: { deleted_at: null, updated_at: nowISO() } });
+                  }
+                  return { records: context.records?.map(r => r.toJSON()), notice: { message: 'Forklifts restored (cascade)', type: 'success' } };
+                },
+              },
+            },
+          },
+        },
+        {
+          resource: {
+            model: getModelByName ? getModelByName('Item', prismaModuleRef) : undefined,
+            client: prisma,
+            ...(clientModuleOpt ? { clientModule: clientModuleOpt } : {})
+          },
+          options: {
+            properties: {
+              deleted_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
+              created_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
+              updated_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
+            },
+            listProperties: ['id','code','nama','status','created_at','updated_at','deleted_at'],
+            showProperties: ['id','code','nama','unit','description','status','created_at','updated_at','deleted_at'],
+            actions: {
+              list: {
+                before: async (request) => {
+                  return request;
+                },
+              },
+              delete: { isAccessible: false },
+              softDelete: {
+                actionType: 'record', label: 'Soft Delete', icon: 'Trash', guard: 'Yakin soft-delete item ini?', component: false,
+                handler: async (req, res, context) => {
+                  const { record, resource } = context;
+                  const id = Number(record.param('id'));
+                  await prisma.item.update({ where: { id }, data: { deleted_at: nowISO(), updated_at: nowISO() } });
+                  const updated = await resource.findOne(record.id());
+                  return { record: updated?.toJSON(), notice: { message: 'Item soft-deleted', type: 'success' } };
+                },
+              },
+              restore: {
+                actionType: 'record', label: 'Restore', icon: 'Undo', guard: 'Restore item ini?', component: false,
+                handler: async (req, res, context) => {
+                  const { record, resource } = context;
+                  const id = Number(record.param('id'));
+                  await prisma.item.update({ where: { id }, data: { deleted_at: null, updated_at: nowISO() } });
+                  const updated = await resource.findOne(record.id());
+                  return { record: updated?.toJSON(), notice: { message: 'Item restored', type: 'success' } };
+                },
+              },
+              softDeleteMany: {
+                actionType: 'bulk', label: 'Soft Delete (Bulk)', icon: 'Trash', guard: 'Yakin soft-delete item terpilih?', component: false,
+                handler: async (req, res, context) => {
+                  const ids = (context.records || []).map(r => Number(r.param('id'))).filter(Boolean);
+                  if (ids.length) {
+                    await prisma.item.updateMany({ where: { id: { in: ids } }, data: { deleted_at: nowISO(), updated_at: nowISO() } });
+                  }
+                  return { records: context.records?.map(r => r.toJSON()), notice: { message: 'Items soft-deleted', type: 'success' } };
+                },
+              },
+              restoreMany: {
+                actionType: 'bulk', label: 'Restore (Bulk)', icon: 'Undo', guard: 'Restore item terpilih?', component: false,
+                handler: async (req, res, context) => {
+                  const ids = (context.records || []).map(r => Number(r.param('id'))).filter(Boolean);
+                  if (ids.length) {
+                    await prisma.item.updateMany({ where: { id: { in: ids } }, data: { deleted_at: null, updated_at: nowISO() } });
+                  }
+                  return { records: context.records?.map(r => r.toJSON()), notice: { message: 'Items restored', type: 'success' } };
+                },
+              },
+            },
+          },
+        },
+        {
+          resource: {
+            model: getModelByName ? getModelByName('Job', prismaModuleRef) : undefined,
+            client: prisma,
+            ...(clientModuleOpt ? { clientModule: clientModuleOpt } : {})
+          },
+          options: {
+            properties: {
+              deleted_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
+              created_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
+              updated_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
+              // tampilkan label forklift (EQ No.) via relasi untuk list/show
+              forklift: { type: 'reference', reference: 'Forklift', isVisible: { list: true, filter: false, show: true, edit: false } },
+              // gunakan forklift_id untuk filter/edit dan penyimpanan
+              forklift_id: { isRequired: true, isVisible: { list: false, filter: true, show: true, edit: true } },
+            },
+            listProperties: ['id','jenis','forklift','tanggal','report_no','created_at','updated_at','deleted_at'],
+            showProperties: ['id','jenis','forklift','tanggal','teknisi','report_no','description','recommendation','items_used','next_pm','created_at','updated_at','deleted_at'],
+            actions: {
+              list: {
+                before: async (request) => {
+                  return request;
+                },
+              },
+              new: {
+                before: async (request) => {
+                  if (request && request.payload && typeof request.payload.forklift_id !== 'undefined' && request.payload.forklift_id !== null && request.payload.forklift_id !== '') {
+                    request.payload.forklift_id = Number(request.payload.forklift_id);
+                  }
+                  return request;
+                },
+              },
+              edit: {
+                before: async (request) => {
+                  if (request && request.payload && typeof request.payload.forklift_id !== 'undefined' && request.payload.forklift_id !== null && request.payload.forklift_id !== '') {
+                    request.payload.forklift_id = Number(request.payload.forklift_id);
+                  }
+                  return request;
+                },
+              },
+              delete: { isAccessible: false },
+              softDelete: {
+                actionType: 'record', label: 'Soft Delete', icon: 'Trash', guard: 'Yakin soft-delete job ini (cascade record)?', component: false,
+                handler: async (req, res, context) => {
+                  const { record, resource } = context;
+                  const id = Number(record.param('id'));
+                  const job = await prisma.job.findUnique({ where: { id }, select: { report_no: true, forklift_id: true } });
+                  if (job?.report_no && job?.forklift_id != null) {
+                    await prisma.record.updateMany({ where: { report_no: job.report_no, forklift_id: job.forklift_id }, data: { deleted_at: nowISO(), updated_at: nowISO() } });
+                  }
+                  await prisma.job.update({ where: { id }, data: { deleted_at: nowISO(), updated_at: nowISO() } });
+                  const updated = await resource.findOne(record.id());
+                  return { record: updated?.toJSON(), notice: { message: 'Job soft-deleted (cascade record)', type: 'success' } };
+                },
+              },
+              restore: {
+                actionType: 'record', label: 'Restore', icon: 'Undo', guard: 'Restore job ini (cascade record)?', component: false,
+                handler: async (req, res, context) => {
+                  const { record, resource } = context;
+                  const id = Number(record.param('id'));
+                  await prisma.job.update({ where: { id }, data: { deleted_at: null, updated_at: nowISO() } });
+                  const job = await prisma.job.findUnique({ where: { id }, select: { report_no: true, forklift_id: true } });
+                  if (job?.report_no && job?.forklift_id != null) {
+                    await prisma.record.updateMany({ where: { report_no: job.report_no, forklift_id: job.forklift_id }, data: { deleted_at: null, updated_at: nowISO() } });
+                  }
+                  const updated = await resource.findOne(record.id());
+                  return { record: updated?.toJSON(), notice: { message: 'Job restored (cascade record)', type: 'success' } };
+                },
+              },
+              softDeleteMany: {
+                actionType: 'bulk', label: 'Soft Delete (Bulk)', icon: 'Trash', guard: 'Yakin soft-delete job terpilih (cascade record)?', component: false,
+                handler: async (req, res, context) => {
+                  const ids = (context.records || []).map(r => Number(r.param('id'))).filter(Boolean);
+                  for (const id of ids) {
+                    const job = await prisma.job.findUnique({ where: { id }, select: { report_no: true, forklift_id: true } });
+                    if (job?.report_no && job?.forklift_id != null) {
+                      await prisma.record.updateMany({ where: { report_no: job.report_no, forklift_id: job.forklift_id }, data: { deleted_at: nowISO(), updated_at: nowISO() } });
+                    }
+                    await prisma.job.update({ where: { id }, data: { deleted_at: nowISO(), updated_at: nowISO() } });
+                  }
+                  return { records: context.records?.map(r => r.toJSON()), notice: { message: 'Jobs soft-deleted (cascade record)', type: 'success' } };
+                },
+              },
+              restoreMany: {
+                actionType: 'bulk', label: 'Restore (Bulk)', icon: 'Undo', guard: 'Restore job terpilih (cascade record)?', component: false,
+                handler: async (req, res, context) => {
+                  const ids = (context.records || []).map(r => Number(r.param('id'))).filter(Boolean);
+                  for (const id of ids) {
+                    await prisma.job.update({ where: { id }, data: { deleted_at: null, updated_at: nowISO() } });
+                    const job = await prisma.job.findUnique({ where: { id }, select: { report_no: true, forklift_id: true } });
+                    if (job?.report_no && job?.forklift_id != null) {
+                      await prisma.record.updateMany({ where: { report_no: job.report_no, forklift_id: job.forklift_id }, data: { deleted_at: null, updated_at: nowISO() } });
+                    }
+                  }
+                  return { records: context.records?.map(r => r.toJSON()), notice: { message: 'Jobs restored (cascade record)', type: 'success' } };
+                },
+              },
+            },
+          },
+        },
+        {
+          resource: {
+            model: getModelByName ? getModelByName('Record', prismaModuleRef) : undefined,
+            client: prisma,
+            ...(clientModuleOpt ? { clientModule: clientModuleOpt } : {})
+          },
+          options: {
+            properties: {
+              deleted_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
+              created_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
+              updated_at: { isVisible: { list: true, filter: true, show: true, edit: false } },
+              // tampilkan referensi forklift pada list via properti relasi 'forklift'
+              forklift: { type: 'reference', reference: 'Forklift', isVisible: { list: true, filter: false, show: true, edit: false } },
+              // tetap gunakan forklift_id untuk edit/filter dan penyimpanan
+              forklift_id: { isRequired: true, isVisible: { list: false, filter: true, show: true, edit: true } },
+            },
+            listProperties: ['id','tanggal','forklift','report_no','pekerjaan','created_at','updated_at','deleted_at'],
+            showProperties: ['id','tanggal','forklift','report_no','pekerjaan','teknisi','description','recommendation','items_used','location','created_at','updated_at','deleted_at'],
+            actions: {
+              list: {
+                before: async (request) => {
+                  return request;
+                },
+              },
+              new: {
+                before: async (request) => {
+                  if (request && request.payload && typeof request.payload.forklift_id !== 'undefined' && request.payload.forklift_id !== null && request.payload.forklift_id !== '') {
+                    request.payload.forklift_id = Number(request.payload.forklift_id);
+                  }
+                  return request;
+                },
+              },
+              edit: {
+                before: async (request) => {
+                  if (request && request.payload && typeof request.payload.forklift_id !== 'undefined' && request.payload.forklift_id !== null && request.payload.forklift_id !== '') {
+                    request.payload.forklift_id = Number(request.payload.forklift_id);
+                  }
+                  return request;
+                },
+              },
+              delete: { isAccessible: false },
+              softDelete: {
+                actionType: 'record', label: 'Soft Delete', icon: 'Trash', guard: 'Yakin soft-delete record ini?', component: false,
+                handler: async (req, res, context) => {
+                  const { record, resource } = context;
+                  const id = Number(record.param('id'));
+                  await prisma.record.update({ where: { id }, data: { deleted_at: nowISO(), updated_at: nowISO() } });
+                  const updated = await resource.findOne(record.id());
+                  return { record: updated?.toJSON(), notice: { message: 'Record soft-deleted', type: 'success' } };
+                },
+              },
+              restore: {
+                actionType: 'record', label: 'Restore', icon: 'Undo', guard: 'Restore record ini?', component: false,
+                handler: async (req, res, context) => {
+                  const { record, resource } = context;
+                  const id = Number(record.param('id'));
+                  await prisma.record.update({ where: { id }, data: { deleted_at: null, updated_at: nowISO() } });
+                  const updated = await resource.findOne(record.id());
+                  return { record: updated?.toJSON(), notice: { message: 'Record restored', type: 'success' } };
+                },
+              },
+              softDeleteMany: {
+                actionType: 'bulk', label: 'Soft Delete (Bulk)', icon: 'Trash', guard: 'Yakin soft-delete record terpilih?', component: false,
+                handler: async (req, res, context) => {
+                  const ids = (context.records || []).map(r => Number(r.param('id'))).filter(Boolean);
+                  if (ids.length) {
+                    await prisma.record.updateMany({ where: { id: { in: ids } }, data: { deleted_at: nowISO(), updated_at: nowISO() } });
+                  }
+                  return { records: context.records?.map(r => r.toJSON()), notice: { message: 'Records soft-deleted', type: 'success' } };
+                },
+              },
+              restoreMany: {
+                actionType: 'bulk', label: 'Restore (Bulk)', icon: 'Undo', guard: 'Restore record terpilih?', component: false,
+                handler: async (req, res, context) => {
+                  const ids = (context.records || []).map(r => Number(r.param('id'))).filter(Boolean);
+                  if (ids.length) {
+                    await prisma.record.updateMany({ where: { id: { in: ids } }, data: { deleted_at: null, updated_at: nowISO() } });
+                  }
+                  return { records: context.records?.map(r => r.toJSON()), notice: { message: 'Records restored', type: 'success' } };
+                },
+              },
+            },
+          },
+        },
+      ],
+      });
+      const adminRouter = AdminJSExpress.buildRouter(admin);
+      // Gate access using existing session
+      app.use(admin.options.rootPath, (req, res, next) => {
+        if (!req.session.user || req.session.user.role !== 'admin') {
+          return res.status(403).send('Forbidden');
+        }
+        next();
+      }, adminRouter);
+      console.log('AdminJS mounted at /admin (admin-only)');
+      ADMIN_MOUNTED = true;
+    } catch (e) {
+      console.warn('Failed to mount AdminJS:', e.message);
+    }
+  })();
+}
+
+// Admin status endpoint for visibility
+app.get('/admin/status', (req, res) => {
+  const useMySQL = process.env.USE_MYSQL === '1';
+  const enabledEnv = process.env.ENABLE_ADMIN === '1';
+  const prereqs = {
+    adminjs: !!AdminJS,
+    express: !!AdminJSExpress,
+    prismaAdapter: !!(AdminJSPrismaDatabase && AdminJSPrismaResource),
+    prismaClient: !!prisma,
+  };
+  res.json({ enabledEnv, useMySQL, prereqs, mounted: ADMIN_MOUNTED });
+});
+
+// Fallback /admin handler: compute missing prereqs dynamically and only respond when not mounted
+if (process.env.ENABLE_ADMIN === '1') {
+  app.use('/admin', (req, res, next) => {
+    if (ADMIN_MOUNTED) return next();
+    const prereqs = {
+      adminjs: !!AdminJS,
+      express: !!AdminJSExpress,
+      prismaAdapter: !!(AdminJSPrismaDatabase && AdminJSPrismaResource),
+      prismaClient: !!prisma,
+    };
+    const missing = Object.entries(prereqs).filter(([_, v]) => !v).map(([k]) => k);
+    res.status(500).send(`AdminJS tidak terpasang. Missing: ${missing.length ? missing.join(', ') : 'unknown'}`);
+  });
+}
 
 // Lightweight health endpoint (no auth)
 app.get('/healthz', (req, res) => {
@@ -142,7 +687,8 @@ function requireRole(...roles) {
 }
 
 // Auth routes
-app.post('/api/login', (req, res) => {
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
+app.post('/api/login', loginLimiter, (req, res) => {
   const { email, password } = req.body;
   db.get("SELECT * FROM users WHERE email = ? AND (deleted_at IS NULL)", [email], async (err, user) => {
     if (err) return res.status(500).json({ error: 'DB error' });
@@ -284,17 +830,17 @@ app.get('/api/dashboard/metrics', requireLogin, async (req, res) => {
     db.run("ALTER TABLE records ADD COLUMN deleted_at TEXT", ()=>{});
 
     // Backfill nilai untuk baris lama agar tidak NULL
-    db.run("UPDATE users SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)", ()=>{});
-    db.run("UPDATE users SET updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)", ()=>{});
-    db.run("UPDATE forklifts SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)", ()=>{});
-    db.run("UPDATE forklifts SET updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)", ()=>{});
-    db.run("UPDATE items SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)", ()=>{});
-    db.run("UPDATE items SET updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)", ()=>{});
-    db.run("UPDATE records SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)", ()=>{});
-    db.run("UPDATE records SET updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)", ()=>{});
+    db.run("UPDATE users SET created_at = COALESCE(created_at, datetime('now','+7 hours'))", ()=>{});
+    db.run("UPDATE users SET updated_at = COALESCE(updated_at, datetime('now','+7 hours'))", ()=>{});
+    db.run("UPDATE forklifts SET created_at = COALESCE(created_at, datetime('now','+7 hours'))", ()=>{});
+    db.run("UPDATE forklifts SET updated_at = COALESCE(updated_at, datetime('now','+7 hours'))", ()=>{});
+    db.run("UPDATE items SET created_at = COALESCE(created_at, datetime('now','+7 hours'))", ()=>{});
+    db.run("UPDATE items SET updated_at = COALESCE(updated_at, datetime('now','+7 hours'))", ()=>{});
+    db.run("UPDATE records SET created_at = COALESCE(created_at, datetime('now','+7 hours'))", ()=>{});
+    db.run("UPDATE records SET updated_at = COALESCE(updated_at, datetime('now','+7 hours'))", ()=>{});
     // Jobs sudah punya created_at/updated_at di schema; tetap backfill jika perlu
-    db.run("UPDATE jobs SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)", ()=>{});
-    db.run("UPDATE jobs SET updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)", ()=>{});
+    db.run("UPDATE jobs SET created_at = COALESCE(created_at, datetime('now','+7 hours'))", ()=>{});
+    db.run("UPDATE jobs SET updated_at = COALESCE(updated_at, datetime('now','+7 hours'))", ()=>{});
     // Checkpoint WAL supaya perubahan schema terlihat di DB Browser
     db.run("PRAGMA wal_checkpoint(FULL)", ()=>{});
   } catch (e) { /* noop */ }
@@ -307,7 +853,7 @@ app.post('/api/users', requireRole('admin'), async (req, res) => {
   const { email, password, role, name } = req.body;
   const hash = await bcrypt.hash(password || '', 10);
   try {
-    const r = await run('INSERT INTO users (email, password, role, name) VALUES (?,?,?,?)', [email, hash, role, name || null]);
+    const r = await run("INSERT INTO users (email, password, role, name, created_at, updated_at) VALUES (?,?,?,?, datetime('now','+7 hours'), datetime('now','+7 hours'))", [email, hash, role, name || null]);
     res.json({ id: r.id });
   } catch (e) {
     res.status(400).json({ error: 'User create failed' });
@@ -322,9 +868,9 @@ app.put('/api/users/:id', requireRole('admin'), async (req, res) => {
 
     if (password) {
       const hash = await bcrypt.hash(password, 10);
-      await run('UPDATE users SET email=?, password=?, role=?, name=? WHERE id=?', [email, hash, role, name || null, req.params.id]);
+      await run("UPDATE users SET email=?, password=?, role=?, name=?, updated_at = datetime('now','+7 hours') WHERE id=?", [email, hash, role, name || null, req.params.id]);
     } else {
-      await run('UPDATE users SET email=?, role=?, name=? WHERE id=?', [email, role, name || null, req.params.id]);
+      await run("UPDATE users SET email=?, role=?, name=?, updated_at = datetime('now','+7 hours') WHERE id=?", [email, role, name || null, req.params.id]);
     }
 
     // Rigid rename: update semua records.teknisi mengganti nama lama -> nama baru
@@ -341,7 +887,7 @@ app.put('/api/users/:id', requireRole('admin'), async (req, res) => {
 });
 app.delete('/api/users/:id', requireRole('admin'), async (req, res) => {
   try {
-    await run("UPDATE users SET deleted_at = datetime('now') WHERE id=?", [req.params.id]);
+    await run("UPDATE users SET deleted_at = datetime('now','+7 hours') WHERE id=?", [req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'User delete failed' });
@@ -374,7 +920,7 @@ app.get('/api/forklifts', requireLogin, async (req, res) => {
 app.post('/api/forklifts', requireRole('admin','supervisor'), async (req, res) => {
   const { brand, type, eq_no, serial, location, powertrain, owner, tahun, status } = req.body;
   try {
-    const r = await run('INSERT INTO forklifts (brand,type,eq_no,serial,location,powertrain,owner,tahun,status) VALUES (?,?,?,?,?,?,?,?,?)', [brand,type,eq_no,serial,location,powertrain,owner,tahun,status]);
+    const r = await run("INSERT INTO forklifts (brand,type,eq_no,serial,location,powertrain,owner,tahun,status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?, datetime('now','+7 hours'), datetime('now','+7 hours'))", [brand,type,eq_no,serial,location,powertrain,owner,tahun,status]);
     res.json({ id: r.id });
   } catch (e) {
     let msg = 'Forklift create failed';
@@ -390,7 +936,7 @@ app.post('/api/forklifts', requireRole('admin','supervisor'), async (req, res) =
 app.put('/api/forklifts/:id', requireRole('admin','supervisor'), async (req, res) => {
   const { brand, type, eq_no, serial, location, powertrain, owner, tahun, status } = req.body;
   try {
-    await run("UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=?, updated_at = datetime('now') WHERE id=?", [brand,type,eq_no,serial,location,powertrain,owner,tahun,status, req.params.id]);
+    await run("UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=?, updated_at = datetime('now','+7 hours') WHERE id=?", [brand,type,eq_no,serial,location,powertrain,owner,tahun,status, req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     let msg = 'Forklift update failed';
@@ -407,9 +953,9 @@ app.delete('/api/forklifts/:id', requireRole('admin','supervisor'), async (req, 
   try {
     const id = req.params.id;
     // Soft delete child records dan jobs untuk menjaga data dapat direcover
-    await run("UPDATE records SET deleted_at = datetime('now') WHERE forklift_id=?", [id]);
-    await run("UPDATE jobs SET deleted_at = datetime('now') WHERE forklift_id=?", [id]);
-    await run("UPDATE forklifts SET deleted_at = datetime('now') WHERE id=?", [id]);
+    await run("UPDATE records SET deleted_at = datetime('now','+7 hours') WHERE forklift_id=?", [id]);
+    await run("UPDATE jobs SET deleted_at = datetime('now','+7 hours') WHERE forklift_id=?", [id]);
+    await run("UPDATE forklifts SET deleted_at = datetime('now','+7 hours') WHERE id=?", [id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Forklift delete failed' });
@@ -421,9 +967,9 @@ app.post('/api/forklifts/bulk-delete', requireRole('admin','supervisor'), async 
   try {
     const placeholders = ids.map(() => '?').join(',');
     // Soft delete child records dan jobs
-    await run(`UPDATE records SET deleted_at = datetime('now') WHERE forklift_id IN (${placeholders})`, ids);
-    await run(`UPDATE jobs SET deleted_at = datetime('now') WHERE forklift_id IN (${placeholders})`, ids);
-    await run(`UPDATE forklifts SET deleted_at = datetime('now') WHERE id IN (${placeholders})`, ids);
+    await run(`UPDATE records SET deleted_at = datetime('now','+7 hours') WHERE forklift_id IN (${placeholders})`, ids);
+    await run(`UPDATE jobs SET deleted_at = datetime('now','+7 hours') WHERE forklift_id IN (${placeholders})`, ids);
+    await run(`UPDATE forklifts SET deleted_at = datetime('now','+7 hours') WHERE id IN (${placeholders})`, ids);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Bulk delete failed' });
@@ -461,10 +1007,10 @@ app.post('/api/forklifts/import', requireRole('admin','supervisor'), async (req,
         if (!existing && serial){ existing = await get('SELECT id FROM forklifts WHERE serial=? AND deleted_at IS NULL', [serial]); }
 
         if (existing){
-          await run("UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=?, updated_at = datetime('now') WHERE id=?", [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, tahunVal, status||null, existing.id]);
+          await run("UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=?, updated_at = datetime('now','+7 hours') WHERE id=?", [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, tahunVal, status||null, existing.id]);
           updated++;
         } else {
-          await run('INSERT INTO forklifts (brand,type,eq_no,serial,location,powertrain,owner,tahun,status) VALUES (?,?,?,?,?,?,?,?,?)', [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, tahunVal, status||null]);
+          await run("INSERT INTO forklifts (brand,type,eq_no,serial,location,powertrain,owner,tahun,status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?, datetime('now','+7 hours'), datetime('now','+7 hours'))", [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, tahunVal, status||null]);
           inserted++;
         }
       } catch(e){
@@ -487,7 +1033,7 @@ app.get('/api/items', requireLogin, async (req, res) => {
 app.post('/api/items', requireRole('admin','supervisor'), async (req, res) => {
   const { code, nama, unit, description, status } = req.body;
   try {
-    const r = await run('INSERT INTO items (code, nama, unit, description, status) VALUES (?,?,?,?,?)', [code,nama,unit,description,status]);
+    const r = await run("INSERT INTO items (code, nama, unit, description, status, created_at, updated_at) VALUES (?,?,?,?,?, datetime('now','+7 hours'), datetime('now','+7 hours'))", [code,nama,unit,description,status]);
     res.json({ id: r.id });
   } catch (e) {
     res.status(400).json({ error: 'Item create failed' });
@@ -496,7 +1042,7 @@ app.post('/api/items', requireRole('admin','supervisor'), async (req, res) => {
 app.put('/api/items/:id', requireRole('admin','supervisor'), async (req, res) => {
   const { code, nama, unit, description, status } = req.body;
   try {
-    await run("UPDATE items SET code=?, nama=?, unit=?, description=?, status=?, updated_at = datetime('now') WHERE id=?", [code,nama,unit,description,status, req.params.id]);
+    await run("UPDATE items SET code=?, nama=?, unit=?, description=?, status=?, updated_at = datetime('now','+7 hours') WHERE id=?", [code,nama,unit,description,status, req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Item update failed' });
@@ -504,7 +1050,7 @@ app.put('/api/items/:id', requireRole('admin','supervisor'), async (req, res) =>
 });
 app.delete('/api/items/:id', requireRole('admin','supervisor'), async (req, res) => {
   try {
-    await run("UPDATE items SET deleted_at = datetime('now') WHERE id=?", [req.params.id]);
+    await run("UPDATE items SET deleted_at = datetime('now','+7 hours') WHERE id=?", [req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Item delete failed' });
@@ -571,7 +1117,10 @@ app.post('/api/jobs', requireRole('admin','supervisor','teknisi'), async (req, r
       }
       }
 
-      const r = await run('INSERT INTO jobs (jenis,forklift_id,tanggal,teknisi,report_no,description,recommendation,items_used,next_pm) VALUES (?,?,?,?,?,?,?,?,?)', [jenis, forklift_id, tanggal, teknisi, report_no, description, recommendation, items_used, next_pm || null]);
+      const r = await run(
+        "INSERT INTO jobs (jenis,forklift_id,tanggal,teknisi,report_no,description,recommendation,items_used,next_pm,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?, datetime('now','+7 hours'), datetime('now','+7 hours'))",
+        [jenis, forklift_id, tanggal, teknisi, report_no, description, recommendation, items_used, next_pm || null]
+      );
 
     // Snapshot lokasi (selalu isi): jika belum didapat dari blok Workshop, ambil dari forklifts
     if (fkLoc == null) {
@@ -579,7 +1128,7 @@ app.post('/api/jobs', requireRole('admin','supervisor','teknisi'), async (req, r
       fkLoc = ff ? ff.location : null;
     }
 
-    await run('INSERT INTO records (tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, location) VALUES (?,?,?,?,?,?,?,?,?)', [tanggal, report_no, forklift_id, jenis, teknisi, description, recommendation, items_used, fkLoc || null]);
+    await run("INSERT INTO records (tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, location, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?, datetime('now','+7 hours'), datetime('now','+7 hours'))", [tanggal, report_no, forklift_id, jenis, teknisi, description, recommendation, items_used, fkLoc || null]);
 
     res.json({ id: r.id, report_no });
   } catch (e) {
@@ -592,11 +1141,11 @@ app.put('/api/jobs/:id', requireRole('admin','supervisor'), async (req, res) => 
     // Ambil data lama untuk sinkronisasi ke records
     const old = await get('SELECT report_no, forklift_id FROM jobs WHERE id=?', [req.params.id]);
 
-    await run("UPDATE jobs SET jenis=?, forklift_id=?, tanggal=?, teknisi=?, report_no=?, description=?, recommendation=?, items_used=?, next_pm=?, updated_at = datetime('now') WHERE id=?", [jenis,forklift_id,tanggal,teknisi,report_no,description,recommendation,items_used,next_pm || null, req.params.id]);
+    await run("UPDATE jobs SET jenis=?, forklift_id=?, tanggal=?, teknisi=?, report_no=?, description=?, recommendation=?, items_used=?, next_pm=?, updated_at = datetime('now','+7 hours') WHERE id=?", [jenis,forklift_id,tanggal,teknisi,report_no,description,recommendation,items_used,next_pm || null, req.params.id]);
 
     // Sinkronkan ke service records agar statistik Maintenance Jobs (berbasis records) ikut berubah ketika job diubah
     if (old && old.report_no) {
-      let sql = 'UPDATE records SET pekerjaan=?, tanggal=?, teknisi=?, description=?, recommendation=?, items_used=?, report_no=?, forklift_id=?';
+      let sql = "UPDATE records SET pekerjaan=?, tanggal=?, teknisi=?, description=?, recommendation=?, items_used=?, report_no=?, forklift_id=?, updated_at = datetime('now','+7 hours')";
       const params = [jenis, tanggal, teknisi, description, recommendation, items_used, report_no, forklift_id];
       // Jika forklift_id berubah, snapshot ulang lokasi dari forklifts
       if (String(old.forklift_id) !== String(forklift_id)) {
@@ -619,9 +1168,9 @@ app.delete('/api/jobs/:id', requireRole('admin','supervisor'), async (req, res) 
     // Hapus service record terkait agar statistik Maintenance Jobs (records) ikut berkurang
     const old = await get('SELECT report_no, forklift_id FROM jobs WHERE id=?', [req.params.id]);
     if (old && old.report_no) {
-      await run("UPDATE records SET deleted_at = datetime('now') WHERE report_no=? AND forklift_id=?", [old.report_no, old.forklift_id]);
+      await run("UPDATE records SET deleted_at = datetime('now','+7 hours') WHERE report_no=? AND forklift_id=?", [old.report_no, old.forklift_id]);
     }
-    await run("UPDATE jobs SET deleted_at = datetime('now') WHERE id=?", [req.params.id]);
+    await run("UPDATE jobs SET deleted_at = datetime('now','+7 hours') WHERE id=?", [req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Job delete failed' });
@@ -695,10 +1244,10 @@ app.post('/api/records/import', requireRole('admin','supervisor'), async (req, r
         }
 
         if (existing){
-          await run("UPDATE records SET tanggal=?, report_no=?, forklift_id=?, pekerjaan=?, teknisi=?, description=?, recommendation=?, items_used=?, location=?, updated_at = datetime('now') WHERE id=?", [tanggal||null, report_no||null, fk.id, pekerjaan||null, teknisi||null, description||null, recommendation||null, items_used||null, loc||null, existing.id]);
+          await run("UPDATE records SET tanggal=?, report_no=?, forklift_id=?, pekerjaan=?, teknisi=?, description=?, recommendation=?, items_used=?, location=?, updated_at = datetime('now','+7 hours') WHERE id=?", [tanggal||null, report_no||null, fk.id, pekerjaan||null, teknisi||null, description||null, recommendation||null, items_used||null, loc||null, existing.id]);
           updated++;
         } else {
-          await run('INSERT INTO records (tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, location) VALUES (?,?,?,?,?,?,?,?,?)', [tanggal||null, report_no||null, fk.id, pekerjaan||null, teknisi||null, description||null, recommendation||null, items_used||null, loc||null]);
+          await run("INSERT INTO records (tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, location, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?, datetime('now','+7 hours'), datetime('now','+7 hours'))", [tanggal||null, report_no||null, fk.id, pekerjaan||null, teknisi||null, description||null, recommendation||null, items_used||null, loc||null]);
           inserted++;
         }
       } catch(e){
@@ -718,7 +1267,7 @@ app.post('/api/records', requireRole('admin','supervisor'), async (req, res) => 
   try {
     const fk = await get('SELECT location FROM forklifts WHERE id=?', [forklift_id]);
     const loc = fk ? fk.location : null;
-    const r = await run('INSERT INTO records (tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, location) VALUES (?,?,?,?,?,?,?,?,?)', [tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, loc || null]);
+    const r = await run("INSERT INTO records (tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, location, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?, datetime('now','+7 hours'), datetime('now','+7 hours'))", [tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, loc || null]);
     res.json({ id: r.id });
   } catch (e) {
     res.status(400).json({ error: 'Record create failed' });
@@ -746,7 +1295,7 @@ app.put('/api/records/:id', requireLogin, async (req, res) => {
       const fk = await get('SELECT location FROM forklifts WHERE id=?', [forklift_id]);
       locVal = fk ? fk.location : null;
     }
-    await run("UPDATE records SET tanggal=?, report_no=?, forklift_id=?, pekerjaan=?, teknisi=?, description=?, recommendation=?, items_used=?, location=?, updated_at = datetime('now') WHERE id=?", [tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, locVal || null, req.params.id]);
+    await run("UPDATE records SET tanggal=?, report_no=?, forklift_id=?, pekerjaan=?, teknisi=?, description=?, recommendation=?, items_used=?, location=?, updated_at = datetime('now','+7 hours') WHERE id=?", [tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, locVal || null, req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Record update failed' });
@@ -757,7 +1306,7 @@ app.delete('/api/records/:id', requireLogin, async (req, res) => {
   try {
     const user = req.session.user;
     if (user.role === 'admin' || user.role === 'supervisor') {
-      await run("UPDATE records SET deleted_at = datetime('now') WHERE id=?", [req.params.id]);
+      await run("UPDATE records SET deleted_at = datetime('now','+7 hours') WHERE id=?", [req.params.id]);
       return res.json({ message: 'ok' });
     }
     if (user.role === 'teknisi') {
@@ -767,7 +1316,7 @@ app.delete('/api/records/:id', requireLogin, async (req, res) => {
       const name = String(user.name || '').toLowerCase();
       const assigned = low.includes(email) || (!!name && low.includes(name));
       if (!assigned) return res.status(403).json({ error: 'Forbidden' });
-      await run("UPDATE records SET deleted_at = datetime('now') WHERE id=?", [req.params.id]);
+      await run("UPDATE records SET deleted_at = datetime('now','+7 hours') WHERE id=?", [req.params.id]);
       return res.json({ message: 'ok' });
     }
     return res.status(403).json({ error: 'Forbidden' });
@@ -784,7 +1333,7 @@ app.post('/api/records/bulk-delete', requireLogin, async (req, res) => {
 
     if (user.role === 'admin' || user.role === 'supervisor') {
       const placeholders = ids.map(()=>'?').join(',');
-      await run(`UPDATE records SET deleted_at = datetime('now') WHERE id IN (${placeholders})`, ids);
+      await run(`UPDATE records SET deleted_at = datetime('now','+7 hours') WHERE id IN (${placeholders})`, ids);
       return res.json({ message: 'ok', deleted: ids.length });
     }
 
@@ -800,7 +1349,7 @@ app.post('/api/records/bulk-delete', requireLogin, async (req, res) => {
       }).map(r=>r.id);
       if (!ownIds.length) return res.status(403).json({ error: 'Tidak ada record milik Anda dalam pilihan' });
       const ph2 = ownIds.map(()=>'?').join(',');
-      await run(`UPDATE records SET deleted_at = datetime('now') WHERE id IN (${ph2})`, ownIds);
+      await run(`UPDATE records SET deleted_at = datetime('now','+7 hours') WHERE id IN (${ph2})`, ownIds);
       return res.json({ message: 'ok', deleted: ownIds.length });
     }
 
@@ -821,7 +1370,7 @@ app.listen(PORT, () => {
 // Restore a soft-deleted user (admin only)
 app.post('/api/users/:id/restore', requireRole('admin'), async (req, res) => {
   try {
-    await run("UPDATE users SET deleted_at = NULL, updated_at = datetime('now') WHERE id=?", [req.params.id]);
+ await run("UPDATE users SET deleted_at = NULL, updated_at = datetime('now','+7 hours') WHERE id=?", [req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'User restore failed' });
@@ -831,9 +1380,9 @@ app.post('/api/users/:id/restore', requireRole('admin'), async (req, res) => {
 app.post('/api/forklifts/:id/restore', requireRole('admin','supervisor'), async (req, res) => {
   try {
     const id = req.params.id;
-    await run("UPDATE forklifts SET deleted_at = NULL, updated_at = datetime('now') WHERE id=?", [id]);
-    await run("UPDATE jobs SET deleted_at = NULL, updated_at = datetime('now') WHERE forklift_id=?", [id]);
-    await run("UPDATE records SET deleted_at = NULL, updated_at = datetime('now') WHERE forklift_id=?", [id]);
+ await run("UPDATE forklifts SET deleted_at = NULL, updated_at = datetime('now','+7 hours') WHERE id=?", [id]);
+ await run("UPDATE jobs SET deleted_at = NULL, updated_at = datetime('now','+7 hours') WHERE forklift_id=?", [id]);
+ await run("UPDATE records SET deleted_at = NULL, updated_at = datetime('now','+7 hours') WHERE forklift_id=?", [id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Forklift restore failed' });
@@ -842,7 +1391,7 @@ app.post('/api/forklifts/:id/restore', requireRole('admin','supervisor'), async 
 // Restore a soft-deleted item
 app.post('/api/items/:id/restore', requireRole('admin','supervisor'), async (req, res) => {
   try {
-    await run("UPDATE items SET deleted_at = NULL, updated_at = datetime('now') WHERE id=?", [req.params.id]);
+ await run("UPDATE items SET deleted_at = NULL, updated_at = datetime('now','+7 hours') WHERE id=?", [req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Item restore failed' });
@@ -853,9 +1402,9 @@ app.post('/api/jobs/:id/restore', requireRole('admin','supervisor'), async (req,
   try {
     const id = req.params.id;
     const job = await get('SELECT report_no, forklift_id FROM jobs WHERE id=?', [id]);
-    await run("UPDATE jobs SET deleted_at = NULL, updated_at = datetime('now') WHERE id=?", [id]);
+ await run("UPDATE jobs SET deleted_at = NULL, updated_at = datetime('now','+7 hours') WHERE id=?", [id]);
     if (job && job.report_no) {
-      await run("UPDATE records SET deleted_at = NULL, updated_at = datetime('now') WHERE report_no=? AND forklift_id=?", [job.report_no, job.forklift_id]);
+ await run("UPDATE records SET deleted_at = NULL, updated_at = datetime('now','+7 hours') WHERE report_no=? AND forklift_id=?", [job.report_no, job.forklift_id]);
     }
     res.json({ ok: true });
   } catch (e) {
@@ -865,7 +1414,7 @@ app.post('/api/jobs/:id/restore', requireRole('admin','supervisor'), async (req,
 // Restore a soft-deleted record
 app.post('/api/records/:id/restore', requireRole('admin','supervisor'), async (req, res) => {
   try {
-    await run("UPDATE records SET deleted_at = NULL, updated_at = datetime('now') WHERE id=?", [req.params.id]);
+ await run("UPDATE records SET deleted_at = NULL, updated_at = datetime('now','+7 hours') WHERE id=?", [req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Record restore failed' });
