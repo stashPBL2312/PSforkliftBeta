@@ -493,6 +493,7 @@
           // Insert/Update per baris berdasarkan CODE
           const existingByCode = new Map((data||[]).map(it=> [String(it.code||'').trim().toLowerCase(), it]));
           let inserted = 0, updated = 0, errors = 0;
+          const errorDetails = [];
           for (const r of rows){
             const key = String(r.code||'').trim().toLowerCase();
             const payload = { code:r.code, nama:r.nama, unit:r.unit, description:r.description, status: String(r.status||'').toLowerCase() };
@@ -500,9 +501,15 @@
               const existing = existingByCode.get(key);
               if (existing && existing.id){ await api('/api/items/'+existing.id, { method:'PUT', body: payload }); updated++; }
               else { await api('/api/items', { method:'POST', body: payload }); inserted++; }
-            }catch(e){ console.error('Import row error:', e); errors++; }
+            }catch(e){
+              console.error('Import row error:', e);
+              errors++;
+              const msg = (e && (e.error || e.message)) ? (e.error || e.message) : 'Unknown error';
+              errorDetails.push({ code: r.code || '(kosong)', error: msg });
+            }
           }
-          alert(`Import selesai. Inserted: ${inserted}, Updated: ${updated}${errors?`, Errors: ${errors}`:''}`);
+          const firstErr = errorDetails.length ? ` (Code ${errorDetails[0].code}: ${errorDetails[0].error})` : '';
+          alert(`Import selesai. Inserted: ${inserted}, Updated: ${updated}${errors?`, Errors: ${errors}${firstErr}`:''}`);
           data = await api('/api/items'); indexRows(data); render();
         };
         input.click();

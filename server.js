@@ -457,11 +457,11 @@ app.post('/api/forklifts/import', requireRole('admin','supervisor'), async (req,
         if (!eq_no && !serial){ errors.push({ index: i+2, error: 'EQ No atau Serial wajib diisi' }); continue; }
 
         let existing = null;
-        if (eq_no){ existing = await get('SELECT id FROM forklifts WHERE eq_no=? AND deleted_at IS NULL', [eq_no]); }
-        if (!existing && serial){ existing = await get('SELECT id FROM forklifts WHERE serial=? AND deleted_at IS NULL', [serial]); }
+        if (eq_no){ existing = await get('SELECT id, deleted_at FROM forklifts WHERE eq_no=?', [eq_no]); }
+        if (!existing && serial){ existing = await get('SELECT id, deleted_at FROM forklifts WHERE serial=?', [serial]); }
 
         if (existing){
-          await run("UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=?, updated_at = datetime('now') WHERE id=?", [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, tahunVal, status||null, existing.id]);
+          await run("UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=?, deleted_at = NULL, updated_at = datetime('now') WHERE id=?", [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, tahunVal, status||null, existing.id]);
           updated++;
         } else {
           await run('INSERT INTO forklifts (brand,type,eq_no,serial,location,powertrain,owner,tahun,status) VALUES (?,?,?,?,?,?,?,?,?)', [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, tahunVal, status||null]);
@@ -490,6 +490,14 @@ app.post('/api/items', requireRole('admin','supervisor'), async (req, res) => {
     const r = await run('INSERT INTO items (code, nama, unit, description, status) VALUES (?,?,?,?,?)', [code,nama,unit,description,status]);
     res.json({ id: r.id });
   } catch (e) {
+    // Jika terjadi konflik UNIQUE (code sudah ada), lakukan upsert/update, termasuk restore jika soft-deleted
+    try {
+      const existing = await get('SELECT id FROM items WHERE code=?', [code]);
+      if (existing && existing.id){
+        await run("UPDATE items SET nama=?, unit=?, description=?, status=?, deleted_at=NULL, updated_at = datetime('now') WHERE id=?", [nama,unit,description,status, existing.id]);
+        return res.json({ id: existing.id, restored: true });
+      }
+    } catch (_) {}
     res.status(400).json({ error: 'Item create failed' });
   }
 });
@@ -680,8 +688,14 @@ app.post('/api/records/import', requireRole('admin','supervisor'), async (req, r
 
         if (!fkStr){ errors.push({ index: i+2, error: 'Forklift kosong' }); continue; }
         const eq = parseEqNo(fkStr);
-        const fk = await get('SELECT id, location FROM forklifts WHERE eq_no=? AND deleted_at IS NULL', [eq]);
+        let fk = await get('SELECT id, location, deleted_at FROM forklifts WHERE eq_no=?', [eq]);
         if (!fk){ errors.push({ index: i+2, error: `Forklift tidak ditemukan untuk EQ No: ${eq}` }); continue; }
+        // Jika forklift soft-deleted, restore agar relasi records valid
+        if (fk.deleted_at){
+          await run("UPDATE forklifts SET deleted_at = NULL, updated_at = datetime('now') WHERE id=?", [fk.id]);
+          // Refresh snapshot location jika diperlukan
+          fk = await get('SELECT id, location FROM forklifts WHERE id=?', [fk.id]);
+        }
 
         // Snapshot location jika kolom Location kosong
         if (!loc){

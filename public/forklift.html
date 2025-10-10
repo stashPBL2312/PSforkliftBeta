@@ -444,8 +444,11 @@ function sortRows(rows){
           }
           if (rows.length===0){ alert('Tidak ada data untuk diimport.'); return; }
 
-          const resp = await api('/api/forklifts/import', { method:'POST', body:{ rows } });
-          alert(`Import selesai. Inserted: ${resp.inserted||0}, Updated: ${resp.updated||0}${resp.errors && resp.errors.length? `, Errors: ${resp.errors.length}`:''}`);
+      const resp = await api('/api/forklifts/import', { method:'POST', body:{ rows } });
+      const errMsg = (resp && resp.errors && resp.errors.length)
+        ? `, Errors: ${resp.errors.length} (Row ${resp.errors[0].index}: ${resp.errors[0].error})`
+        : '';
+      alert(`Import selesai. Inserted: ${resp.inserted||0}, Updated: ${resp.updated||0}${errMsg}`);
           data = await api('/api/forklifts');
           render();
         };

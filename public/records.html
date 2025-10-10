@@ -1214,7 +1214,10 @@ if (btnImport) btnImport.onclick = async ()=>{
       }
       if (!rows.length){ alert('Tidak ada data untuk diimport.'); return; }
       const resp = await api('/api/records/import', { method:'POST', body:{ rows } });
-      alert(`Import selesai. Inserted: ${resp.inserted||0}, Updated: ${resp.updated||0}${resp.errors && resp.errors.length? `, Errors: ${resp.errors.length}`:''}`);
+      const errMsg = (resp && resp.errors && resp.errors.length)
+        ? `, Errors: ${resp.errors.length} (Row ${resp.errors[0].index}: ${resp.errors[0].error})`
+        : '';
+      alert(`Import selesai. Inserted: ${resp.inserted||0}, Updated: ${resp.updated||0}${errMsg}`);
       await load();
     };
     input.click();
