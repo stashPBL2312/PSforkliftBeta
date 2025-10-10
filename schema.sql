@@ -111,3 +111,28 @@ CREATE INDEX IF NOT EXISTS idx_records_location ON records(location);
 CREATE INDEX IF NOT EXISTS idx_records_description ON records(description);
 CREATE INDEX IF NOT EXISTS idx_records_recommendation ON records(recommendation);
 CREATE INDEX IF NOT EXISTS idx_records_items_used ON records(items_used);
+
+-- Archive Jobs (legacy)
+CREATE TABLE IF NOT EXISTS archive_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_no TEXT,
+  job_source TEXT CHECK(job_source IN ('workshop','maintenance')),
+  job_date TEXT,
+  description TEXT,
+  notes TEXT,
+  status TEXT,
+  next_pm TEXT,
+  forklift_id INTEGER,
+  forklift_eq_no TEXT,
+  forklift_serial TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY(forklift_id) REFERENCES forklifts(id) ON DELETE SET NULL
+);
+-- Indexes for archive_jobs
+CREATE INDEX IF NOT EXISTS idx_archive_jobs_job_no ON archive_jobs(job_no);
+CREATE INDEX IF NOT EXISTS idx_archive_jobs_job_date ON archive_jobs(job_date);
+CREATE INDEX IF NOT EXISTS idx_archive_jobs_job_source ON archive_jobs(job_source);
+CREATE INDEX IF NOT EXISTS idx_archive_jobs_fk_eq ON archive_jobs(forklift_eq_no);
+CREATE INDEX IF NOT EXISTS idx_archive_jobs_fk_serial ON archive_jobs(forklift_serial);
+CREATE INDEX IF NOT EXISTS idx_archive_jobs_fk_id ON archive_jobs(forklift_id);

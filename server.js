@@ -141,6 +141,29 @@ function requireRole(...roles) {
   };
 }
 
+// AdminJS dynamic scaffold (gated by env and protected by role)
+const ADMIN_ENABLED = process.env.ADMIN_ENABLED === '1';
+if (ADMIN_ENABLED) {
+  (async () => {
+    try {
+      const { setupAdmin } = await import('./src/admin/index.mjs');
+      const { admin, router } = await setupAdmin();
+      app.use(admin.options.rootPath, requireRole('admin','supervisor'), router);
+      console.log('AdminJS enabled and mounted at /admin');
+    } catch (e) {
+      console.warn('AdminJS not installed or failed to setup:', e && e.message ? e.message : e);
+      app.get('/admin', requireRole('admin','supervisor'), (req, res) => {
+        res.status(501).send('AdminJS dependencies missing or setup failed');
+      });
+    }
+  })();
+} else {
+  // Provide a guarded endpoint indicating admin is disabled
+  app.get('/admin', requireRole('admin','supervisor'), (req, res) => {
+    res.status(404).send('Admin panel is disabled. Set ADMIN_ENABLED=1 to enable.');
+  });
+}
+
 // Auth routes
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
@@ -297,6 +320,12 @@ app.get('/api/dashboard/metrics', requireLogin, async (req, res) => {
     db.run("UPDATE jobs SET updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)", ()=>{});
     // Checkpoint WAL supaya perubahan schema terlihat di DB Browser
     db.run("PRAGMA wal_checkpoint(FULL)", ()=>{});
+  } catch (e) { /* noop */ }
+})();
+// Migration ringan: tambah kolom next_pm di archive_jobs (statis, tidak terkait records/jobs aktif)
+(function ensureArchiveNextPmColumn(){
+  try {
+    db.run("ALTER TABLE archive_jobs ADD COLUMN next_pm TEXT", ()=>{});
   } catch (e) { /* noop */ }
 })();
 app.get('/api/users', requireRole('admin'), async (req, res) => {
@@ -821,6 +850,74 @@ app.post('/api/records/bulk-delete', requireLogin, async (req, res) => {
     return res.status(403).json({ error: 'Forbidden' });
   } catch (e) {
     res.status(500).json({ error: e.message || 'Server error' });
+  }
+});
+
+// Archive Jobs endpoints (read-only)
+app.get('/api/archive/jobs', requireLogin, async (req, res) => {
+  try {
+    // Terima kedua nama param untuk kompatibilitas: source atau job_source
+    const q = (req.query.q || '').trim();
+    const forklift_id = req.query.forklift_id || '';
+    const source = req.query.source || req.query.job_source || '';
+    const jenis = (req.query.jenis || '').trim(); // 'PM' atau 'Workshop' (mapping ke job_source)
+    const start = req.query.start || '';
+    const end = req.query.end || '';
+    const status = req.query.status || '';
+    const forklift_eq_no = req.query.forklift_eq_no || '';
+    const limit = Math.min(parseInt(req.query.limit || '50', 10), 200);
+    const offset = parseInt(req.query.offset || '0', 10);
+
+    const where = [];
+    const params = [];
+    if (forklift_id) { where.push('aj.forklift_id=?'); params.push(forklift_id); }
+    // Mapping jenis ke job_source jika dikirim
+    if (jenis) {
+      const mapped = (jenis.toLowerCase() === 'pm') ? 'maintenance' : 'workshop';
+      where.push('aj.job_source=?'); params.push(mapped);
+    } else if (source) {
+      where.push('aj.job_source=?'); params.push(source);
+    }
+    if (status) { where.push('aj.status=?'); params.push(status); }
+    if (start) { where.push('aj.job_date>=?'); params.push(start); }
+    if (end) { where.push('aj.job_date<=?'); params.push(end); }
+    if (forklift_eq_no) { 
+      const likeFk = `%${forklift_eq_no}%`;
+      where.push('(COALESCE(aj.forklift_eq_no, "") LIKE ? OR EXISTS (SELECT 1 FROM forklifts f WHERE f.id=aj.forklift_id AND COALESCE(f.eq_no, "") LIKE ?))');
+      params.push(likeFk, likeFk);
+    }
+    if (q) {
+      const like = `%${q}%`;
+      where.push('(aj.job_no LIKE ? OR aj.description LIKE ? OR aj.notes LIKE ? OR aj.job_source LIKE ? OR aj.forklift_eq_no LIKE ? OR aj.forklift_serial LIKE ?)');
+      params.push(like, like, like, like, like, like);
+    }
+
+    const whereSql = where.length ? (' WHERE ' + where.join(' AND ')) : '';
+    const baseSelect = 'SELECT aj.*, '
+      + 'CASE aj.job_source WHEN "maintenance" THEN "PM" ELSE "Workshop" END AS jenis, '
+      + 'COALESCE((SELECT brand||" "||type||" ("||eq_no||")" FROM forklifts f WHERE f.id=aj.forklift_id), COALESCE(aj.forklift_eq_no, aj.forklift_serial, "")) AS forklift, '
+      + 'aj.next_pm AS next_pm '
+      + 'FROM archive_jobs aj';
+
+    // Total untuk paginasi
+    const totalRow = await get(`SELECT COUNT(*) AS c FROM archive_jobs aj${whereSql}`, params);
+    const total = totalRow ? totalRow.c : 0;
+
+    // Data terpage
+    const rows = await all(`${baseSelect}${whereSql} ORDER BY aj.id DESC LIMIT ? OFFSET ?`, [...params, (isNaN(limit) ? 50 : limit), (isNaN(offset) ? 0 : offset)]);
+    res.json({ rows, total });
+  } catch (e) {
+    res.status(500).json({ error: 'Archive jobs query failed' });
+  }
+});
+
+app.get('/api/archive/jobs/:id', requireLogin, async (req, res) => {
+  try {
+    const row = await get(`SELECT aj.*, CASE aj.job_source WHEN 'maintenance' THEN 'PM' ELSE 'Workshop' END AS jenis, COALESCE((SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=aj.forklift_id), COALESCE(aj.forklift_eq_no, aj.forklift_serial, '')) AS forklift, aj.next_pm AS next_pm FROM archive_jobs aj WHERE aj.id=?`, [req.params.id]);
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    res.json(row);
+  } catch (e) {
+    res.status(500).json({ error: 'Archive job fetch failed' });
   }
 });
 

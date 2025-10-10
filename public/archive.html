@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="id" data-theme="auto">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Arsip Jobs</title>
+    <link rel="icon" href="/favicon.ico" />
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin:0; }
+      .container { padding: 16px; }
+      .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; margin-bottom:12px; }
+      .toolbar label { display:flex; flex-direction:column; font-size:12px; gap:4px; }
+      .toolbar input, .toolbar select { padding:6px 8px; }
+      .table-scroll { overflow:auto; border:1px solid #ddd; border-radius:8px; }
+      .pagination { display:flex; gap:8px; align-items:center; }
+      .pagination button { padding:6px 10px; }
+    </style>
+    <script src="/common.js"></script>
+  </head>
+  <body>
+    <div id="header"></div>
+    <div class="container">
+      <h2>Arsip Jobs</h2>
+      <div class="toolbar" id="filters">
+        <label>
+          Kata kunci
+          <input type="text" id="q" placeholder="Cari job_no, forklift, deskripsi" />
+        </label>
+        <label>
+          Forklift
+          <select id="forklift_id">
+            <option value="">Semua</option>
+          </select>
+        </label>
+        <label>
+          Sumber
+          <select id="job_source">
+            <option value="">Semua</option>
+            <option value="legacy_mysql">Legacy MySQL</option>
+            <option value="manual">Manual</option>
+          </select>
+        </label>
+        <label>
+          Forklift EQ No
+          <input type="text" id="forklift_eq_no" placeholder="Contoh: EQ-123" />
+        </label>
+        <label>
+          Tanggal mulai
+          <input type="date" id="start" />
+        </label>
+        <label>
+          Tanggal akhir
+          <input type="date" id="end" />
+        </label>
+        <label>
+          Jenis Job
+          <select id="jenis">
+            <option value="">Semua</option>
+            <option value="PM">PM</option>
+            <option value="Workshop">Workshop</option>
+          </select>
+        </label>
+        <div style="margin-left:auto; display:flex; gap:8px;">
+          <button id="searchBtn">Cari</button>
+          <button id="resetBtn">Reset</button>
+          <button id="exportBtn" title="Export hasil saat ini ke CSV">Export CSV</button>
+        </div>
+      </div>
+      <div id="summary" style="margin-bottom:8px; color:#555;"></div>
+      <div id="table"></div>
+      <div id="detail" style="margin-top:16px;"></div>
+      <div class="pagination" style="margin-top:12px;">
+        <button id="prevBtn">Prev</button>
+        <span id="pageInfo"></span>
+        <button id="nextBtn">Next</button>
+      </div>
+    </div>
+
+    <script>
+      let limit = 20;
+      let offset = 0;
+      let total = 0;
+      let lastRows = [];
+
+      const columns = [
+        { key:'id', label:'ID' },
+        { key:'job_no', label:'Job No' },
+        { key:'jenis', label:'Jenis' },
+        { key:'job_date', label:'Tanggal' },
+        { key:'forklift', label:'Forklift' },
+        { key:'next_pm', label:'Next PM' },
+        { key:'description', label:'Deskripsi' },
+        { key:'notes', label:'Catatan' },
+      ];
+
+      function getFilters(){
+        return {
+          q: document.getElementById('q').value.trim(),
+          forklift_id: document.getElementById('forklift_id').value,
+          source: document.getElementById('job_source').value,
+          start: document.getElementById('start').value,
+          end: document.getElementById('end').value,
+          jenis: document.getElementById('jenis').value,
+          forklift_eq_no: document.getElementById('forklift_eq_no').value.trim(),
+        };
+      }
+
+      async function load(){
+        const user = await ensureAuthedAndRenderNav();
+        if (!user) return;
+        await populateForklifts();
+        await fetchAndRender();
+      }
+
+      async function populateForklifts(){
+        try{
+          const list = await api('/api/forklifts');
+          const sel = document.getElementById('forklift_id');
+          if (!sel) return;
+          const opts = ['<option value="">Semua</option>'].concat((Array.isArray(list)?list:[]).map(f=>{
+            const label = [f.brand, f.type, `(${f.eq_no||''})`].filter(Boolean).join(' ');
+            return `<option value="${f.id}">${label}</option>`;
+          }));
+          sel.innerHTML = opts.join('');
+        }catch(e){ /* abaikan jika gagal ambil forklift */ }
+      }
+
+      async function fetchAndRender(){
+        const f = getFilters();
+        const params = new URLSearchParams({ ...f, limit: String(limit), offset: String(offset) });
+        const res = await api(`/api/archive/jobs?${params.toString()}`);
+        const rows = res.rows || [];
+        lastRows = rows;
+        total = res.total || rows.length;
+        simpleTable('table', columns, rows);
+        // Tambahkan handler klik untuk detail
+        const container = document.getElementById('table');
+        container.querySelectorAll('tbody tr').forEach((tr, idx) => {
+          const row = rows[idx];
+          tr.style.cursor = 'pointer';
+          tr.addEventListener('click', async () => {
+            const d = await api(`/api/archive/jobs/${row.id}`);
+            renderDetail(d);
+          });
+        });
+        document.getElementById('summary').textContent = `Menampilkan ${rows.length} dari total ${total} data.`;
+        const page = Math.floor(offset / limit) + 1;
+        const pages = Math.max(1, Math.ceil(total / limit));
+        document.getElementById('pageInfo').textContent = `Halaman ${page} / ${pages}`;
+        document.getElementById('prevBtn').disabled = offset <= 0;
+        document.getElementById('nextBtn').disabled = offset + limit >= total;
+      }
+
+      function bindEvents(){
+        document.getElementById('searchBtn').onclick = () => { offset = 0; fetchAndRender(); };
+        document.getElementById('resetBtn').onclick = () => {
+          document.getElementById('q').value = '';
+          document.getElementById('forklift_id').value = '';
+          document.getElementById('job_source').value = '';
+          document.getElementById('start').value = '';
+          document.getElementById('end').value = '';
+          document.getElementById('jenis').value = '';
+          document.getElementById('forklift_eq_no').value = '';
+          offset = 0;
+          fetchAndRender();
+        };
+        document.getElementById('prevBtn').onclick = () => { if (offset > 0) { offset = Math.max(0, offset - limit); fetchAndRender(); } };
+        document.getElementById('nextBtn').onclick = () => { offset = offset + limit; fetchAndRender(); };
+        // submit on Enter in keyword
+        document.getElementById('q').addEventListener('keydown', (e)=>{ if (e.key === 'Enter'){ e.preventDefault(); offset = 0; fetchAndRender(); } });
+        const exportBtn = document.getElementById('exportBtn');
+        if (exportBtn) exportBtn.onclick = exportCSV;
+      }
+
+      function toCSVRow(vals){
+        return vals.map(v=>{
+          let s = String(v==null?'':v);
+          const needsQuote = s.includes(',') || s.includes('\n') || s.includes('"');
+          if (needsQuote){ s = '"' + s.replace(/"/g,'""') + '"'; }
+          return s;
+        }).join(',');
+      }
+
+      function exportCSV(){
+        try{
+          const headers = columns.map(c=> c.label);
+          const keys = columns.map(c=> c.key);
+          const lines = [toCSVRow(headers)];
+          (Array.isArray(lastRows)? lastRows : []).forEach(r=>{
+            const vals = keys.map(k=> r && r[k]);
+            lines.push(toCSVRow(vals));
+          });
+          const csv = lines.join('\n');
+          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+          a.href = url; a.download = `arsip-jobs-${stamp}.csv`;
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } catch (e){ alert('Gagal export CSV'); }
+      }
+
+      function renderDetail(d){
+        const el = document.getElementById('detail');
+        const rows = [
+          ['ID', d.id],
+          ['Job No', d.job_no],
+          ['Sumber', d.job_source],
+          ['Jenis', d.jenis || (d.job_source === 'maintenance' ? 'PM' : 'Workshop')],
+          ['Tanggal', d.job_date],
+          ['Status', d.status],
+          ['Forklift', d.forklift],
+          ['Forklift EQ No', d.forklift_eq_no || ''],
+          ['Forklift Serial', d.forklift_serial || ''],
+          ['Next PM', d.next_pm || ''],
+          ['Deskripsi', d.description || ''],
+          ['Catatan', d.notes || ''],
+          ['Dibuat', d.created_at || ''],
+          ['Diupdate', d.updated_at || ''],
+        ];
+        el.innerHTML = `<div class="table-scroll"><table border="0" cellspacing="0" cellpadding="6" style="width:100%; border-collapse:collapse;">${rows.map(r=>`<tr><th style='text-align:left; width:200px;'>${r[0]}</th><td>${r[1]??''}</td></tr>`).join('')}</table></div>`;
+      }
+
+      (async function(){
+        bindEvents();
+        await load();
+      })();
+    </script>
+  </body>
+  </html>
