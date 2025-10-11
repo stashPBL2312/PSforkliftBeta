@@ -6,6 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
+    "start:admin": "set ADMIN_ENABLED=1&& set PORT=3001&& node server.js",
     "dev": "node server.js",
     "etl:archive": "node scripts/archive_etl_csv.js"
   },

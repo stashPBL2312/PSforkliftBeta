@@ -1,5 +1,10 @@
 import { MikroORM } from '@mikro-orm/sqlite';
 import { ForkliftSchema, Forklift } from './entities/forklift.mjs';
+import { UserSchema, User } from './entities/user.mjs';
+import { ItemSchema, Item } from './entities/item.mjs';
+import { JobSchema, Job } from './entities/job.mjs';
+import { RecordSchema, Record } from './entities/record.mjs';
+import { ArchiveJobSchema, ArchiveJob } from './entities/archive_job.mjs';
 import { fileURLToPath } from 'node:url';
 
 // Resolve path ke db.sqlite di root project (dua level ke atas dari file ini)
@@ -16,10 +21,10 @@ export async function initOrm() {
   const orm = await MikroORM.init({
     dbName: dbPath,
     clientUrl,
-    entities: [ForkliftSchema],
+    entities: [ForkliftSchema, UserSchema, ItemSchema, JobSchema, RecordSchema, ArchiveJobSchema],
     debug: false,
   });
   return orm;
 }
 
-export { Forklift };
+export { Forklift, User, Item, Job, Record, ArchiveJob };

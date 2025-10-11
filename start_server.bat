@@ -12,9 +12,10 @@ REM Go to the directory of this script (project root)
 pushd "%~dp0"
 
 echo Starting Forklift Service server on http://localhost:%PORT%/
+echo Admin panel will be enabled at /admin
 
 REM Launch the server in a new console window and keep it open
-start "Forklift Server" cmd /k "set PORT=%PORT% && node server.js"
+start "Forklift Server" cmd /k "set ADMIN_ENABLED=1 && set PORT=%PORT% && node server.js"
 
 popd
 endlocal

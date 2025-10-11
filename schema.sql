@@ -11,8 +11,8 @@ CREATE TABLE IF NOT EXISTS users (
   password TEXT NOT NULL,
   role TEXT CHECK(role IN ('admin','supervisor','teknisi')) NOT NULL,
   name TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now')),
+  created_at TEXT DEFAULT (datetime('now','+7 hours')),
+  updated_at TEXT DEFAULT (datetime('now','+7 hours')),
   deleted_at TEXT
 );
 -- Indexes for users
@@ -30,8 +30,8 @@ CREATE TABLE IF NOT EXISTS forklifts (
   owner TEXT,
   tahun INTEGER,
   status TEXT CHECK(status IN ('active','maintenance','retired')),
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now')),
+  created_at TEXT DEFAULT (datetime('now','+7 hours')),
+  updated_at TEXT DEFAULT (datetime('now','+7 hours')),
   deleted_at TEXT
 );
 -- Indexes for forklifts
@@ -51,8 +51,8 @@ CREATE TABLE IF NOT EXISTS items (
   unit TEXT,
   description TEXT,
   status TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now')),
+  created_at TEXT DEFAULT (datetime('now','+7 hours')),
+  updated_at TEXT DEFAULT (datetime('now','+7 hours')),
   deleted_at TEXT
 );
 -- Indexes for items
@@ -73,8 +73,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   recommendation TEXT,
   items_used TEXT,
   next_pm TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now')),
+  created_at TEXT DEFAULT (datetime('now','+7 hours')),
+  updated_at TEXT DEFAULT (datetime('now','+7 hours')),
   deleted_at TEXT,
   FOREIGN KEY(forklift_id) REFERENCES forklifts(id)
 );
@@ -96,8 +96,8 @@ CREATE TABLE IF NOT EXISTS records (
   recommendation TEXT,
   items_used TEXT,
   location TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now')),
+  created_at TEXT DEFAULT (datetime('now','+7 hours')),
+  updated_at TEXT DEFAULT (datetime('now','+7 hours')),
   deleted_at TEXT,
   FOREIGN KEY(forklift_id) REFERENCES forklifts(id)
 );

@@ -16,12 +16,13 @@ Tujuan: proyek rapi, bertahap, minim risiko, dan mudah dipelihara. Dokumen ini m
 - Hard delete hanya untuk kebutuhan administratif terbatas via AdminJS dan harus memakai transaksi serta cascade aman. Frontend tidak melakukan hard delete.
 - Rekomendasi migrasi skema: aktifkan `ON DELETE CASCADE` untuk tabel aktif (contoh: `records/jobs` yang bergantung pada `forklifts`) dan `ON DELETE SET NULL` untuk referensi arsip.
 
-## Finalisasi AdminJS (yang akan diimplementasi)
-- Adapter: `@adminjs/mikroorm` + `@adminjs/express` (SQLite melalui MikroORM).
-- ESM-only: letakkan setup di `src/admin/index.js` dan gunakan import dinamis dari `server.js` agar tidak memaksa seluruh file ke ESM.
-- Mount: `/admin` di belakang middleware sesi yang ada (`requireRole('admin','supervisor')`).
-- Resources: `users`, `forklifts`, `items`, `records` (opsional read-only `archive_jobs`).
-- Aksi: Delete = soft delete; sediakan aksi “Restore”. Tambahkan aksi “HardDelete” khusus admin dengan transaksi dan cascade.
+## Finalisasi AdminJS (selaras implementasi)
+- Adapter: `@adminjs/mikroorm` + `@adminjs/express` (SQLite via MikroORM).
+- ESM-only: setup berada di `src/admin/index.mjs` dengan import dinamis dari `server.js`.
+- Mount: `/admin` di belakang middleware sesi (`requireRole('admin','supervisor')`).
+- Resources aktif: `users`, `forklifts`, `items`, `jobs`, `records` (opsional read-only `archive_jobs`).
+- Aksi: Delete/BulkDelete bawaan disembunyikan. Gunakan aksi kustom “Soft Delete”, “Recover”, dan “Hard Delete” (admin-only) serta “Bulk Soft Delete/Bulk Hard Delete”.
+ - List default: exclude soft-deleted (`deleted_at IS NULL`) melalui hook query; sediakan filter untuk menampilkan data terhapus bila diperlukan.
 
 ## Arsip Legacy (MySQL) — Desain dan Aturan
 - Tabel `archive_jobs` bersifat terpisah dari `records` baru: tampil di halaman “Arsip” (frontend) dan read-only di AdminJS.
@@ -38,21 +39,19 @@ Tujuan: proyek rapi, bertahap, minim risiko, dan mudah dipelihara. Dokumen ini m
 - Pastikan `PRAGMA foreign_keys=ON` tetap aktif; siapkan migrasi skema cascade jika dibutuhkan untuk hard delete aman.
 - Verifikasi impor forklift (±300) dan teknisi (±12) memakai upsert + restore saat konflik UNIQUE.
 - Dokumentasikan variabel env penting (`ADMIN_EMAIL`, `ADMIN_PASSWORD`, `SESSION_SECRET`, `NODE_ENV`).
- - Tambahan gating: gunakan `ADMIN_ENABLED=1` untuk mengaktifkan panel Admin; default tidak di-set (nonaktif).
 
 ## Panel Admin (AdminJS)
 - Gunakan `AdminJS` untuk panel admin minimalis di backend.
-- Mount di path `/admin` dan DI-BELAKANG middleware sesi yang ada (pakai `requireRole('admin','supervisor')`). Tidak perlu login terpisah.
+- Mount di path `/admin` di belakang middleware sesi (`requireRole('admin','supervisor')`).
 - Adapter: `@adminjs/mikroorm` + `@adminjs/express` (MikroORM dengan SQLite).
-- Resources awal: `users`, `forklifts`, `items`, `records`.
-- Soft delete: aksi Delete harus set `deleted_at` (bukan hard delete). Tambahkan aksi “Restore”.
-- Tampilkan hanya baris `deleted_at IS NULL` secara default (list), namun tetap bisa cari/lihat jika diperlukan.
-- Hormati constraints UNIQUE (mis. `forklifts.eq_no`, `forklifts.serial`, `items.code`). Panel harus menampilkan error DB apa adanya, dengan pesan yang jelas.
+- Resources aktif: `users`, `forklifts`, `items`, `jobs`, `records`.
+- Soft delete: aksi Delete bawaan disembunyikan; aksi kustom “Soft Delete” mengisi `deleted_at`, “Recover” mengosongkan `deleted_at` dan memperbarui `updated_at`.
+- List view: menampilkan kolom audit (`created_at`, `updated_at`, `deleted_at`). Default list menyaring `deleted_at IS NULL` (hook query); tersedia filter untuk menampilkan data terhapus bila diperlukan.
+- Hormati constraints UNIQUE (mis. `forklifts.eq_no`, `forklifts.serial`, `items.code`). Panel menampilkan error DB apa adanya dengan pesan jelas.
 
 ### Setup Teknis AdminJS
-- AdminJS v7 berbasis ESM: letakkan setup di `src/admin/index.js` (ESM) dan gunakan import dinamis dari `server.js` agar tidak memaksa migrasi seluruh file ke ESM.
+- AdminJS v7 berbasis ESM: setup di `src/admin/index.mjs` dan gunakan import dinamis dari `server.js` agar tidak memaksa migrasi seluruh file ke ESM.
 - Saat development, panggil `admin.watch()` agar bundler frontend AdminJS aktif.
- - Gating via ENV: mount hanya jika `ADMIN_ENABLED=1`; default nonaktif untuk menghindari risiko.
 
 ### Catatan Instalasi (AdminJS + MikroORM)
 - Prasyarat: Node.js LTS (v18+), koneksi internet, hak tulis folder proyek.
@@ -74,11 +73,24 @@ Tujuan: proyek rapi, bertahap, minim risiko, dan mudah dipelihara. Dokumen ini m
   - `src/admin/orm.mjs`: inisialisasi MikroORM (SQLite) ke `db.sqlite` yang sama.
   - `src/admin/entities/*.mjs`: definisi entity minimal per tabel.
 
+#### Catatan Windows (MikroORM + SQLite)
+- Untuk Windows, set `clientUrl` MikroORM ke format `file:///C:/...` dengan path POSIX (ganti backslash `\` menjadi `/`).
+- Implementasi di proyek: lihat `src/admin/orm.mjs` — membangun `clientUrl` dari `db.sqlite` menggunakan `file:///` agar tidak memicu `TypeError: Invalid URL`.
+- Gejala umum: Sidebar AdminJS “Navigation” kosong akibat gagal membaca metadata DB — perbaiki dengan `clientUrl` valid dan pastikan paket adapter terpasang.
+
+#### Jalankan Admin Panel (Windows)
+- Gunakan: `npm run start:admin` (menyetel `ADMIN_ENABLED=1` dan `PORT=3001`).
+- Alternatif: jalankan `start_server.bat 3001` — sekarang otomatis mengaktifkan admin panel.
+
+#### Troubleshooting Tambahan
+- Dependency `express-formidable` diperlukan oleh `@adminjs/express`. Jika error “Cannot find package 'express-formidable'”, pasang: `npm install express-formidable` lalu restart server.
+- Jika panel tetap kosong: cek log terminal saat start; pastikan tercetak “AdminJS enabled and mounted at /admin”.
+
 ### Klarifikasi Khusus Admin Panel
-- Hard delete PERMANEN hanya boleh dilakukan oleh `admin` lewat AdminJS, dengan cascade aman untuk dependensi (jobs/records) menggunakan transaksi. Frontend tidak melakukan hard delete.
-- Aksi Delete di AdminJS defaultnya adalah soft delete (set `deleted_at`); sertakan aksi “Restore”. Sediakan aksi khusus “HardDelete” untuk admin.
-- Admin TIDAK mengubah nilai `id` (primary key). Mengubah `id` berisiko memutus relasi karena FK `ON UPDATE CASCADE` tidak diaktifkan. Jika sangat diperlukan di masa depan, buat action khusus dengan transaksi yang memperbarui semua referensi terlebih dulu.
-- Pencarian keyword mirip: di list, siapkan satu textbox keyword yang melakukan filter LIKE ke beberapa kolom relevan (Forklifts: `brand`, `type`, `eq_no`, `serial`, `location`; Items: `code`, `nama`, `description`; Records: gabungkan `report_no`, `pekerjaan`, `teknisi`, `location`).
+- Hard delete PERMANEN hanya untuk `admin` via aksi kustom AdminJS, dengan cascade aman ke dependensi (jobs/records). Frontend tidak melakukan hard delete.
+- Aksi Delete bawaan AdminJS disembunyikan untuk mencegah kebingungan; gunakan aksi kustom “Soft Delete”, “Recover”, dan “Hard Delete”. Aksi bulk tersedia untuk semua resource aktif.
+- Admin TIDAK mengubah nilai `id` (primary key). Mengubah `id` berisiko memutus relasi karena FK `ON UPDATE CASCADE` tidak diaktifkan. Jika diperlukan, buat action khusus dengan transaksi yang memperbarui referensi terlebih dulu.
+- Pencarian keyword: filter LIKE ke kolom relevan (Forklifts: `brand`, `type`, `eq_no`, `serial`, `location`; Items: `code`, `nama`, `description`; Records: gabungan `report_no`, `pekerjaan`, `teknisi`, `location`).
 
 ## Refactor Bertahap (sebelum/bersamaan AdminJS)
 - Tahap 1: Ekstrak util umum dari `server.js`:
@@ -170,23 +182,23 @@ Tujuan: proyek rapi, bertahap, minim risiko, dan mudah dipelihara. Dokumen ini m
  - Jalankan migrasi forklift (±300) dan users (±12) ke DB baru dengan upsert yang aman terhadap UNIQUE.
 
 ## Status Progress
- - Completed:
-   - Audit `schema.sql` dan struktur constraints
-   - Audit `server.js` untuk routes/middleware/operasi DB
-   - Update `project_rules.md` dengan ringkasan final dan checklist
-   - Tambah `archive_jobs` di `schema.sql` beserta indeks pencarian
-   - Tambah endpoint `GET /api/archive/jobs` dan `GET /api/archive/jobs/:id`
-   - Perbaikan endpoint arsip: dukung filter `status` dan `forklift_eq_no`, kompatibilitas `source/job_source`, respon `{ rows, total }`
-   - Tambah halaman `public/archive.html` dengan filter lengkap, paginasi, dan detail view klik baris
+- Completed:
+  - Audit `schema.sql` dan struktur constraints
+  - Audit `server.js` untuk routes/middleware/operasi DB
+  - Update `project_rules.md` dengan ringkasan final dan checklist (disinkronkan dengan implementasi terkini)
+  - Tambah `archive_jobs` di `schema.sql` beserta indeks pencarian
+  - Tambah endpoint `GET /api/archive/jobs` dan `GET /api/archive/jobs/:id`
+  - Perbaikan endpoint arsip: dukung filter `status` dan `forklift_eq_no`, kompatibilitas `source/job_source`, respon `{ rows, total }`
+  - Tambah halaman `public/archive.html` dengan filter lengkap, paginasi, dan detail view klik baris
   - Next PM arsip: kolom `next_pm` ditambahkan di skema dan dibaca langsung dari `archive_jobs`
   - ETL tooling: skrip `scripts/archive_etl_csv.js` + npm script `etl:archive`
-  - AdminJS scaffold: import dinamis dengan gating `ADMIN_ENABLED=1`, mount `/admin` di belakang `requireRole('admin','supervisor')`
-  - Arsip UX: dropdown filter `forklift_id` terintegrasi (API: `forklift_id`, `forklift_eq_no`), tombol "Export CSV" di halaman Arsip
+  - AdminJS: resources aktif (Users, Forklifts, Items, Jobs, Records) dengan aksi kustom Soft Delete/Recover/Hard Delete dan Bulk Soft/Hard; Delete/BulkDelete bawaan disembunyikan; kolom audit tampil di list
+  - Verifikasi UI AdminJS berhasil di `/admin` (server restart, tidak ada error terminal)
  - In Progress:
    - Stabilkan UX Arsip dan validasi hasil ETL (visual check)
- - Next:
+   - Konsolidasi kebijakan list soft-deleted: implementasi saat ini memakai filter (bukan default exclude). Jika perlu default exclude, siapkan hook query di semua resource.
+- Next:
   - Jalankan ETL impor dengan file CSV MySQL → `archive_jobs` (normalisasi `eq_no/serial`)
-  - Tambah resources AdminJS minimal (read-only) untuk `users`, `forklifts`, `items`, `records`
-  - Tambah aksi AdminJS: Delete (soft), Restore, HardDelete (admin-only) dengan transaksi
-   - Evaluasi dan terapkan cascade (`ON DELETE CASCADE`) untuk tabel aktif bila perlu hard delete aman
-   - Opsional: ekstrak `src/db.js` dan `src/middleware/auth.js`; pecah routes per domain
+  - (Opsional) Tambah resource AdminJS read-only untuk `archive_jobs`
+  - (Opsional) Terapkan `ON DELETE CASCADE` untuk tabel aktif bila diperlukan hard delete aman di luar AdminJS
+  - (Opsional) Ekstrak `src/db.js` dan `src/middleware/auth.js`; pecah routes per domain
