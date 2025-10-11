@@ -1,0 +1,3 @@
+job_no,job_source,job_date,description,notes,status,forklift_eq_no,forklift_serial,next_pm
+AJ-1001,PM,2024-08-15,Preventive maintenance bulan Agustus,,closed,EQ-001,SN-ABC-001,2024-09-15
+AJ-1002,Workshop,2024-08-20,Perbaikan hydraulic leak,Butuh monitoring,open,EQ-002,SN-XYZ-777,

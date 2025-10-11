@@ -14,6 +14,12 @@
       .table-scroll { overflow:auto; border:1px solid #ddd; border-radius:8px; }
       .pagination { display:flex; gap:8px; align-items:center; }
       .pagination button { padding:6px 10px; }
+      /* Ikon kalender kustom seperti di records */
+      input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0 !important; filter: none !important; }
+      .date-input-wrap { position: relative; display: inline-block; color:#111; }
+      [data-theme="dark"] .date-input-wrap { color:#fff; }
+      .date-input-wrap input[type="date"] { padding-right: 26px; }
+      .date-input-wrap::after { content: ""; position:absolute; right:4px; top:50%; transform:translateY(-50%); width:18px; height:18px; pointer-events:none; background-color: currentColor; -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='4' width='18' height='17' rx='2' ry='2' fill='none' stroke='%23fff' stroke-width='2'/><line x1='16' y1='2' x2='16' y2='6' stroke='%23fff' stroke-width='2'/><line x1='8' y1='2' x2='8' y2='6' stroke='%23fff' stroke-width='2'/><line x1='3' y1='10' x2='21' y2='10' stroke='%23fff' stroke-width='2'/></svg>") no-repeat center / contain; mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='4' width='18' height='17' rx='2' ry='2' fill='none' stroke='%23fff' stroke-width='2'/><line x1='16' y1='2' x2='16' y2='6' stroke='%23fff' stroke-width='2'/><line x1='8' y1='2' x2='8' y2='6' stroke='%23fff' stroke-width='2'/><line x1='3' y1='10' x2='21' y2='10' stroke='%23fff' stroke-width='2'/></svg>") no-repeat center / contain; }
     </style>
     <script src="/common.js"></script>
   </head>
@@ -36,8 +42,8 @@
           Sumber
           <select id="job_source">
             <option value="">Semua</option>
-            <option value="legacy_mysql">Legacy MySQL</option>
-            <option value="manual">Manual</option>
+            <option value="maintenance">PM</option>
+            <option value="workshop">Workshop</option>
           </select>
         </label>
         <label>
@@ -46,11 +52,11 @@
         </label>
         <label>
           Tanggal mulai
-          <input type="date" id="start" />
+          <div class="date-input-wrap"><input type="date" id="start" /></div>
         </label>
         <label>
           Tanggal akhir
-          <input type="date" id="end" />
+          <div class="date-input-wrap"><input type="date" id="end" /></div>
         </label>
         <label>
           Jenis Job
@@ -61,7 +67,6 @@
           </select>
         </label>
         <div style="margin-left:auto; display:flex; gap:8px;">
-          <button id="searchBtn">Cari</button>
           <button id="resetBtn">Reset</button>
           <button id="exportBtn" title="Export hasil saat ini ke CSV">Export CSV</button>
         </div>
@@ -127,7 +132,15 @@
 
       async function fetchAndRender(){
         const f = getFilters();
-        const params = new URLSearchParams({ ...f, limit: String(limit), offset: String(offset) });
+        // Pastikan filter jenis diterjemahkan ke job_source agar konsisten dengan backend
+        const mappedJenis = f.jenis ? (f.jenis.toLowerCase() === 'pm' ? 'maintenance' : 'workshop') : '';
+        const paramsObj = { ...f, limit: String(limit), offset: String(offset) };
+        if (mappedJenis) {
+          // Hindari kebingungan: gunakan job_source eksplisit saat jenis dipilih
+          delete paramsObj.source; // jangan kirim 'source' yang tidak relevan
+          paramsObj.job_source = mappedJenis;
+        }
+        const params = new URLSearchParams(paramsObj);
         const res = await api(`/api/archive/jobs?${params.toString()}`);
         const rows = res.rows || [];
         lastRows = rows;
@@ -152,7 +165,6 @@
       }
 
       function bindEvents(){
-        document.getElementById('searchBtn').onclick = () => { offset = 0; fetchAndRender(); };
         document.getElementById('resetBtn').onclick = () => {
           document.getElementById('q').value = '';
           document.getElementById('forklift_id').value = '';
@@ -166,7 +178,19 @@
         };
         document.getElementById('prevBtn').onclick = () => { if (offset > 0) { offset = Math.max(0, offset - limit); fetchAndRender(); } };
         document.getElementById('nextBtn').onclick = () => { offset = offset + limit; fetchAndRender(); };
-        // submit on Enter in keyword
+        // Pencarian realtime: debounce saat mengetik kata kunci & forklift eq no
+        const trigger = () => { offset = 0; fetchAndRender(); };
+        const debouncedTrigger = debounce(trigger, 250);
+        const qEl = document.getElementById('q');
+        if (qEl) qEl.addEventListener('input', debouncedTrigger);
+        const fkEqEl = document.getElementById('forklift_eq_no');
+        if (fkEqEl) fkEqEl.addEventListener('input', debouncedTrigger);
+        // Filter lain auto-apply saat berubah
+        ['forklift_id','job_source','jenis','start','end'].forEach(id=>{
+          const el = document.getElementById(id);
+          if (el) el.addEventListener('change', () => { offset = 0; fetchAndRender(); });
+        });
+        // tetap dukung Enter untuk submit manual pada keyword
         document.getElementById('q').addEventListener('keydown', (e)=>{ if (e.key === 'Enter'){ e.preventDefault(); offset = 0; fetchAndRender(); } });
         const exportBtn = document.getElementById('exportBtn');
         if (exportBtn) exportBtn.onclick = exportCSV;

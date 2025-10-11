@@ -1,5 +1,7 @@
 // ESM-only AdminJS setup module
-import AdminJS from 'adminjs';
+import AdminJS, { ComponentLoader } from 'adminjs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import * as AdminJSExpress from '@adminjs/express';
 import { Database, Resource } from '@adminjs/mikroorm';
 import { initOrm, Forklift, User, Item, Job, Record, ArchiveJob } from './orm.mjs';
@@ -10,9 +12,17 @@ export async function setupAdmin() {
   const orm = await initOrm();
   const conn = orm.em.getConnection();
   const wibNow = "datetime('now','+7 hours')";
+  // Gunakan ComponentLoader untuk mendaftarkan komponen frontend aksi
+  const componentLoader = new ComponentLoader();
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const Components = {
+    // Ganti ID untuk bust cache bundler
+    ActionNotice: componentLoader.add('ActionNotice', join(__dirname, 'components', 'ActionDone.jsx')),
+  };
 
   const admin = new AdminJS({
     rootPath: '/admin',
+    componentLoader,
     branding: { companyName: 'PSforklift' },
     resources: [
       {
@@ -24,55 +34,65 @@ export async function setupAdmin() {
           showProperties: ['id','eq_no','brand','type','powertrain','owner','location','status','tahun','serial','created_at','updated_at','deleted_at'],
           sort: { direction: 'asc', sortBy: 'eq_no' },
           actions: {
-            list: {
-              before: (request) => {
-                const q = request.query || {};
-                const filters = q.filters || {};
-                if (!filters.deleted_at) {
-                  filters.deleted_at = { path: 'deleted_at', value: 'null' };
-                }
-                return { ...request, query: { ...q, filters } };
-              },
-            },
+            list: {},
             new: { isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin' },
             edit: { isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin' },
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
             softDelete: {
               actionType: 'record', icon: 'Trash', label: 'Soft Delete',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (req, res, context) => {
                 const id = context?.record?.params?.id;
                 await conn.execute("UPDATE forklifts SET deleted_at = "+wibNow+" WHERE id=?", [id]);
                 await conn.execute("UPDATE jobs SET deleted_at = "+wibNow+" WHERE forklift_id=?", [id]);
                 await conn.execute("UPDATE records SET deleted_at = "+wibNow+" WHERE forklift_id=?", [id]);
-                return { notice: { message: 'Forklift soft-deleted', type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  record: context.record?.toJSON(context.currentAdmin),
+                  notice: { message: 'Forklift soft-deleted', type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             recover: {
               actionType: 'record', icon: 'Undo', label: 'Recover',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (req, res, context) => {
                 const id = context?.record?.params?.id;
                 await conn.execute("UPDATE forklifts SET deleted_at = NULL, updated_at = "+wibNow+" WHERE id=?", [id]);
                 await conn.execute("UPDATE jobs SET deleted_at = NULL, updated_at = "+wibNow+" WHERE forklift_id=?", [id]);
                 await conn.execute("UPDATE records SET deleted_at = NULL, updated_at = "+wibNow+" WHERE forklift_id=?", [id]);
-                return { notice: { message: 'Forklift recovered', type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  record: context.record?.toJSON(context.currentAdmin),
+                  notice: { message: 'Forklift recovered', type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             hardDelete: {
               actionType: 'record', icon: 'Close', label: 'Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (req, res, context) => {
                 const id = context?.record?.params?.id;
                 await conn.execute('DELETE FROM records WHERE forklift_id=?', [id]);
                 await conn.execute('DELETE FROM jobs WHERE forklift_id=?', [id]);
                 await conn.execute('DELETE FROM forklifts WHERE id=?', [id]);
-                return { notice: { message: 'Forklift hard-deleted', type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  record: context.record?.toJSON(context.currentAdmin),
+                  notice: { message: 'Forklift hard-deleted', type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             bulkSoftDelete: {
               actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -81,11 +101,17 @@ export async function setupAdmin() {
                 await conn.execute(`UPDATE forklifts SET deleted_at = ${wibNow} WHERE id IN (${placeholders})`, ids);
                 await conn.execute(`UPDATE jobs SET deleted_at = ${wibNow} WHERE forklift_id IN (${placeholders})`, ids);
                 await conn.execute(`UPDATE records SET deleted_at = ${wibNow} WHERE forklift_id IN (${placeholders})`, ids);
-                return { notice: { message: `Soft delete ${ids.length} forklift`, type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  records: (context.records || []).map(r => r?.toJSON(context.currentAdmin)),
+                  notice: { message: `Soft delete ${ids.length} forklift`, type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             bulkHardDelete: {
               actionType: 'bulk', icon: 'Close', label: 'Bulk Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -94,7 +120,12 @@ export async function setupAdmin() {
                 await conn.execute(`DELETE FROM records WHERE forklift_id IN (${placeholders})`, ids);
                 await conn.execute(`DELETE FROM jobs WHERE forklift_id IN (${placeholders})`, ids);
                 await conn.execute(`DELETE FROM forklifts WHERE id IN (${placeholders})`, ids);
-                return { notice: { message: `Hard delete ${ids.length} forklift`, type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  records: (context.records || []).map(r => r?.toJSON(context.currentAdmin)),
+                  notice: { message: `Hard delete ${ids.length} forklift`, type: 'success' },
+                  redirectUrl,
+                };
               },
             },
           },
@@ -109,67 +140,88 @@ export async function setupAdmin() {
           showProperties: ['id','email','name','role','created_at','updated_at','deleted_at'],
           sort: { direction: 'desc', sortBy: 'id' },
           actions: {
-            list: {
-              before: (request) => {
-                const q = request.query || {};
-                const filters = q.filters || {};
-                if (!filters.deleted_at) {
-                  filters.deleted_at = { path: 'deleted_at', value: 'null' };
-                }
-                return { ...request, query: { ...q, filters } };
-              },
-            },
+            list: {},
             new: { isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin' },
             edit: { isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin' },
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
             softDelete: {
               actionType: 'record', icon: 'Trash', label: 'Soft Delete',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
                 await conn.execute("UPDATE users SET deleted_at = "+wibNow+" WHERE id=?", [id]);
-                return { notice: { message: 'User soft-deleted', type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  record: context.record?.toJSON(context.currentAdmin),
+                  notice: { message: 'User soft-deleted', type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             recover: {
               actionType: 'record', icon: 'Undo', label: 'Recover',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
                 await conn.execute("UPDATE users SET deleted_at = NULL, updated_at = "+wibNow+" WHERE id=?", [id]);
-                return { notice: { message: 'User recovered', type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  record: context.record?.toJSON(context.currentAdmin),
+                  notice: { message: 'User recovered', type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             hardDelete: {
               actionType: 'record', icon: 'Close', label: 'Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
                 await conn.execute('DELETE FROM users WHERE id=?', [id]);
-                return { notice: { message: 'User hard-deleted', type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  record: context.record?.toJSON(context.currentAdmin),
+                  notice: { message: 'User hard-deleted', type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             bulkSoftDelete: {
               actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
                 if (!ids.length) return { notice: { message: 'Tidak ada record dipilih', type: 'info' } };
                 const placeholders = ids.map(() => '?').join(',');
                 await conn.execute(`UPDATE users SET deleted_at = ${wibNow} WHERE id IN (${placeholders})`, ids);
-                return { notice: { message: `Soft delete ${ids.length} user`, type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  records: (context.records || []).map(r => r?.toJSON(context.currentAdmin)),
+                  notice: { message: `Soft delete ${ids.length} user`, type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             bulkHardDelete: {
               actionType: 'bulk', icon: 'Close', label: 'Bulk Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
                 if (!ids.length) return { notice: { message: 'Tidak ada record dipilih', type: 'info' } };
                 const placeholders = ids.map(() => '?').join(',');
                 await conn.execute(`DELETE FROM users WHERE id IN (${placeholders})`, ids);
-                return { notice: { message: `Hard delete ${ids.length} user`, type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  records: (context.records || []).map(r => r?.toJSON(context.currentAdmin)),
+                  notice: { message: `Hard delete ${ids.length} user`, type: 'success' },
+                  redirectUrl,
+                };
               },
             },
           },
@@ -184,56 +236,71 @@ export async function setupAdmin() {
           showProperties: ['id','code','nama','unit','status','description','created_at','updated_at','deleted_at'],
           sort: { direction: 'asc', sortBy: 'code' },
           actions: {
-            list: {
-              before: (request) => {
-                const q = request.query || {};
-                const filters = q.filters || {};
-                if (!filters.deleted_at) {
-                  filters.deleted_at = { path: 'deleted_at', value: 'null' };
-                }
-                return { ...request, query: { ...q, filters } };
-              },
-            },
+            list: {},
             new: { isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin' },
             edit: { isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin' },
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
             softDelete: {
               actionType: 'record', icon: 'Trash', label: 'Soft Delete',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
                 await conn.execute("UPDATE items SET deleted_at = "+wibNow+" WHERE id=?", [id]);
-                return { notice: { message: 'Item soft-deleted', type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  record: context.record?.toJSON(context.currentAdmin),
+                  notice: { message: 'Item soft-deleted', type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             recover: {
               actionType: 'record', icon: 'Undo', label: 'Recover',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
                 await conn.execute("UPDATE items SET deleted_at = NULL, updated_at = "+wibNow+" WHERE id=?", [id]);
-                return { notice: { message: 'Item recovered', type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  record: context.record?.toJSON(context.currentAdmin),
+                  notice: { message: 'Item recovered', type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             hardDelete: {
               actionType: 'record', icon: 'Close', label: 'Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
                 await conn.execute('DELETE FROM items WHERE id=?', [id]);
-                return { notice: { message: 'Item hard-deleted', type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  record: context.record?.toJSON(context.currentAdmin),
+                  notice: { message: 'Item hard-deleted', type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             bulkSoftDelete: {
               actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete',
+              
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
                 if (!ids.length) return { notice: { message: 'Tidak ada record dipilih', type: 'info' } };
                 const placeholders = ids.map(() => '?').join(',');
                 await conn.execute(`UPDATE items SET deleted_at = ${wibNow} WHERE id IN (${placeholders})`, ids);
-                return { notice: { message: `Soft delete ${ids.length} item`, type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  records: (context.records || []).map(r => r?.toJSON(context.currentAdmin)),
+                  notice: { message: `Soft delete ${ids.length} item`, type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             bulkHardDelete: {
@@ -244,7 +311,12 @@ export async function setupAdmin() {
                 if (!ids.length) return { notice: { message: 'Tidak ada record dipilih', type: 'info' } };
                 const placeholders = ids.map(() => '?').join(',');
                 await conn.execute(`DELETE FROM items WHERE id IN (${placeholders})`, ids);
-                return { notice: { message: `Hard delete ${ids.length} item`, type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  records: (context.records || []).map(r => r?.toJSON(context.currentAdmin)),
+                  notice: { message: `Hard delete ${ids.length} item`, type: 'success' },
+                  redirectUrl,
+                };
               },
             },
           },
@@ -258,16 +330,7 @@ export async function setupAdmin() {
           showProperties: ['id','jenis','forklift_id','tanggal','teknisi','report_no','description','recommendation','items_used','next_pm','created_at','updated_at','deleted_at'],
           sort: { direction: 'desc', sortBy: 'tanggal' },
           actions: {
-            list: {
-              before: (request) => {
-                const q = request.query || {};
-                const filters = q.filters || {};
-                if (!filters.deleted_at) {
-                  filters.deleted_at = { path: 'deleted_at', value: 'null' };
-                }
-                return { ...request, query: { ...q, filters } };
-              },
-            },
+            list: {},
             new: { isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin' },
             edit: { isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin' },
             delete: { isAccessible: () => false, isVisible: false },
@@ -282,7 +345,12 @@ export async function setupAdmin() {
                 if (job && job[0] && job[0].report_no) {
                   await conn.execute("UPDATE records SET deleted_at = "+wibNow+" WHERE report_no=? AND forklift_id=?", [job[0].report_no, job[0].forklift_id]);
                 }
-                return { notice: { message: 'Job soft-deleted', type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  record: context.record?.toJSON(context.currentAdmin),
+                  notice: { message: 'Job soft-deleted', type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             recover: {
@@ -295,7 +363,12 @@ export async function setupAdmin() {
                 if (job && job[0] && job[0].report_no) {
                   await conn.execute("UPDATE records SET deleted_at = NULL, updated_at = "+wibNow+" WHERE report_no=? AND forklift_id=?", [job[0].report_no, job[0].forklift_id]);
                 }
-                return { notice: { message: 'Job recovered', type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  record: context.record?.toJSON(context.currentAdmin),
+                  notice: { message: 'Job recovered', type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             hardDelete: {
@@ -308,11 +381,17 @@ export async function setupAdmin() {
                   await conn.execute('DELETE FROM records WHERE report_no=? AND forklift_id=?', [job[0].report_no, job[0].forklift_id]);
                 }
                 await conn.execute('DELETE FROM jobs WHERE id=?', [id]);
-                return { notice: { message: 'Job hard-deleted', type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  record: context.record?.toJSON(context.currentAdmin),
+                  notice: { message: 'Job hard-deleted', type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             bulkSoftDelete: {
               actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -327,11 +406,17 @@ export async function setupAdmin() {
                     }
                   }
                 }
-                return { notice: { message: `Soft delete ${ids.length} job`, type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  records: (context.records || []).map(r => r?.toJSON(context.currentAdmin)),
+                  notice: { message: `Soft delete ${ids.length} job`, type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             bulkHardDelete: {
               actionType: 'bulk', icon: 'Close', label: 'Bulk Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -346,7 +431,12 @@ export async function setupAdmin() {
                   }
                 }
                 await conn.execute(`DELETE FROM jobs WHERE id IN (${placeholders})`, ids);
-                return { notice: { message: `Hard delete ${ids.length} job`, type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  records: (context.records || []).map(r => r?.toJSON(context.currentAdmin)),
+                  notice: { message: `Hard delete ${ids.length} job`, type: 'success' },
+                  redirectUrl,
+                };
               },
             },
           },
@@ -360,67 +450,88 @@ export async function setupAdmin() {
           showProperties: ['id','tanggal','forklift_id','pekerjaan','teknisi','location','report_no','description','recommendation','items_used','created_at','updated_at','deleted_at'],
           sort: { direction: 'desc', sortBy: 'tanggal' },
           actions: {
-            list: {
-              before: (request) => {
-                const q = request.query || {};
-                const filters = q.filters || {};
-                if (!filters.deleted_at) {
-                  filters.deleted_at = { path: 'deleted_at', value: 'null' };
-                }
-                return { ...request, query: { ...q, filters } };
-              },
-            },
+            list: {},
             new: { isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin' },
             edit: { isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin' },
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
             softDelete: {
               actionType: 'record', icon: 'Trash', label: 'Soft Delete',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
                 await conn.execute("UPDATE records SET deleted_at = "+wibNow+" WHERE id=?", [id]);
-                return { notice: { message: 'Record soft-deleted', type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  record: context.record?.toJSON(context.currentAdmin),
+                  notice: { message: 'Record soft-deleted', type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             recover: {
               actionType: 'record', icon: 'Undo', label: 'Recover',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
                 await conn.execute("UPDATE records SET deleted_at = NULL, updated_at = "+wibNow+" WHERE id=?", [id]);
-                return { notice: { message: 'Record recovered', type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  record: context.record?.toJSON(context.currentAdmin),
+                  notice: { message: 'Record recovered', type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             hardDelete: {
               actionType: 'record', icon: 'Close', label: 'Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
                 await conn.execute('DELETE FROM records WHERE id=?', [id]);
-                return { notice: { message: 'Record hard-deleted', type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  record: context.record?.toJSON(context.currentAdmin),
+                  notice: { message: 'Record hard-deleted', type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             bulkSoftDelete: {
               actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
                 if (!ids.length) return { notice: { message: 'Tidak ada record dipilih', type: 'info' } };
                 const placeholders = ids.map(() => '?').join(',');
                 await conn.execute(`UPDATE records SET deleted_at = ${wibNow} WHERE id IN (${placeholders})`, ids);
-                return { notice: { message: `Soft delete ${ids.length} record`, type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  records: (context.records || []).map(r => r?.toJSON(context.currentAdmin)),
+                  notice: { message: `Soft delete ${ids.length} record`, type: 'success' },
+                  redirectUrl,
+                };
               },
             },
             bulkHardDelete: {
               actionType: 'bulk', icon: 'Close', label: 'Bulk Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
+              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
                 if (!ids.length) return { notice: { message: 'Tidak ada record dipilih', type: 'info' } };
                 const placeholders = ids.map(() => '?').join(',');
                 await conn.execute(`DELETE FROM records WHERE id IN (${placeholders})`, ids);
-                return { notice: { message: `Hard delete ${ids.length} record`, type: 'success' } };
+                const redirectUrl = `${admin.options.rootPath}/resources/${context.resource.id()}`;
+                return {
+                  records: (context.records || []).map(r => r?.toJSON(context.currentAdmin)),
+                  notice: { message: `Hard delete ${ids.length} record`, type: 'success' },
+                  redirectUrl,
+                };
               },
             },
           },
