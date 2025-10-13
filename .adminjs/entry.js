@@ -1,3 +1,3 @@
 AdminJS.UserComponents = {}
-import ActionNotice from '../src/admin/components/ActionDone'
-AdminJS.UserComponents.ActionNotice = ActionNotice
+import ActionNoticeV2 from '../src/admin/components/ActionDone'
+AdminJS.UserComponents.ActionNoticeV2 = ActionNoticeV2

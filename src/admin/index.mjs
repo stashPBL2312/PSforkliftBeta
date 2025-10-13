@@ -16,8 +16,8 @@ export async function setupAdmin() {
   const componentLoader = new ComponentLoader();
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const Components = {
-    // Ganti ID untuk bust cache bundler
-    ActionNotice: componentLoader.add('ActionNotice', join(__dirname, 'components', 'ActionDone.jsx')),
+    // Ganti ID untuk bust cache bundler (v2)
+    ActionNotice: componentLoader.add('ActionNoticeV2', join(__dirname, 'components', 'ActionDone.jsx')),
   };
 
   const admin = new AdminJS({
@@ -40,8 +40,7 @@ export async function setupAdmin() {
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
             softDelete: {
-              actionType: 'record', icon: 'Trash', label: 'Soft Delete',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Trash', label: 'Soft Delete', guard: 'Konfirmasi soft delete? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (req, res, context) => {
                 const id = context?.record?.params?.id;
@@ -51,12 +50,12 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Forklift soft-deleted', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             recover: {
-              actionType: 'record', icon: 'Undo', label: 'Recover',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Undo', label: 'Recover', guard: 'Pulihkan data ini?', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (req, res, context) => {
                 const id = context?.record?.params?.id;
@@ -66,12 +65,12 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Forklift recovered', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             hardDelete: {
-              actionType: 'record', icon: 'Close', label: 'Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Close', label: 'Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (req, res, context) => {
                 const id = context?.record?.params?.id;
@@ -81,12 +80,12 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Forklift hard-deleted', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             bulkSoftDelete: {
-              actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete', guard: 'Konfirmasi soft delete massal? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -102,8 +101,7 @@ export async function setupAdmin() {
               },
             },
             bulkRecover: {
-              actionType: 'bulk', icon: 'Undo', label: 'Bulk Recover',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Undo', label: 'Bulk Recover', guard: 'Konfirmasi pemulihan massal?', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -119,8 +117,7 @@ export async function setupAdmin() {
               },
             },
             bulkHardDelete: {
-              actionType: 'bulk', icon: 'Close', label: 'Bulk Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Close', label: 'Bulk Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -153,8 +150,7 @@ export async function setupAdmin() {
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
             softDelete: {
-              actionType: 'record', icon: 'Trash', label: 'Soft Delete',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Trash', label: 'Soft Delete', guard: 'Konfirmasi soft delete? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
@@ -168,8 +164,7 @@ export async function setupAdmin() {
               },
             },
             recover: {
-              actionType: 'record', icon: 'Undo', label: 'Recover',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Undo', label: 'Recover', guard: 'Pulihkan data ini?', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
@@ -177,12 +172,12 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'User recovered', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             hardDelete: {
-              actionType: 'record', icon: 'Close', label: 'Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Close', label: 'Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
@@ -190,12 +185,12 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'User hard-deleted', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             bulkSoftDelete: {
-              actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete', guard: 'Konfirmasi soft delete massal? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -209,8 +204,7 @@ export async function setupAdmin() {
               },
             },
             bulkRecover: {
-              actionType: 'bulk', icon: 'Undo', label: 'Bulk Recover',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Undo', label: 'Bulk Recover', guard: 'Konfirmasi pemulihan massal?', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -224,8 +218,7 @@ export async function setupAdmin() {
               },
             },
             bulkHardDelete: {
-              actionType: 'bulk', icon: 'Close', label: 'Bulk Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Close', label: 'Bulk Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -256,8 +249,7 @@ export async function setupAdmin() {
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
             softDelete: {
-              actionType: 'record', icon: 'Trash', label: 'Soft Delete',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Trash', label: 'Soft Delete', guard: 'Konfirmasi soft delete? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
@@ -265,12 +257,12 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Item soft-deleted', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             recover: {
-              actionType: 'record', icon: 'Undo', label: 'Recover',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Undo', label: 'Recover', guard: 'Pulihkan data ini?', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
@@ -278,12 +270,12 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Item recovered', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             hardDelete: {
-              actionType: 'record', icon: 'Close', label: 'Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Close', label: 'Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
@@ -291,12 +283,12 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Item hard-deleted', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             bulkSoftDelete: {
-              actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete', guard: 'Konfirmasi soft delete massal? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -310,8 +302,7 @@ export async function setupAdmin() {
               },
             },
             bulkRecover: {
-              actionType: 'bulk', icon: 'Undo', label: 'Bulk Recover',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Undo', label: 'Bulk Recover', guard: 'Konfirmasi pemulihan massal?', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -325,8 +316,7 @@ export async function setupAdmin() {
               },
             },
             bulkHardDelete: {
-              actionType: 'bulk', icon: 'Close', label: 'Bulk Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Close', label: 'Bulk Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -356,8 +346,7 @@ export async function setupAdmin() {
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
             softDelete: {
-              actionType: 'record', icon: 'Trash', label: 'Soft Delete',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Trash', label: 'Soft Delete', guard: 'Konfirmasi soft delete? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
@@ -369,12 +358,12 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Job soft-deleted', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             recover: {
-              actionType: 'record', icon: 'Undo', label: 'Recover',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Undo', label: 'Recover', guard: 'Pulihkan data ini?', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
@@ -386,12 +375,12 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Job recovered', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             hardDelete: {
-              actionType: 'record', icon: 'Close', label: 'Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Close', label: 'Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
@@ -403,12 +392,12 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Job hard-deleted', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             bulkSoftDelete: {
-              actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete', guard: 'Konfirmasi soft delete massal? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -430,8 +419,7 @@ export async function setupAdmin() {
               },
             },
             bulkRecover: {
-              actionType: 'bulk', icon: 'Undo', label: 'Bulk Recover',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Undo', label: 'Bulk Recover', guard: 'Konfirmasi pemulihan massal?', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -453,8 +441,7 @@ export async function setupAdmin() {
               },
             },
             bulkHardDelete: {
-              actionType: 'bulk', icon: 'Close', label: 'Bulk Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Close', label: 'Bulk Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -492,8 +479,7 @@ export async function setupAdmin() {
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
             softDelete: {
-              actionType: 'record', icon: 'Trash', label: 'Soft Delete',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Trash', label: 'Soft Delete', guard: 'Konfirmasi soft delete? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
@@ -501,12 +487,12 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Record soft-deleted', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             recover: {
-              actionType: 'record', icon: 'Undo', label: 'Recover',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Undo', label: 'Recover', guard: 'Pulihkan data ini?', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
@@ -514,12 +500,12 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Record recovered', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             hardDelete: {
-              actionType: 'record', icon: 'Close', label: 'Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Close', label: 'Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
@@ -527,12 +513,12 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Record hard-deleted', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             bulkSoftDelete: {
-              actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete', guard: 'Konfirmasi soft delete massal? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -546,8 +532,7 @@ export async function setupAdmin() {
               },
             },
             bulkRecover: {
-              actionType: 'bulk', icon: 'Undo', label: 'Bulk Recover',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Undo', label: 'Bulk Recover', guard: 'Konfirmasi pemulihan massal?', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -561,8 +546,7 @@ export async function setupAdmin() {
               },
             },
             bulkHardDelete: {
-              actionType: 'bulk', icon: 'Close', label: 'Bulk Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Close', label: 'Bulk Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -594,8 +578,7 @@ export async function setupAdmin() {
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
             softDelete: {
-              actionType: 'record', icon: 'Trash', label: 'Soft Delete',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Trash', label: 'Soft Delete', guard: 'Konfirmasi soft delete? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
@@ -603,12 +586,12 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Archive soft-deleted', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             recover: {
-              actionType: 'record', icon: 'Undo', label: 'Recover',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Undo', label: 'Recover', guard: 'Pulihkan data ini?', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
@@ -616,24 +599,24 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Archive recovered', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             hardDelete: {
-              actionType: 'record', icon: 'Close', label: 'Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Close', label: 'Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
                 await conn.execute('DELETE FROM archive_workshop_jobs WHERE id=?', [id]);
                 return {
                   notice: { message: 'Archive hard-deleted', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             bulkSoftDelete: {
-              actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete', guard: 'Konfirmasi soft delete massal? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -647,8 +630,7 @@ export async function setupAdmin() {
               },
             },
             bulkRecover: {
-              actionType: 'bulk', icon: 'Undo', label: 'Bulk Recover',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Undo', label: 'Bulk Recover', guard: 'Konfirmasi pemulihan massal?', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -662,8 +644,7 @@ export async function setupAdmin() {
               },
             },
             bulkHardDelete: {
-              actionType: 'bulk', icon: 'Close', label: 'Bulk Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Close', label: 'Bulk Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -694,8 +675,7 @@ export async function setupAdmin() {
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
             softDelete: {
-              actionType: 'record', icon: 'Trash', label: 'Soft Delete',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Trash', label: 'Soft Delete', guard: 'Konfirmasi soft delete? Data bisa dipulihkan.',
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
@@ -703,12 +683,12 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Maintenance archive soft-deleted', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             recover: {
-              actionType: 'record', icon: 'Undo', label: 'Recover',
-              component: Components.ActionNotice,
+              actionType: 'record', icon: 'Undo', label: 'Recover', guard: 'Pulihkan data ini?',
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
@@ -716,24 +696,24 @@ export async function setupAdmin() {
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Maintenance archive recovered', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             hardDelete: {
               actionType: 'record', icon: 'Close', label: 'Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
-              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
                 await conn.execute('DELETE FROM archive_maintenance_jobs WHERE id=?', [id]);
                 return {
                   notice: { message: 'Maintenance archive hard-deleted', type: 'success' },
+                  redirectUrl: `${admin.options.rootPath}/resources/${context.resource.id()}`,
                 };
               },
             },
             bulkSoftDelete: {
-              actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Trash', label: 'Bulk Soft Delete', guard: 'Konfirmasi soft delete massal? Data bisa dipulihkan.',
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -747,8 +727,7 @@ export async function setupAdmin() {
               },
             },
             bulkRecover: {
-              actionType: 'bulk', icon: 'Undo', label: 'Bulk Recover',
-              component: Components.ActionNotice,
+              actionType: 'bulk', icon: 'Undo', label: 'Bulk Recover', guard: 'Konfirmasi pemulihan massal?',
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
@@ -763,7 +742,6 @@ export async function setupAdmin() {
             },
             bulkHardDelete: {
               actionType: 'bulk', icon: 'Close', label: 'Bulk Hard Delete', guard: 'Hapus permanen? Ini tidak bisa di-undo.',
-              component: Components.ActionNotice,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
