@@ -873,7 +873,16 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
     const start = req.query.start || '';
     const end = req.query.end || '';
     const forklift_eq_no = req.query.forklift_eq_no || '';
-    const limit = Math.min(parseInt(req.query.limit || '50', 10), 200);
+    const rawLimit = String(req.query.limit || '50');
+    let limit = 50;
+    if (rawLimit.toLowerCase() === 'all') {
+      limit = 100000; // khusus 'all' untuk mengambil seluruh data yang difilter
+    } else {
+      const parsed = parseInt(rawLimit, 10);
+      limit = (!isNaN(parsed) && parsed > 0) ? parsed : 50;
+      // Naikkan batas maksimum agar 'all' dari frontend tidak terpotong di 200
+      limit = Math.min(limit, 100000);
+    }
     const offset = parseInt(req.query.offset || '0', 10);
     const order = (String(req.query.order||'desc').toLowerCase()==='asc') ? 'ASC' : 'DESC';
 

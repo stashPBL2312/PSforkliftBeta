@@ -58,7 +58,7 @@
     <h2>Forklifts</h2>
     <div class="toolbar">
       <input id="search" placeholder="Cari..." />
-      <select id="rowsPerPage"><option>10</option><option>15</option><option>25</option></select>
+      <select id="rowsPerPage"><option>25</option><option>50</option><option>100</option><option value="all">all</option></select>
       <button id="addBtn">Tambah</button>
       <button id="bulkDeleteBtn">Hapus Terpilih</button>
       <button id="importExcel">Import Excel</button>
@@ -110,7 +110,7 @@
       { key:'__act', label:'Aksi' },
     ];
 
-    let page = 1; let rows = 10;
+    let page = 1; let rows = 25;
    let currentRows = [];
 // State sorting header
 let sortKey = null;
@@ -304,7 +304,12 @@ function sortRows(rows){
     }
 
     document.getElementById('search').oninput = debounce(render, 200);
-    document.getElementById('rowsPerPage').onchange = (e)=>{ rows = parseInt(e.target.value); page=1; render(); };
+    document.getElementById('rowsPerPage').onchange = (e)=>{
+      const val = String(e.target.value);
+      rows = (val === 'all') ? Number.MAX_SAFE_INTEGER : parseInt(val);
+      page = 1;
+      render();
+    };
     document.getElementById('addBtn').onclick = ()=> openModal('Tambah Forklift', {});
     document.getElementById('bulkDeleteBtn').onclick = async ()=>{
       if (!(user.role==='admin'||user.role==='supervisor')) return alert('Tidak punya akses');
