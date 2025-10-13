@@ -866,55 +866,88 @@ app.post('/api/records/bulk-delete', requireLogin, async (req, res) => {
 // Archive Jobs endpoints (read-only)
 app.get('/api/archive/jobs', requireLogin, async (req, res) => {
   try {
-    // Terima kedua nama param untuk kompatibilitas: source atau job_source
     const q = (req.query.q || '').trim();
     const forklift_id = req.query.forklift_id || '';
     const source = req.query.source || req.query.job_source || '';
-    const jenis = (req.query.jenis || '').trim(); // 'PM' atau 'Workshop' (mapping ke job_source)
+    const jenis = (req.query.jenis || '').trim();
     const start = req.query.start || '';
     const end = req.query.end || '';
-    const status = req.query.status || '';
     const forklift_eq_no = req.query.forklift_eq_no || '';
     const limit = Math.min(parseInt(req.query.limit || '50', 10), 200);
     const offset = parseInt(req.query.offset || '0', 10);
 
-    const where = [];
-    const params = [];
-    if (forklift_id) { where.push('aj.forklift_id=?'); params.push(forklift_id); }
-    // Mapping jenis ke job_source jika dikirim
-    if (jenis) {
-      const mapped = (jenis.toLowerCase() === 'pm') ? 'maintenance' : 'workshop';
-      where.push('aj.job_source=?'); params.push(mapped);
-    } else if (source) {
-      where.push('aj.job_source=?'); params.push(source);
-    }
-    if (status) { where.push('aj.status=?'); params.push(status); }
-    if (start) { where.push('aj.job_date>=?'); params.push(start); }
-    if (end) { where.push('aj.job_date<=?'); params.push(end); }
-    if (forklift_eq_no) { 
+    // Build filters for maintenance and workshop separately
+    const whMaint = [];
+    const pMaint = [];
+    const whWork = [];
+    const pWork = [];
+
+    if (forklift_id) { whMaint.push('am.forklift_id=?'); pMaint.push(forklift_id); whWork.push('aw.forklift_id=?'); pWork.push(forklift_id); }
+    if (start) { whMaint.push('am.tanggal>=?'); pMaint.push(start); whWork.push('aw.tanggal>=?'); pWork.push(start); }
+    if (end) { whMaint.push('am.tanggal<=?'); pMaint.push(end); whWork.push('aw.tanggal<=?'); pWork.push(end); }
+    if (forklift_eq_no) {
       const likeFk = `%${forklift_eq_no}%`;
-      where.push('(COALESCE(aj.forklift_eq_no, "") LIKE ? OR EXISTS (SELECT 1 FROM forklifts f WHERE f.id=aj.forklift_id AND COALESCE(f.eq_no, "") LIKE ?))');
-      params.push(likeFk, likeFk);
+      whMaint.push('EXISTS (SELECT 1 FROM forklifts f WHERE f.id=am.forklift_id AND COALESCE(f.eq_no, "") LIKE ?)');
+      pMaint.push(likeFk);
+      whWork.push('EXISTS (SELECT 1 FROM forklifts f WHERE f.id=aw.forklift_id AND COALESCE(f.eq_no, "") LIKE ?)');
+      pWork.push(likeFk);
     }
     if (q) {
       const like = `%${q}%`;
-      where.push('(aj.job_no LIKE ? OR aj.description LIKE ? OR aj.notes LIKE ? OR aj.job_source LIKE ? OR aj.forklift_eq_no LIKE ? OR aj.forklift_serial LIKE ?)');
-      params.push(like, like, like, like, like, like);
+      // Maintenance table tidak memiliki kolom notes; batasi ke report_no + recommendation
+      whMaint.push('(COALESCE(am.report_no, "") LIKE ? OR COALESCE(am.recommendation, "") LIKE ?)');
+      pMaint.push(like, like);
+      // Workshop tetap: report_no, pekerjaan, notes
+      whWork.push('(COALESCE(aw.report_no, "") LIKE ? OR COALESCE(aw.pekerjaan, "") LIKE ? OR COALESCE(aw.notes, "") LIKE ?)');
+      pWork.push(like, like, like);
     }
 
-    const whereSql = where.length ? (' WHERE ' + where.join(' AND ')) : '';
-    const baseSelect = 'SELECT aj.*, '
-      + 'CASE aj.job_source WHEN "maintenance" THEN "PM" ELSE "Workshop" END AS jenis, '
-      + 'COALESCE((SELECT brand||" "||type||" ("||eq_no||")" FROM forklifts f WHERE f.id=aj.forklift_id), COALESCE(aj.forklift_eq_no, aj.forklift_serial, "")) AS forklift, '
-      + 'aj.next_pm AS next_pm '
-      + 'FROM archive_jobs aj';
+    const selMaint = `SELECT am.id AS id, 'maintenance' AS job_source, 'PM' AS jenis,
+      am.tanggal AS job_date,
+      COALESCE((SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift,
+      am.report_no AS job_no,
+      am.recommendation AS recommendation,
+      NULL AS pekerjaan,
+      NULL AS item_dipakai,
+      am.recommendation AS description,
+      NULL AS notes,
+      am.next_pm AS next_pm,
+      NULL AS created_at,
+      NULL AS updated_at
+    FROM archive_maintenance_jobs am` + (whMaint.length ? (' WHERE ' + whMaint.join(' AND ')) : '');
 
-    // Total untuk paginasi
-    const totalRow = await get(`SELECT COUNT(*) AS c FROM archive_jobs aj${whereSql}`, params);
-    const total = totalRow ? totalRow.c : 0;
+    const selWork = `SELECT aw.id AS id, 'workshop' AS job_source, 'Workshop' AS jenis,
+      aw.tanggal AS job_date,
+      COALESCE((SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift,
+      aw.report_no AS job_no,
+      NULL AS recommendation,
+      aw.pekerjaan AS pekerjaan,
+      aw.item_dipakai AS item_dipakai,
+      aw.pekerjaan AS description,
+      aw.notes AS notes,
+      NULL AS next_pm,
+      aw.created_at AS created_at,
+      aw.updated_at AS updated_at
+    FROM archive_workshop_jobs aw` + (whWork.length ? (' WHERE ' + whWork.join(' AND ')) : '');
 
-    // Data terpage
-    const rows = await all(`${baseSelect}${whereSql} ORDER BY aj.id DESC LIMIT ? OFFSET ?`, [...params, (isNaN(limit) ? 50 : limit), (isNaN(offset) ? 0 : offset)]);
+    let rows = [];
+    let total = 0;
+    const mapped = jenis ? (jenis.toLowerCase()==='pm'?'maintenance':'workshop') : (source||'');
+    if (mapped === 'maintenance'){
+      total = (await get(`SELECT COUNT(*) AS c FROM archive_maintenance_jobs am${whMaint.length?(' WHERE '+whMaint.join(' AND ')):''}`, pMaint))?.c || 0;
+      rows = await all(`${selMaint} ORDER BY id DESC LIMIT ? OFFSET ?`, [...pMaint, (isNaN(limit)?50:limit), (isNaN(offset)?0:offset)]);
+    } else if (mapped === 'workshop'){
+      total = (await get(`SELECT COUNT(*) AS c FROM archive_workshop_jobs aw${whWork.length?(' WHERE '+whWork.join(' AND ')):''}`, pWork))?.c || 0;
+      rows = await all(`${selWork} ORDER BY id DESC LIMIT ? OFFSET ?`, [...pWork, (isNaN(limit)?50:limit), (isNaN(offset)?0:offset)]);
+    } else {
+      // Union kedua sumber
+      const union = `${selMaint} UNION ALL ${selWork}`;
+      const params = [...pMaint, ...pWork];
+      const cntMaint = (await get(`SELECT COUNT(*) AS c FROM archive_maintenance_jobs am${whMaint.length?(' WHERE '+whMaint.join(' AND ')):''}`, pMaint))?.c || 0;
+      const cntWork = (await get(`SELECT COUNT(*) AS c FROM archive_workshop_jobs aw${whWork.length?(' WHERE '+whWork.join(' AND ')):''}`, pWork))?.c || 0;
+      total = cntMaint + cntWork;
+      rows = await all(`${union} ORDER BY job_date DESC, id DESC LIMIT ? OFFSET ?`, [...params, (isNaN(limit)?50:limit), (isNaN(offset)?0:offset)]);
+    }
     res.json({ rows, total });
   } catch (e) {
     res.status(500).json({ error: 'Archive jobs query failed' });
@@ -923,7 +956,41 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
 
 app.get('/api/archive/jobs/:id', requireLogin, async (req, res) => {
   try {
-    const row = await get(`SELECT aj.*, CASE aj.job_source WHEN 'maintenance' THEN 'PM' ELSE 'Workshop' END AS jenis, COALESCE((SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=aj.forklift_id), COALESCE(aj.forklift_eq_no, aj.forklift_serial, '')) AS forklift, aj.next_pm AS next_pm FROM archive_jobs aj WHERE aj.id=?`, [req.params.id]);
+    const id = req.params.id;
+    const source = req.query.source || req.query.job_source || '';
+    const selectMaint = `SELECT am.id AS id, 'maintenance' AS job_source, 'PM' AS jenis,
+      am.tanggal AS job_date,
+      COALESCE((SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift,
+      am.report_no AS job_no,
+      am.recommendation AS recommendation,
+      NULL AS pekerjaan,
+      NULL AS item_dipakai,
+      am.recommendation AS description,
+      NULL AS notes,
+      am.next_pm AS next_pm,
+      NULL AS created_at,
+      NULL AS updated_at
+    FROM archive_maintenance_jobs am WHERE am.id=?`;
+    const selectWork = `SELECT aw.id AS id, 'workshop' AS job_source, 'Workshop' AS jenis,
+      aw.tanggal AS job_date,
+      COALESCE((SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift,
+      aw.report_no AS job_no,
+      NULL AS recommendation,
+      aw.pekerjaan AS pekerjaan,
+      aw.item_dipakai AS item_dipakai,
+      aw.pekerjaan AS description,
+      aw.notes AS notes,
+      NULL AS next_pm,
+      aw.created_at AS created_at,
+      aw.updated_at AS updated_at
+    FROM archive_workshop_jobs aw WHERE aw.id=?`;
+    let row = null;
+    if (source === 'maintenance') row = await get(selectMaint, [id]);
+    else if (source === 'workshop') row = await get(selectWork, [id]);
+    else {
+      row = await get(selectMaint, [id]);
+      if (!row) row = await get(selectWork, [id]);
+    }
     if (!row) return res.status(404).json({ error: 'Not found' });
     res.json(row);
   } catch (e) {

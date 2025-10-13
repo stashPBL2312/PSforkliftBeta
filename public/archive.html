@@ -12,6 +12,12 @@
       .toolbar label { display:flex; flex-direction:column; font-size:12px; gap:4px; }
       .toolbar input, .toolbar select { padding:6px 8px; }
       .table-scroll { overflow:auto; border:1px solid #ddd; border-radius:8px; }
+      /* Border tabel ala records (terlihat jelas di light mode) */
+      #table table { width:100%; border-collapse:collapse; }
+      #table table th, #table table td { text-align:left; padding:8px; border-bottom:1px solid #eee; }
+      #table table th { background:#fafafa; }
+      [data-theme="dark"] #table table th, [data-theme="dark"] #table table td { border-bottom:1px solid #1f2937; }
+      [data-theme="dark"] #table table th { background:#0f172a; }
       .pagination { display:flex; gap:8px; align-items:center; }
       .pagination button { padding:6px 10px; }
       /* Ikon kalender kustom seperti di records */
@@ -20,6 +26,13 @@
       [data-theme="dark"] .date-input-wrap { color:#fff; }
       .date-input-wrap input[type="date"] { padding-right: 26px; }
       .date-input-wrap::after { content: ""; position:absolute; right:4px; top:50%; transform:translateY(-50%); width:18px; height:18px; pointer-events:none; background-color: currentColor; -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='4' width='18' height='17' rx='2' ry='2' fill='none' stroke='%23fff' stroke-width='2'/><line x1='16' y1='2' x2='16' y2='6' stroke='%23fff' stroke-width='2'/><line x1='8' y1='2' x2='8' y2='6' stroke='%23fff' stroke-width='2'/><line x1='3' y1='10' x2='21' y2='10' stroke='%23fff' stroke-width='2'/></svg>") no-repeat center / contain; mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='4' width='18' height='17' rx='2' ry='2' fill='none' stroke='%23fff' stroke-width='2'/><line x1='16' y1='2' x2='16' y2='6' stroke='%23fff' stroke-width='2'/><line x1='8' y1='2' x2='8' y2='6' stroke='%23fff' stroke-width='2'/><line x1='3' y1='10' x2='21' y2='10' stroke='%23fff' stroke-width='2'/></svg>") no-repeat center / contain; }
+      /* Dropdown suggest (selaras dengan records) */
+      .suggest { position:absolute; z-index:1000; top: calc(100% + 4px); left:0; width:100%; border:1px solid #e0e0e0; border-radius:6px; max-height:140px; overflow:auto; background:#fff; box-shadow:0 6px 16px rgba(0,0,0,0.12); }
+      .suggest .item { padding:6px 8px; cursor:pointer; border-bottom:1px solid #f5f5f5; }
+      .suggest .item:hover { background:#f6f9ff; }
+      [data-theme="dark"] .suggest { background:#0f172a; border-color:#334155; box-shadow:0 6px 16px rgba(0,0,0,0.6); }
+      [data-theme="dark"] .suggest .item { color:#e5e7eb; border-bottom:1px solid #1f2937; }
+      [data-theme="dark"] .suggest .item:hover { background:#1f2937; }
     </style>
     <script src="/common.js"></script>
   </head>
@@ -32,24 +45,14 @@
           Kata kunci
           <input type="text" id="q" placeholder="Cari job_no, forklift, deskripsi" />
         </label>
-        <label>
-          Forklift
-          <select id="forklift_id">
-            <option value="">Semua</option>
-          </select>
-        </label>
-        <label>
-          Sumber
-          <select id="job_source">
-            <option value="">Semua</option>
-            <option value="maintenance">PM</option>
-            <option value="workshop">Workshop</option>
-          </select>
-        </label>
-        <label>
-          Forklift EQ No
-          <input type="text" id="forklift_eq_no" placeholder="Contoh: EQ-123" />
-        </label>
+        <!-- Forklift filter: input teks + dropdown suggest (single select), menyamakan mekanisme dengan records -->
+        <div class="filter-group" style="position:relative; min-width:260px; max-width:460px;">
+          <div class="label-row"><label>Forklift</label></div>
+          <input id="arch_forklift_input" placeholder="Ketik untuk cari forklift..." autocomplete="off" />
+          <div id="archFkSuggest" class="suggest" style="display:none; content-visibility:auto; contain-intrinsic-size: 120px;"></div>
+          <input type="hidden" id="forklift_id" value="" />
+        </div>
+
         <label>
           Tanggal mulai
           <div class="date-input-wrap"><input type="date" id="start" /></div>
@@ -61,9 +64,17 @@
         <label>
           Jenis Job
           <select id="jenis">
-            <option value="">Semua</option>
-            <option value="PM">PM</option>
             <option value="Workshop">Workshop</option>
+            <option value="PM">PM/Lapangan Jobs (PM)</option>
+          </select>
+          </label>
+        <label>
+          Rows
+          <select id="rowsPerPage">
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="all">All</option>
           </select>
         </label>
         <div style="margin-left:auto; display:flex; gap:8px;">
@@ -73,7 +84,17 @@
       </div>
       <div id="summary" style="margin-bottom:8px; color:#555;"></div>
       <div id="table"></div>
-      <div id="detail" style="margin-top:16px;"></div>
+      <!-- Modal detail (view-only) -->
+      <div id="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.3); align-items:center; justify-content:center;">
+        <div style="background:#fff; padding:16px; border-radius:8px; width:640px; max-width:95vw;">
+          <h3 id="modalTitle" style="margin-top:0;">Detail Arsip</h3>
+          <div id="modalBody"></div>
+          <div style="text-align:right; margin-top:10px;">
+            <button id="closeBtn">Tutup</button>
+          </div>
+        </div>
+      </div>
+      <div id="detail" style="margin-top:16px; display:none;"></div>
       <div class="pagination" style="margin-top:12px;">
         <button id="prevBtn">Prev</button>
         <span id="pageInfo"></span>
@@ -82,31 +103,51 @@
     </div>
 
     <script>
-      let limit = 20;
+      let limit = 25;
       let offset = 0;
       let total = 0;
       let lastRows = [];
 
-      const columns = [
-        { key:'id', label:'ID' },
-        { key:'job_no', label:'Job No' },
-        { key:'jenis', label:'Jenis' },
-        { key:'job_date', label:'Tanggal' },
-        { key:'forklift', label:'Forklift' },
-        { key:'next_pm', label:'Next PM' },
-        { key:'description', label:'Deskripsi' },
-        { key:'notes', label:'Catatan' },
-      ];
+      function columnsForJenis(j){
+        const base = [
+          { key:'id', label:'ID' },
+          { key:'job_no', label:'Report No' },
+          { key:'jenis', label:'Jenis' },
+          { key:'job_date', label:'Tanggal' },
+          { key:'forklift', label:'Forklift' },
+        ];
+        const v = String(j||'').toLowerCase();
+        if (v === 'pm'){
+          const actionCol = { key:'__act', label:'Aksi', render: (row)=>{
+            return `<button class='btn-view' data-view='${row.id}' title='View' aria-label='View'>
+              <svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='vertical-align:middle;margin-right:6px'>
+                <path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'></path>
+                <circle cx='12' cy='12' r='3'></circle>
+              </svg>
+              View
+            </button>`;
+          }};
+          return [...base, { key:'next_pm', label:'Next PM' }, { key:'recommendation', label:'Recommendation' }, { key:'notes', label:'Catatan' }, actionCol];
+        }
+        const actionCol = { key:'__act', label:'Aksi', render: (row)=>{
+          return `<button class='btn-view' data-view='${row.id}' title='View' aria-label='View'>
+            <svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='vertical-align:middle;margin-right:6px'>
+              <path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'></path>
+              <circle cx='12' cy='12' r='3'></circle>
+            </svg>
+            View
+          </button>`;
+        }};
+        return [...base, { key:'pekerjaan', label:'Pekerjaan' }, { key:'item_dipakai', label:'Item Dipakai' }, { key:'notes', label:'Catatan' }, actionCol];
+      }
 
       function getFilters(){
         return {
           q: document.getElementById('q').value.trim(),
           forklift_id: document.getElementById('forklift_id').value,
-          source: document.getElementById('job_source').value,
           start: document.getElementById('start').value,
           end: document.getElementById('end').value,
           jenis: document.getElementById('jenis').value,
-          forklift_eq_no: document.getElementById('forklift_eq_no').value.trim(),
         };
       }
 
@@ -117,79 +158,91 @@
         await fetchAndRender();
       }
 
+      let fkCache = [];
+      function fkLabel(f){
+        return [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - ');
+      }
       async function populateForklifts(){
         try{
           const list = await api('/api/forklifts');
-          const sel = document.getElementById('forklift_id');
-          if (!sel) return;
-          const opts = ['<option value="">Semua</option>'].concat((Array.isArray(list)?list:[]).map(f=>{
-            const label = [f.brand, f.type, `(${f.eq_no||''})`].filter(Boolean).join(' ');
-            return `<option value="${f.id}">${label}</option>`;
-          }));
-          sel.innerHTML = opts.join('');
-        }catch(e){ /* abaikan jika gagal ambil forklift */ }
+          fkCache = Array.isArray(list) ? list : [];
+        }catch(e){ fkCache = []; }
       }
 
       async function fetchAndRender(){
-        const f = getFilters();
-        // Pastikan filter jenis diterjemahkan ke job_source agar konsisten dengan backend
-        const mappedJenis = f.jenis ? (f.jenis.toLowerCase() === 'pm' ? 'maintenance' : 'workshop') : '';
-        const paramsObj = { ...f, limit: String(limit), offset: String(offset) };
-        if (mappedJenis) {
-          // Hindari kebingungan: gunakan job_source eksplisit saat jenis dipilih
-          delete paramsObj.source; // jangan kirim 'source' yang tidak relevan
-          paramsObj.job_source = mappedJenis;
-        }
-        const params = new URLSearchParams(paramsObj);
-        const res = await api(`/api/archive/jobs?${params.toString()}`);
-        const rows = res.rows || [];
-        lastRows = rows;
-        total = res.total || rows.length;
-        simpleTable('table', columns, rows);
-        // Tambahkan handler klik untuk detail
-        const container = document.getElementById('table');
-        container.querySelectorAll('tbody tr').forEach((tr, idx) => {
-          const row = rows[idx];
-          tr.style.cursor = 'pointer';
-          tr.addEventListener('click', async () => {
-            const d = await api(`/api/archive/jobs/${row.id}`);
-            renderDetail(d);
-          });
-        });
-        document.getElementById('summary').textContent = `Menampilkan ${rows.length} dari total ${total} data.`;
-        const page = Math.floor(offset / limit) + 1;
-        const pages = Math.max(1, Math.ceil(total / limit));
-        document.getElementById('pageInfo').textContent = `Halaman ${page} / ${pages}`;
-        document.getElementById('prevBtn').disabled = offset <= 0;
-        document.getElementById('nextBtn').disabled = offset + limit >= total;
+        try{
+          const f = getFilters();
+          // Pastikan filter jenis diterjemahkan ke job_source agar konsisten dengan backend
+          const mappedJenis = f.jenis ? (f.jenis.toLowerCase() === 'pm' ? 'maintenance' : 'workshop') : '';
+          const paramsObj = { ...f, limit: String(limit), offset: String(offset) };
+          if (mappedJenis) {
+            paramsObj.job_source = mappedJenis;
+          }
+          const params = new URLSearchParams(paramsObj);
+          const res = await api(`/api/archive/jobs?${params.toString()}`);
+          const rows = res.rows || [];
+          lastRows = rows;
+          total = res.total || rows.length;
+          const cols = columnsForJenis(f.jenis);
+          simpleTable('table', cols, rows);
+          // Delegasi klik tombol View untuk buka modal detail
+          const container = document.getElementById('table');
+          if (container && !container.dataset.viewDelegated){
+            container.addEventListener('click', async (ev)=>{
+              const btn = ev.target.closest('button.btn-view[data-view]');
+              if (!btn) return;
+              const id = btn.getAttribute('data-view');
+              const row = (rows||[]).find(r=> String(r.id)===String(id));
+              try{
+                const d = await api(`/api/archive/jobs/${id}?job_source=${encodeURIComponent(row?.job_source||'')}`);
+                openView('Detail Arsip', d);
+              }catch(e){ console.error('Gagal ambil detail arsip', e); }
+            });
+            container.dataset.viewDelegated = '1';
+          }
+          document.getElementById('summary').textContent = `Menampilkan ${rows.length} dari total ${total} data.`;
+          const page = Math.floor(offset / limit) + 1;
+          const pages = Math.max(1, Math.ceil(total / limit));
+          const pageEl = document.getElementById('pageInfo'); if (pageEl) pageEl.textContent = `Halaman ${page} / ${pages}`;
+          document.getElementById('prevBtn').disabled = offset <= 0;
+          document.getElementById('nextBtn').disabled = offset + limit >= total;
+        }catch(e){ console.error('Gagal memuat arsip', e); alert('Gagal memuat arsip'); }
       }
 
       function bindEvents(){
         document.getElementById('resetBtn').onclick = () => {
           document.getElementById('q').value = '';
           document.getElementById('forklift_id').value = '';
-          document.getElementById('job_source').value = '';
+          
           document.getElementById('start').value = '';
           document.getElementById('end').value = '';
-          document.getElementById('jenis').value = '';
-          document.getElementById('forklift_eq_no').value = '';
+          document.getElementById('jenis').value = 'Workshop';
+          const rpp = document.getElementById('rowsPerPage'); if (rpp) rpp.value = '25'; limit = 25;
           offset = 0;
           fetchAndRender();
         };
         document.getElementById('prevBtn').onclick = () => { if (offset > 0) { offset = Math.max(0, offset - limit); fetchAndRender(); } };
         document.getElementById('nextBtn').onclick = () => { offset = offset + limit; fetchAndRender(); };
-        // Pencarian realtime: debounce saat mengetik kata kunci & forklift eq no
+        // Pencarian realtime: debounce saat mengetik kata kunci
         const trigger = () => { offset = 0; fetchAndRender(); };
         const debouncedTrigger = debounce(trigger, 250);
         const qEl = document.getElementById('q');
         if (qEl) qEl.addEventListener('input', debouncedTrigger);
-        const fkEqEl = document.getElementById('forklift_eq_no');
-        if (fkEqEl) fkEqEl.addEventListener('input', debouncedTrigger);
         // Filter lain auto-apply saat berubah
-        ['forklift_id','job_source','jenis','start','end'].forEach(id=>{
+        ['jenis','start','end'].forEach(id=>{
           const el = document.getElementById(id);
           if (el) el.addEventListener('change', () => { offset = 0; fetchAndRender(); });
         });
+        // Rows per page selector
+        const rppEl = document.getElementById('rowsPerPage');
+        if (rppEl){
+          rppEl.addEventListener('change', ()=>{
+            const v = rppEl.value;
+            if (v === 'all'){ limit = 100000; offset = 0; }
+            else { const n = parseInt(v,10); limit = (!isNaN(n) && n>0) ? n : 25; offset = 0; }
+            fetchAndRender();
+          });
+        }
         // tetap dukung Enter untuk submit manual pada keyword
         document.getElementById('q').addEventListener('keydown', (e)=>{ if (e.key === 'Enter'){ e.preventDefault(); offset = 0; fetchAndRender(); } });
         const exportBtn = document.getElementById('exportBtn');
@@ -207,6 +260,7 @@
 
       function exportCSV(){
         try{
+          const columns = columnsForJenis(document.getElementById('jenis').value);
           const headers = columns.map(c=> c.label);
           const keys = columns.map(c=> c.key);
           const lines = [toCSVRow(headers)];
@@ -225,25 +279,96 @@
         } catch (e){ alert('Gagal export CSV'); }
       }
 
-      function renderDetail(d){
-        const el = document.getElementById('detail');
+      function renderDetailHtml(d){
+        const isPM = (d.jenis||'').toLowerCase() === 'pm' || d.job_source === 'maintenance';
         const rows = [
           ['ID', d.id],
           ['Job No', d.job_no],
           ['Sumber', d.job_source],
           ['Jenis', d.jenis || (d.job_source === 'maintenance' ? 'PM' : 'Workshop')],
           ['Tanggal', d.job_date],
-          ['Status', d.status],
           ['Forklift', d.forklift],
-          ['Forklift EQ No', d.forklift_eq_no || ''],
-          ['Forklift Serial', d.forklift_serial || ''],
-          ['Next PM', d.next_pm || ''],
+          ...(isPM ? [['Next PM', d.next_pm || '']] : []),
           ['Deskripsi', d.description || ''],
+          ['Item Dipakai', d.items_used || d.item_dipakai || ''],
           ['Catatan', d.notes || ''],
           ['Dibuat', d.created_at || ''],
           ['Diupdate', d.updated_at || ''],
         ];
-        el.innerHTML = `<div class="table-scroll"><table border="0" cellspacing="0" cellpadding="6" style="width:100%; border-collapse:collapse;">${rows.map(r=>`<tr><th style='text-align:left; width:200px;'>${r[0]}</th><td>${r[1]??''}</td></tr>`).join('')}</table></div>`;
+        return `
+          <div style='display:grid; grid-template-columns: 160px 1fr; gap:8px;'>
+            ${rows.map(([k,v])=>`<div style='color:#666'>${k}</div><div>${String(v??'')}</div>`).join('')}
+          </div>
+        `;
+      }
+
+      function openView(title, detail){
+        const modal = document.getElementById('modal');
+        const titleEl = document.getElementById('modalTitle');
+        const bodyEl = document.getElementById('modalBody');
+        const closeBtn = document.getElementById('closeBtn');
+        titleEl.textContent = title;
+        bodyEl.innerHTML = renderDetailHtml(detail||{});
+        modal.style.display = 'flex';
+        const close = ()=>{ modal.style.display='none'; };
+        closeBtn.onclick = close;
+        modal.onclick = (ev)=>{ if (ev.target === modal) close(); };
+      }
+
+      // Suggest forklift (single select)
+      const fkInput = document.getElementById('arch_forklift_input');
+      const fkSuggest = document.getElementById('archFkSuggest');
+      const fkIdEl = document.getElementById('forklift_id');
+      function filterForkliftList(query){
+        const q = String(query||'').trim().toLowerCase();
+        if (!q) return fkCache;
+        return (fkCache||[]).filter(f=>{
+          const fields = [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=> String(v||'').toLowerCase());
+          return fields.some(v=> v.includes(q));
+        });
+      }
+      function renderFkSuggest(){
+        if (!fkInput || !fkSuggest) return;
+        const list = filterForkliftList(fkInput.value);
+        if (fkIdEl) fkIdEl.value = ''; // reset id saat mengetik
+        if (!Array.isArray(list) || list.length===0){ fkSuggest.style.display='none'; fkSuggest.innerHTML=''; return; }
+        fkSuggest.innerHTML = list.map(f=>{
+          const label = fkLabel(f);
+          return `<div class="item" data-id="${f.id}">${label}</div>`;
+        }).join('');
+        fkSuggest.style.display='block';
+        if (!fkSuggest._dragGuardAttached){
+          let startY=0, dragging=false;
+          fkSuggest.addEventListener('pointerdown', e=>{ startY = e.clientY||0; dragging=false; }, {passive:true});
+          fkSuggest.addEventListener('pointermove', e=>{ if (Math.abs((e.clientY||0)-startY) > 8) dragging=true; }, {passive:true});
+          fkSuggest._isDragging = ()=>dragging;
+          fkSuggest._dragGuardAttached = true;
+        }
+        fkSuggest.querySelectorAll('.item').forEach(it=>{
+          it.onclick = (ev)=>{
+            if (fkSuggest._isDragging && fkSuggest._isDragging()) { ev.preventDefault(); return; }
+            const id = +it.getAttribute('data-id');
+            const f = (fkCache||[]).find(x=>x.id===id); if (!f) return;
+            if (fkIdEl) fkIdEl.value = String(f.id);
+            fkInput.value = fkLabel(f);
+            fkSuggest.style.display='none';
+            offset = 0; fetchAndRender();
+          };
+        });
+      }
+      if (fkInput){
+        const debouncedFk = (fn=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),200); }; })(renderFkSuggest);
+        fkInput.addEventListener('input', debouncedFk);
+        fkInput.addEventListener('focus', ()=> renderFkSuggest());
+        fkInput.addEventListener('click', ()=> renderFkSuggest());
+        fkInput.addEventListener('keydown', (e)=>{
+          if (e.key==='Enter'){
+            const first = fkSuggest && fkSuggest.querySelector('.item');
+            if (first){ first.click(); e.preventDefault(); }
+          }
+          if (e.key==='Escape'){ if (fkSuggest) fkSuggest.style.display='none'; }
+        });
+        document.addEventListener('click', (e)=>{ if (fkSuggest && !fkSuggest.contains(e.target) && e.target!==fkInput){ fkSuggest.style.display='none'; } });
       }
 
       (async function(){

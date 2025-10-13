@@ -1,21 +1,17 @@
-import React, { useEffect, useMemo } from 'react'
-import { useNotice } from 'adminjs'
+import React, { useEffect, useMemo, useState } from 'react'
 
 const ActionDone = (props) => {
-  const { action, notice, redirectUrl } = props || {}
-  const addNotice = useNotice()
-
+  const actionName = props?.action?.name
   const msg = useMemo(() => {
-    if (notice?.message) return notice.message
-    const actionName = action?.name
     switch (actionName) {
       case 'recover': return 'Successfully recovered given record'
       case 'hardDelete': return 'Successfully deleted given record'
       case 'softDelete': return 'Successfully soft-deleted given record'
       default: return 'Action completed successfully'
     }
-  }, [notice, action])
+  }, [actionName])
 
+  const [visible, setVisible] = useState(true)
   const listUrl = useMemo(() => {
     try {
       const p = window.location.pathname
@@ -27,22 +23,25 @@ const ActionDone = (props) => {
   }, [])
 
   useEffect(() => {
-    try {
-      // Tambahkan notifikasi segera
-      addNotice({ message: msg, type: (notice?.type || 'success') })
-      // Jadwalkan ulang notifikasi agar terlihat lebih lama (tanpa mengganggu kecepatan redirect)
-      setTimeout(() => {
-        try { addNotice({ message: msg, type: (notice?.type || 'success') }) } catch {}
-      }, 1600)
-      setTimeout(() => {
-        try { addNotice({ message: msg, type: (notice?.type || 'success') }) } catch {}
-      }, 3200)
-    } catch {}
-    const target = redirectUrl || listUrl
-    try { window.location.assign(target) } catch {}
-  }, [addNotice, msg, notice, redirectUrl, listUrl])
+    const hide = setTimeout(() => setVisible(false), 1800)
+    const nav = setTimeout(() => {
+      try { window.location.assign(listUrl) } catch {}
+    }, 800)
+    return () => { clearTimeout(hide); clearTimeout(nav) }
+  }, [listUrl])
 
-  return null
+  if (!visible) return null
+
+  return (
+    <div style={{
+      position: 'fixed', top: 16, right: 16, zIndex: 10000,
+      background: '#d1fae5', color: '#065f46', border: '1px solid #10b981',
+      boxShadow: '0 6px 20px rgba(0,0,0,0.15)', borderRadius: 6, padding: '10px 14px',
+      fontSize: 14, maxWidth: 360,
+    }}>
+      {msg}
+    </div>
+  )
 }
 
 export default ActionDone
