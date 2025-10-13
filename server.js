@@ -875,6 +875,7 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
     const forklift_eq_no = req.query.forklift_eq_no || '';
     const limit = Math.min(parseInt(req.query.limit || '50', 10), 200);
     const offset = parseInt(req.query.offset || '0', 10);
+    const order = (String(req.query.order||'desc').toLowerCase()==='asc') ? 'ASC' : 'DESC';
 
     // Build filters for maintenance and workshop separately
     const whMaint = [];
@@ -935,10 +936,10 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
     const mapped = jenis ? (jenis.toLowerCase()==='pm'?'maintenance':'workshop') : (source||'');
     if (mapped === 'maintenance'){
       total = (await get(`SELECT COUNT(*) AS c FROM archive_maintenance_jobs am${whMaint.length?(' WHERE '+whMaint.join(' AND ')):''}`, pMaint))?.c || 0;
-      rows = await all(`${selMaint} ORDER BY id DESC LIMIT ? OFFSET ?`, [...pMaint, (isNaN(limit)?50:limit), (isNaN(offset)?0:offset)]);
+      rows = await all(`${selMaint} ORDER BY job_date ${order}, id ${order} LIMIT ? OFFSET ?`, [...pMaint, (isNaN(limit)?50:limit), (isNaN(offset)?0:offset)]);
     } else if (mapped === 'workshop'){
       total = (await get(`SELECT COUNT(*) AS c FROM archive_workshop_jobs aw${whWork.length?(' WHERE '+whWork.join(' AND ')):''}`, pWork))?.c || 0;
-      rows = await all(`${selWork} ORDER BY id DESC LIMIT ? OFFSET ?`, [...pWork, (isNaN(limit)?50:limit), (isNaN(offset)?0:offset)]);
+      rows = await all(`${selWork} ORDER BY job_date ${order}, id ${order} LIMIT ? OFFSET ?`, [...pWork, (isNaN(limit)?50:limit), (isNaN(offset)?0:offset)]);
     } else {
       // Union kedua sumber
       const union = `${selMaint} UNION ALL ${selWork}`;
@@ -946,7 +947,7 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
       const cntMaint = (await get(`SELECT COUNT(*) AS c FROM archive_maintenance_jobs am${whMaint.length?(' WHERE '+whMaint.join(' AND ')):''}`, pMaint))?.c || 0;
       const cntWork = (await get(`SELECT COUNT(*) AS c FROM archive_workshop_jobs aw${whWork.length?(' WHERE '+whWork.join(' AND ')):''}`, pWork))?.c || 0;
       total = cntMaint + cntWork;
-      rows = await all(`${union} ORDER BY job_date DESC, id DESC LIMIT ? OFFSET ?`, [...params, (isNaN(limit)?50:limit), (isNaN(offset)?0:offset)]);
+      rows = await all(`${union} ORDER BY job_date ${order}, id ${order} LIMIT ? OFFSET ?`, [...params, (isNaN(limit)?50:limit), (isNaN(offset)?0:offset)]);
     }
     res.json({ rows, total });
   } catch (e) {

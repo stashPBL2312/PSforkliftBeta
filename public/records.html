@@ -124,16 +124,16 @@
     #ed_teknisi_tags .chip .x { pointer-events: auto; padding:0; margin-left:6px; width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center; line-height:1; border-radius:50%; }
     /* Group untuk filter agar label dan input selalu bersama */
     .toolbar .filter-group { position:relative; display:flex; flex-direction:column; gap:4px; min-width:260px; max-width:460px; }
-    /* Baris kedua toolbar: Keyword + Teknisi + Aksi (optimized untuk 1080p) */
-    .toolbar .toolbar-row { display:flex; gap:12px; align-items:flex-end; width:100%; flex-wrap:nowrap; }
+    /* Baris kedua toolbar: Keyword + Teknisi + Aksi (wrap agar tidak melebar) */
+    .toolbar .toolbar-row { display:flex; gap:12px; align-items:flex-end; width:100%; flex-wrap:wrap; }
     .toolbar .field { display:flex; flex-direction:column; gap:4px; }
-    .toolbar .toolbar-row .q-field { flex:0 0 280px; }
-    .toolbar .toolbar-row .tech-field { flex:0 0 280px; }
+    .toolbar .toolbar-row .q-field { flex:1 1 260px; min-width:220px; }
+    .toolbar .toolbar-row .tech-field { flex:1 1 260px; min-width:220px; }
     .toolbar .filter-group .label-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
     .toolbar .filter-group .chips-inline { display:flex; gap:6px; flex-wrap:wrap; max-width: calc(100% - 80px); }
     .toolbar .filter-group .chips-inline .chip { background:#eee; border-color:#ddd; }
     .toolbar .filter-group .input-wrap { position:relative; }
-    .toolbar .toolbar-row .actions { display:flex; gap:8px; flex:0 0 auto; }
+    .toolbar .toolbar-row .actions { display:flex; gap:8px; flex:1 1 100%; flex-wrap:wrap; }
 
     /* Responsive */
     @media (max-width: 768px){

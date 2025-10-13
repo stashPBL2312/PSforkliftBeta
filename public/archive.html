@@ -80,6 +80,8 @@
         <div style="margin-left:auto; display:flex; gap:8px;">
           <button id="resetBtn">Reset</button>
           <button id="exportBtn" title="Export hasil saat ini ke CSV">Export CSV</button>
+          <button id="exportExcel" title="Export hasil ke Excel">Export Excel</button>
+          <button id="exportPDF" title="Export hasil ke PDF">Export PDF</button>
         </div>
       </div>
       <div id="summary" style="margin-bottom:8px; color:#555;"></div>
@@ -107,8 +109,15 @@
       let offset = 0;
       let total = 0;
       let lastRows = [];
+      let selected = new Set();
+      let orderDir = 'desc';
 
       function columnsForJenis(j){
+        const selCol = { key:'__sel', label:'Sel', render:(row)=>{
+          const idStr = String(row.id);
+          const checked = selected.has(idStr) ? 'checked' : '';
+          return `<input type="checkbox" data-id="${idStr}" ${checked} />`;
+        }};
         const base = [
           { key:'id', label:'ID' },
           { key:'job_no', label:'Report No' },
@@ -127,7 +136,7 @@
               View
             </button>`;
           }};
-          return [...base, { key:'next_pm', label:'Next PM' }, { key:'recommendation', label:'Recommendation' }, { key:'notes', label:'Catatan' }, actionCol];
+          return [selCol, ...base, { key:'next_pm', label:'Next PM' }, { key:'recommendation', label:'Recommendation' }, { key:'notes', label:'Catatan' }, actionCol];
         }
         const actionCol = { key:'__act', label:'Aksi', render: (row)=>{
           return `<button class='btn-view' data-view='${row.id}' title='View' aria-label='View'>
@@ -138,7 +147,7 @@
             View
           </button>`;
         }};
-        return [...base, { key:'pekerjaan', label:'Pekerjaan' }, { key:'item_dipakai', label:'Item Dipakai' }, { key:'notes', label:'Catatan' }, actionCol];
+        return [selCol, ...base, { key:'pekerjaan', label:'Pekerjaan' }, { key:'item_dipakai', label:'Item Dipakai' }, { key:'notes', label:'Catatan' }, actionCol];
       }
 
       function getFilters(){
@@ -178,6 +187,8 @@
           if (mappedJenis) {
             paramsObj.job_source = mappedJenis;
           }
+          // Sorting berdasarkan tanggal
+          paramsObj.order = orderDir;
           const params = new URLSearchParams(paramsObj);
           const res = await api(`/api/archive/jobs?${params.toString()}`);
           const rows = res.rows || [];
@@ -185,6 +196,30 @@
           total = res.total || rows.length;
           const cols = columnsForJenis(f.jenis);
           simpleTable('table', cols, rows);
+          // Header tanggal: klik untuk toggle newest/oldest
+          try{
+            const dateIdx = cols.findIndex(c=> c.key==='job_date');
+            const ths = Array.from(document.querySelectorAll('#table th'));
+            const dateTh = dateIdx>=0 ? ths[dateIdx] : null;
+            if (dateTh){
+              dateTh.style.cursor = 'pointer';
+              dateTh.title = 'Klik untuk urutkan tanggal newest/oldest';
+              dateTh.onclick = ()=>{ orderDir = (orderDir==='desc' ? 'asc' : 'desc'); offset = 0; fetchAndRender(); };
+              // Tampilkan indikator arah
+              dateTh.textContent = cols[dateIdx].label + (orderDir==='desc' ? ' ▼' : ' ▲');
+            }
+          }catch{}
+          // Header "Sel": toggle pilih semua di halaman saat ini
+          const selHead = document.querySelector('#table th:first-child');
+          if (selHead){
+            selHead.style.cursor = 'pointer';
+            selHead.title = 'Pilih/bersihkan semua baris di halaman ini';
+            selHead.onclick = ()=>{
+              const allSelected = rows.length>0 && rows.every(r=> selected.has(String(r.id)));
+              rows.forEach(r=>{ const idStr = String(r.id); if (allSelected) selected.delete(idStr); else selected.add(idStr); });
+              fetchAndRender();
+            };
+          }
           // Delegasi klik tombol View untuk buka modal detail
           const container = document.getElementById('table');
           if (container && !container.dataset.viewDelegated){
@@ -247,6 +282,25 @@
         document.getElementById('q').addEventListener('keydown', (e)=>{ if (e.key === 'Enter'){ e.preventDefault(); offset = 0; fetchAndRender(); } });
         const exportBtn = document.getElementById('exportBtn');
         if (exportBtn) exportBtn.onclick = exportCSV;
+        const exportExcelBtn = document.getElementById('exportExcel');
+        if (exportExcelBtn) exportExcelBtn.onclick = exportExcel;
+        const exportPDFBtn = document.getElementById('exportPDF');
+        if (exportPDFBtn) exportPDFBtn.onclick = exportPDF;
+        // Ikon tombol seperti di records
+        try{
+          setButtonIcon(document.getElementById('resetBtn'),'reset',true);
+          setButtonIcon(document.getElementById('exportExcel'),'file-excel',true);
+          setButtonIcon(document.getElementById('exportPDF'),'pdf-export',true);
+        }catch{}
+        // Delegasi checkbox di tabel
+        const tbl = document.getElementById('table');
+        tbl.addEventListener('change', (e)=>{
+          const t = e.target;
+          if (t && t.matches('input[type="checkbox"][data-id]')){
+            const idStr = String(t.getAttribute('data-id'));
+            if (t.checked) selected.add(idStr); else selected.delete(idStr);
+          }
+        });
       }
 
       function toCSVRow(vals){
@@ -277,6 +331,116 @@
           document.body.appendChild(a); a.click(); document.body.removeChild(a);
           URL.revokeObjectURL(url);
         } catch (e){ alert('Gagal export CSV'); }
+      }
+
+      async function ensureExcelJS(){
+        if (window.ExcelJS) return window.ExcelJS;
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js';
+        await new Promise((res,rej)=>{ s.onload=res; s.onerror=rej; document.head.appendChild(s); });
+        return window.ExcelJS;
+      }
+      async function ensureJsPDF(){
+        if (window.jspdf && window.jspdf.jsPDF && window.jspdf.autoTable) return window.jspdf.jsPDF;
+        const s1 = document.createElement('script');
+        s1.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+        const s2 = document.createElement('script');
+        s2.src = 'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.5.28/dist/jspdf.plugin.autotable.min.js';
+        await new Promise((res,rej)=>{ s1.onload=res; s1.onerror=rej; document.head.appendChild(s1); });
+        await new Promise((res,rej)=>{ s2.onload=res; s2.onerror=rej; document.head.appendChild(s2); });
+        return window.jspdf.jsPDF;
+      }
+      function downloadBlob(blob, filename){
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename; a.click();
+        setTimeout(()=> URL.revokeObjectURL(url), 2000);
+      }
+      async function fetchAllFilteredRows(){
+        const f = getFilters();
+        const params = new URLSearchParams();
+        if (f.q) params.set('q', f.q);
+        if (f.start) params.set('start', f.start);
+        if (f.end) params.set('end', f.end);
+        params.set('jenis', f.jenis);
+        params.set('limit', '100000');
+        params.set('offset', '0');
+        const r = await api('/api/archive/jobs?' + params.toString());
+        return Array.isArray(r.rows) ? r.rows : [];
+      }
+      async function exportExcel(){
+        try{
+          await ensureExcelJS();
+          const ExcelJS = window.ExcelJS;
+          const wb = new ExcelJS.Workbook();
+          const ws = wb.addWorksheet('Archive');
+          const cols = columnsForJenis(document.getElementById('jenis').value).filter(c=> c.key!=='__sel' && c.key!=='__act');
+          // Lebar kolom dan alignment menyerupai records.html
+          const widthsMap = { job_date:14, job_no:16, jenis:12, forklift:28, pekerjaan:24, recommendation:24, next_pm:16, item_dipakai:24, notes:24, description:40 };
+          ws.columns = cols.map(c=> ({
+            header: c.label,
+            key: c.key,
+            width: widthsMap[c.key] || 18,
+            style: { alignment: { vertical:'top', wrapText: ['description','notes','pekerjaan','recommendation'].includes(c.key) } }
+          }));
+          const allRows = await fetchAllFilteredRows();
+          const useSelected = selected && selected.size>0;
+          const idSet = useSelected ? new Set(Array.from(selected)) : null;
+          const rowsSource = useSelected ? allRows.filter(r=> idSet.has(String(r.id))) : allRows;
+          rowsSource.forEach(r=>{
+            const row = {};
+            cols.forEach(c=>{ row[c.key] = r[c.key]; });
+            ws.addRow(row);
+          });
+          // Header styling, freeze, autoFilter
+          try{
+            const headerRow = ws.getRow(1);
+            headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+            headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+            headerRow.height = 22;
+            headerRow.eachCell(cell=> cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF0D47A1' } });
+            ws.views = [{ state:'frozen', ySplit:1 }];
+            ws.autoFilter = { from: { row:1, column:1 }, to: { row:1, column: cols.length } };
+          }catch{}
+          // Zebra striping & borders
+          try{
+            const lastRow = ws.rowCount;
+            for (let r = 2; r <= lastRow; r++){
+              if (r % 2 === 0){ ws.getRow(r).eachCell(cell=> cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFF2F6FC' } }); }
+              ws.getRow(r).eachCell(cell=>{ cell.border = {
+                top: { style:'thin', color:{ argb:'FFB0BEC5' } },
+                left: { style:'thin', color:{ argb:'FFB0BEC5' } },
+                bottom: { style:'thin', color:{ argb:'FFB0BEC5' } },
+                right: { style:'thin', color:{ argb:'FFB0BEC5' } },
+              }; });
+            }
+            // Header borders
+            ws.getRow(1).eachCell(cell=>{ cell.border = {
+              top: { style:'thin', color:{ argb:'FFB0BEC5' } },
+              left: { style:'thin', color:{ argb:'FFB0BEC5' } },
+              bottom: { style:'thin', color:{ argb:'FFB0BEC5' } },
+              right: { style:'thin', color:{ argb:'FFB0BEC5' } },
+            }; });
+          }catch{}
+          const buf = await wb.xlsx.writeBuffer();
+          downloadBlob(new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'archive.xlsx');
+        }catch(e){ console.error(e); alert('Gagal export Excel'); }
+      }
+      async function exportPDF(){
+        try{
+          const jsPDF = await ensureJsPDF();
+          const doc = new jsPDF({ orientation:'landscape' });
+          const cols = columnsForJenis(document.getElementById('jenis').value).filter(c=> c.key!=='__sel' && c.key!=='__act');
+          const head = [cols.map(c=> c.label)];
+          const allRows = await fetchAllFilteredRows();
+          const useSelected = selected && selected.size>0;
+          const idSet = useSelected ? new Set(Array.from(selected)) : null;
+          const rowsSource = useSelected ? allRows.filter(r=> idSet.has(String(r.id))) : allRows;
+          const body = rowsSource.map(r=> cols.map(c=> r[c.key]||''));
+          doc.text('Archive Export', 14, 16);
+          doc.autoTable({ head, body, styles:{ fontSize:8, cellPadding:3, overflow:'linebreak' }, headStyles:{ fillColor:[13,71,161], textColor:255 }, startY:20, margin:{ left:14, right:14 } });
+          doc.save('archive.pdf');
+        }catch(e){ console.error(e); alert('Gagal export PDF'); }
       }
 
       function renderDetailHtml(d){
