@@ -897,19 +897,47 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
     if (end) { whMaint.push('am.tanggal<=?'); pMaint.push(end); whWork.push('aw.tanggal<=?'); pWork.push(end); }
     if (forklift_eq_no) {
       const likeFk = `%${forklift_eq_no}%`;
-      whMaint.push('EXISTS (SELECT 1 FROM forklifts f WHERE f.id=am.forklift_id AND COALESCE(f.eq_no, "") LIKE ?)');
+      whMaint.push('EXISTS (SELECT 1 FROM forklifts f WHERE f.id=am.forklift_id AND LOWER(COALESCE(f.eq_no, "")) LIKE LOWER(?))');
       pMaint.push(likeFk);
-      whWork.push('EXISTS (SELECT 1 FROM forklifts f WHERE f.id=aw.forklift_id AND COALESCE(f.eq_no, "") LIKE ?)');
+      whWork.push('EXISTS (SELECT 1 FROM forklifts f WHERE f.id=aw.forklift_id AND LOWER(COALESCE(f.eq_no, "")) LIKE LOWER(?))');
       pWork.push(likeFk);
     }
     if (q) {
       const like = `%${q}%`;
-      // Maintenance table tidak memiliki kolom notes; batasi ke report_no + recommendation
-      whMaint.push('(COALESCE(am.report_no, "") LIKE ? OR COALESCE(am.recommendation, "") LIKE ?)');
-      pMaint.push(like, like);
-      // Workshop tetap: report_no, pekerjaan, notes
-      whWork.push('(COALESCE(aw.report_no, "") LIKE ? OR COALESCE(aw.pekerjaan, "") LIKE ? OR COALESCE(aw.notes, "") LIKE ?)');
-      pWork.push(like, like, like);
+      // Maintenance: report_no, recommendation, dan forklift fields
+      whMaint.push(`(
+        LOWER(COALESCE(am.report_no, "")) LIKE LOWER(?) OR
+        LOWER(COALESCE(am.recommendation, "")) LIKE LOWER(?) OR
+        EXISTS (
+          SELECT 1 FROM forklifts f
+          WHERE f.id = am.forklift_id AND (
+            LOWER(COALESCE(f.eq_no, "")) LIKE LOWER(?) OR
+            LOWER(COALESCE(f.brand, "")) LIKE LOWER(?) OR
+            LOWER(COALESCE(f.type, "")) LIKE LOWER(?) OR
+            LOWER(COALESCE(f.serial, "")) LIKE LOWER(?) OR
+            LOWER(COALESCE(f.location, "")) LIKE LOWER(?)
+          )
+        )
+      )`);
+      pMaint.push(like, like, like, like, like, like, like);
+      // Workshop: report_no, pekerjaan, notes, item_dipakai, dan forklift fields
+      whWork.push(`(
+        LOWER(COALESCE(aw.report_no, "")) LIKE LOWER(?) OR
+        LOWER(COALESCE(aw.pekerjaan, "")) LIKE LOWER(?) OR
+        LOWER(COALESCE(aw.notes, "")) LIKE LOWER(?) OR
+        LOWER(COALESCE(aw.item_dipakai, "")) LIKE LOWER(?) OR
+        EXISTS (
+          SELECT 1 FROM forklifts f
+          WHERE f.id = aw.forklift_id AND (
+            LOWER(COALESCE(f.eq_no, "")) LIKE LOWER(?) OR
+            LOWER(COALESCE(f.brand, "")) LIKE LOWER(?) OR
+            LOWER(COALESCE(f.type, "")) LIKE LOWER(?) OR
+            LOWER(COALESCE(f.serial, "")) LIKE LOWER(?) OR
+            LOWER(COALESCE(f.location, "")) LIKE LOWER(?)
+          )
+        )
+      )`);
+      pWork.push(like, like, like, like, like, like, like, like, like);
     }
 
     const selMaint = `SELECT am.id AS id, 'maintenance' AS job_source, 'PM' AS jenis,
