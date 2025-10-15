@@ -88,9 +88,9 @@
       <div id="table"></div>
       <!-- Modal detail (view-only) -->
       <div id="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.3); align-items:center; justify-content:center;">
-        <div style="background:#fff; padding:16px; border-radius:8px; width:640px; max-width:95vw;">
+        <div class="dialog" style="background:#fff; padding:16px; border-radius:8px; width:720px; max-width:95vw; max-height:85vh; display:flex; flex-direction:column; box-shadow:0 10px 24px rgba(0,0,0,0.18);">
           <h3 id="modalTitle" style="margin-top:0;">Detail Arsip</h3>
-          <div id="modalBody"></div>
+          <div id="modalBody" style="overflow:auto;"></div>
           <div style="text-align:right; margin-top:10px;">
             <button id="closeBtn">Tutup</button>
           </div>
