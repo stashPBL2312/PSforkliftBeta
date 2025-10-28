@@ -20,6 +20,32 @@ export async function setupAdmin() {
     ActionNotice: componentLoader.add('ActionNoticeV2', join(__dirname, 'components', 'ActionDone.jsx')),
   };
 
+  // Helper: resource actions to change rows per page
+  const makePageSizeActions = () => {
+    const mk = (label, size) => ({
+      actionType: 'resource',
+      icon: 'List',
+      label,
+      component: false,
+      isAccessible: ({ currentAdmin }) => !!currentAdmin,
+      handler: async (_req, _res, context) => {
+        const id = context.resource.id();
+        const perPage = size === 'ALL' ? 1000 : size;
+        const msg = size === 'ALL' ? 'All (capped to 1000)' : String(size);
+        return {
+          notice: { message: `Rows per page set to ${msg}`, type: 'success' },
+          redirectUrl: `${admin.options.rootPath}/resources/${id}?perPage=${perPage}`,
+        };
+      },
+    });
+    return {
+      rows10: mk('Rows: 10', 10),
+      rows25: mk('Rows: 25', 25),
+      rows50: mk('Rows: 50', 50),
+      rowsAll: mk('Rows: All', 'ALL'),
+    };
+  };
+
   const admin = new AdminJS({
     rootPath: '/admin',
     componentLoader,
@@ -39,6 +65,8 @@ export async function setupAdmin() {
             edit: { isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin' },
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
+            // Page size actions
+            ...makePageSizeActions(),
             softDelete: {
               actionType: 'record', icon: 'Trash', label: 'Soft Delete', guard: 'Konfirmasi soft delete? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
@@ -149,6 +177,8 @@ export async function setupAdmin() {
             edit: { isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin' },
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
+            // Page size actions
+            ...makePageSizeActions(),
             softDelete: {
               actionType: 'record', icon: 'Trash', label: 'Soft Delete', guard: 'Konfirmasi soft delete? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
@@ -248,6 +278,8 @@ export async function setupAdmin() {
             edit: { isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin' },
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
+            // Page size actions
+            ...makePageSizeActions(),
             softDelete: {
               actionType: 'record', icon: 'Trash', label: 'Soft Delete', guard: 'Konfirmasi soft delete? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
@@ -345,6 +377,8 @@ export async function setupAdmin() {
             edit: { isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin' },
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
+            // Page size actions
+            ...makePageSizeActions(),
             softDelete: {
               actionType: 'record', icon: 'Trash', label: 'Soft Delete', guard: 'Konfirmasi soft delete? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
@@ -478,6 +512,8 @@ export async function setupAdmin() {
             edit: { isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin' },
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
+            // Page size actions
+            ...makePageSizeActions(),
             softDelete: {
               actionType: 'record', icon: 'Trash', label: 'Soft Delete', guard: 'Konfirmasi soft delete? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
@@ -577,6 +613,8 @@ export async function setupAdmin() {
             edit: { isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin' },
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
+            // Page size actions
+            ...makePageSizeActions(),
             softDelete: {
               actionType: 'record', icon: 'Trash', label: 'Soft Delete', guard: 'Konfirmasi soft delete? Data bisa dipulihkan.', component: false,
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
@@ -674,6 +712,8 @@ export async function setupAdmin() {
             edit: { isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin' },
             delete: { isAccessible: () => false, isVisible: false },
             bulkDelete: { isAccessible: () => false, isVisible: false },
+            // Page size actions
+            ...makePageSizeActions(),
             softDelete: {
               actionType: 'record', icon: 'Trash', label: 'Soft Delete', guard: 'Konfirmasi soft delete? Data bisa dipulihkan.',
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',

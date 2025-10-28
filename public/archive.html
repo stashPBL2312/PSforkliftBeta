@@ -43,7 +43,7 @@
       <div class="toolbar" id="filters">
         <label>
           Kata kunci
-          <input type="text" id="q" placeholder="Cari job_no, forklift, deskripsi" />
+          <input type="text" id="q" placeholder="Cari job_no, forklift, pekerjaan, deskripsi" />
         </label>
         <!-- Forklift filter: input teks + dropdown suggest (single select), menyamakan mekanisme dengan records -->
         <div class="filter-group" style="position:relative; min-width:260px; max-width:460px;">
@@ -136,7 +136,7 @@
               View
             </button>`;
           }};
-          return [selCol, ...base, { key:'next_pm', label:'Next PM' }, { key:'recommendation', label:'Recommendation' }, { key:'notes', label:'Catatan' }, actionCol];
+          return [selCol, ...base, { key:'next_pm', label:'Next PM' }, { key:'pekerjaan', label:'Pekerjaan' }, { key:'recommendation', label:'Recommendation' }, { key:'notes', label:'Catatan' }, actionCol];
         }
         const actionCol = { key:'__act', label:'Aksi', render: (row)=>{
           return `<button class='btn-view' data-view='${row.id}' title='View' aria-label='View'>
@@ -452,6 +452,7 @@
           ['Jenis', d.jenis || (d.job_source === 'maintenance' ? 'PM' : 'Workshop')],
           ['Tanggal', d.job_date],
           ['Forklift', d.forklift],
+          ['Pekerjaan', d.pekerjaan || ''],
           ...(isPM ? [['Next PM', d.next_pm || '']] : []),
           ['Deskripsi', d.description || ''],
           ['Item Dipakai', d.items_used || d.item_dipakai || ''],

@@ -904,9 +904,10 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
     }
     if (q) {
       const like = `%${q}%`;
-      // Maintenance: report_no, recommendation, dan forklift fields
+      // Maintenance: report_no, pekerjaan, recommendation, dan forklift fields
       whMaint.push(`(
         LOWER(COALESCE(am.report_no, "")) LIKE LOWER(?) OR
+        LOWER(COALESCE(am.pekerjaan, "")) LIKE LOWER(?) OR
         LOWER(COALESCE(am.recommendation, "")) LIKE LOWER(?) OR
         EXISTS (
           SELECT 1 FROM forklifts f
@@ -919,7 +920,7 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
           )
         )
       )`);
-      pMaint.push(like, like, like, like, like, like, like);
+      pMaint.push(like, like, like, like, like, like, like, like);
       // Workshop: report_no, pekerjaan, notes, item_dipakai, dan forklift fields
       whWork.push(`(
         LOWER(COALESCE(aw.report_no, "")) LIKE LOWER(?) OR
@@ -945,7 +946,7 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
       COALESCE((SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift,
       am.report_no AS job_no,
       am.recommendation AS recommendation,
-      NULL AS pekerjaan,
+      am.pekerjaan AS pekerjaan,
       NULL AS item_dipakai,
       am.recommendation AS description,
       NULL AS notes,
@@ -1001,7 +1002,7 @@ app.get('/api/archive/jobs/:id', requireLogin, async (req, res) => {
       COALESCE((SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift,
       am.report_no AS job_no,
       am.recommendation AS recommendation,
-      NULL AS pekerjaan,
+      am.pekerjaan AS pekerjaan,
       NULL AS item_dipakai,
       am.recommendation AS description,
       NULL AS notes,
