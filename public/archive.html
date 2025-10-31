@@ -33,6 +33,9 @@
       [data-theme="dark"] .suggest { background:#0f172a; border-color:#334155; box-shadow:0 6px 16px rgba(0,0,0,0.6); }
       [data-theme="dark"] .suggest .item { color:#e5e7eb; border-bottom:1px solid #1f2937; }
       [data-theme="dark"] .suggest .item:hover { background:#1f2937; }
+      /* Subteks pada kolom Forklift */
+      .subtext { color:#666; font-size:12px; }
+      [data-theme="dark"] .subtext { color:#fff; }
     </style>
     <script src="/common.js"></script>
   </head>
@@ -43,7 +46,7 @@
       <div class="toolbar" id="filters">
         <label>
           Kata kunci
-          <input type="text" id="q" placeholder="Cari job_no, forklift, pekerjaan, deskripsi" />
+          <input type="text" id="q" placeholder="Cari job_no, forklift, deskripsi" />
         </label>
         <!-- Forklift filter: input teks + dropdown suggest (single select), menyamakan mekanisme dengan records -->
         <div class="filter-group" style="position:relative; min-width:260px; max-width:460px;">
@@ -123,7 +126,17 @@
           { key:'job_no', label:'Report No' },
           { key:'jenis', label:'Jenis' },
           { key:'job_date', label:'Tanggal' },
-          { key:'forklift', label:'Forklift' },
+          { key:'forklift', label:'Forklift', render:(row)=>{
+            const main = String(row.forklift||'');
+            const owner = String(row.forklift_owner||'').trim();
+            const location = String(row.forklift_location||'').trim();
+            const serial = String(row.forklift_serial||'').trim();
+            const powertrain = String(row.forklift_powertrain||'').trim();
+            const details = [owner, location].filter(Boolean).join(' / ');
+            const extra = [serial, powertrain].filter(Boolean).join(' · ');
+            const sub = [details, extra].filter(Boolean).join(' — ');
+            return sub ? `<div>${main}<div class='subtext'>${sub}</div></div>` : main;
+          } },
         ];
         const v = String(j||'').toLowerCase();
         if (v === 'pm'){
@@ -452,8 +465,8 @@
           ['Jenis', d.jenis || (d.job_source === 'maintenance' ? 'PM' : 'Workshop')],
           ['Tanggal', d.job_date],
           ['Forklift', d.forklift],
-          ['Pekerjaan', d.pekerjaan || ''],
           ...(isPM ? [['Next PM', d.next_pm || '']] : []),
+          ['Pekerjaan', d.pekerjaan || ''],
           ['Deskripsi', d.description || ''],
           ['Item Dipakai', d.items_used || d.item_dipakai || ''],
           ['Catatan', d.notes || ''],

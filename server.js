@@ -680,7 +680,15 @@ app.get('/api/records', requireLogin, async (req, res) => {
   try {
     const { q, forklift_id, start, end } = req.query;
     const params = [];
-    let sql = `SELECT r.*, (SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=r.forklift_id) as forklift, r.location as forklift_location, COALESCE((SELECT j.next_pm FROM jobs j WHERE j.report_no=r.report_no AND j.forklift_id=r.forklift_id AND j.jenis='PM' AND j.deleted_at IS NULL ORDER BY j.id DESC LIMIT 1), (SELECT j.next_pm FROM jobs j WHERE j.jenis='PM' AND j.forklift_id=r.forklift_id AND j.deleted_at IS NULL ORDER BY j.id DESC LIMIT 1)) as next_pm FROM records r WHERE r.deleted_at IS NULL`;
+    let sql = `SELECT r.*, 
+      COALESCE((SELECT COALESCE(brand,'') || CASE WHEN COALESCE(type,'')!='' THEN ' ' || COALESCE(type,'') ELSE '' END || CASE WHEN eq_no IS NOT NULL AND TRIM(eq_no)!='' THEN ' (' || eq_no || ')' ELSE '' END FROM forklifts f WHERE f.id=r.forklift_id), '') AS forklift,
+      r.location AS forklift_location,
+      COALESCE((SELECT owner FROM forklifts f WHERE f.id=r.forklift_id), '') AS forklift_owner,
+      COALESCE((SELECT location FROM forklifts f WHERE f.id=r.forklift_id), '') AS forklift_location_fk,
+      COALESCE((SELECT serial FROM forklifts f WHERE f.id=r.forklift_id), '') AS forklift_serial,
+      COALESCE((SELECT powertrain FROM forklifts f WHERE f.id=r.forklift_id), '') AS forklift_powertrain,
+      COALESCE((SELECT j.next_pm FROM jobs j WHERE j.report_no=r.report_no AND j.forklift_id=r.forklift_id AND j.jenis='PM' AND j.deleted_at IS NULL ORDER BY j.id DESC LIMIT 1), (SELECT j.next_pm FROM jobs j WHERE j.jenis='PM' AND j.forklift_id=r.forklift_id AND j.deleted_at IS NULL ORDER BY j.id DESC LIMIT 1)) AS next_pm
+      FROM records r WHERE r.deleted_at IS NULL`;
     // Filter by forklift
     if (forklift_id) { sql += ' AND r.forklift_id=?'; params.push(forklift_id); }
     // Range filter (gunakan perbandingan string ISO agar bisa gunakan indeks)
@@ -810,7 +818,11 @@ app.delete('/api/records/:id', requireLogin, async (req, res) => {
   try {
     const user = req.session.user;
     if (user.role === 'admin' || user.role === 'supervisor') {
+      const link = await get('SELECT report_no, forklift_id FROM records WHERE id=?', [req.params.id]);
       await run("UPDATE records SET deleted_at = datetime('now','+7 hours') WHERE id=?", [req.params.id]);
+      if (link && link.report_no) {
+        await run("UPDATE jobs SET deleted_at = datetime('now','+7 hours') WHERE report_no=? AND forklift_id=?", [link.report_no, link.forklift_id]);
+      }
       return res.json({ message: 'ok' });
     }
     if (user.role === 'teknisi') {
@@ -820,7 +832,11 @@ app.delete('/api/records/:id', requireLogin, async (req, res) => {
       const name = String(user.name || '').toLowerCase();
       const assigned = low.includes(email) || (!!name && low.includes(name));
       if (!assigned) return res.status(403).json({ error: 'Forbidden' });
+      const link = await get('SELECT report_no, forklift_id FROM records WHERE id=?', [req.params.id]);
       await run("UPDATE records SET deleted_at = datetime('now','+7 hours') WHERE id=?", [req.params.id]);
+      if (link && link.report_no) {
+        await run("UPDATE jobs SET deleted_at = datetime('now','+7 hours') WHERE report_no=? AND forklift_id=?", [link.report_no, link.forklift_id]);
+      }
       return res.json({ message: 'ok' });
     }
     return res.status(403).json({ error: 'Forbidden' });
@@ -838,6 +854,12 @@ app.post('/api/records/bulk-delete', requireLogin, async (req, res) => {
     if (user.role === 'admin' || user.role === 'supervisor') {
       const placeholders = ids.map(()=>'?').join(',');
       await run(`UPDATE records SET deleted_at = datetime('now','+7 hours') WHERE id IN (${placeholders})`, ids);
+      const links = await all(`SELECT report_no, forklift_id FROM records WHERE id IN (${placeholders})`, ids);
+      for (const l of (links||[])){
+        if (l && l.report_no){
+          await run("UPDATE jobs SET deleted_at = datetime('now','+7 hours') WHERE report_no=? AND forklift_id=?", [l.report_no, l.forklift_id]);
+        }
+      }
       return res.json({ message: 'ok', deleted: ids.length });
     }
 
@@ -854,6 +876,12 @@ app.post('/api/records/bulk-delete', requireLogin, async (req, res) => {
       if (!ownIds.length) return res.status(403).json({ error: 'Tidak ada record milik Anda dalam pilihan' });
       const ph2 = ownIds.map(()=>'?').join(',');
       await run(`UPDATE records SET deleted_at = datetime('now','+7 hours') WHERE id IN (${ph2})`, ownIds);
+      const links2 = await all(`SELECT report_no, forklift_id FROM records WHERE id IN (${ph2})`, ownIds);
+      for (const l of (links2||[])){
+        if (l && l.report_no){
+          await run("UPDATE jobs SET deleted_at = datetime('now','+7 hours') WHERE report_no=? AND forklift_id=?", [l.report_no, l.forklift_id]);
+        }
+      }
       return res.json({ message: 'ok', deleted: ownIds.length });
     }
 
@@ -944,6 +972,11 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
     const selMaint = `SELECT am.id AS id, 'maintenance' AS job_source, 'PM' AS jenis,
       am.tanggal AS job_date,
       COALESCE((SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift,
+      (am.forklift_id) AS forklift_id,
+      COALESCE((SELECT owner FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift_owner,
+      COALESCE((SELECT location FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift_location,
+      COALESCE((SELECT serial FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift_serial,
+      COALESCE((SELECT powertrain FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift_powertrain,
       am.report_no AS job_no,
       am.recommendation AS recommendation,
       am.pekerjaan AS pekerjaan,
@@ -958,6 +991,11 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
     const selWork = `SELECT aw.id AS id, 'workshop' AS job_source, 'Workshop' AS jenis,
       aw.tanggal AS job_date,
       COALESCE((SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift,
+      (aw.forklift_id) AS forklift_id,
+      COALESCE((SELECT owner FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift_owner,
+      COALESCE((SELECT location FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift_location,
+      COALESCE((SELECT serial FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift_serial,
+      COALESCE((SELECT powertrain FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift_powertrain,
       aw.report_no AS job_no,
       NULL AS recommendation,
       aw.pekerjaan AS pekerjaan,
@@ -1000,6 +1038,11 @@ app.get('/api/archive/jobs/:id', requireLogin, async (req, res) => {
     const selectMaint = `SELECT am.id AS id, 'maintenance' AS job_source, 'PM' AS jenis,
       am.tanggal AS job_date,
       COALESCE((SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift,
+      (am.forklift_id) AS forklift_id,
+      COALESCE((SELECT owner FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift_owner,
+      COALESCE((SELECT location FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift_location,
+      COALESCE((SELECT serial FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift_serial,
+      COALESCE((SELECT powertrain FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift_powertrain,
       am.report_no AS job_no,
       am.recommendation AS recommendation,
       am.pekerjaan AS pekerjaan,
@@ -1013,6 +1056,11 @@ app.get('/api/archive/jobs/:id', requireLogin, async (req, res) => {
     const selectWork = `SELECT aw.id AS id, 'workshop' AS job_source, 'Workshop' AS jenis,
       aw.tanggal AS job_date,
       COALESCE((SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift,
+      (aw.forklift_id) AS forklift_id,
+      COALESCE((SELECT owner FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift_owner,
+      COALESCE((SELECT location FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift_location,
+      COALESCE((SELECT serial FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift_serial,
+      COALESCE((SELECT powertrain FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift_powertrain,
       aw.report_no AS job_no,
       NULL AS recommendation,
       aw.pekerjaan AS pekerjaan,
@@ -1092,7 +1140,11 @@ app.post('/api/jobs/:id/restore', requireRole('admin','supervisor'), async (req,
 // Restore a soft-deleted record
 app.post('/api/records/:id/restore', requireRole('admin','supervisor'), async (req, res) => {
   try {
+    const link = await get('SELECT report_no, forklift_id FROM records WHERE id=?', [req.params.id]);
     await run("UPDATE records SET deleted_at = NULL, updated_at = datetime('now','+7 hours') WHERE id=?", [req.params.id]);
+    if (link && link.report_no){
+      await run("UPDATE jobs SET deleted_at = NULL, updated_at = datetime('now','+7 hours') WHERE report_no=? AND forklift_id=?", [link.report_no, link.forklift_id]);
+    }
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Record restore failed' });
@@ -1146,7 +1198,11 @@ app.delete('/api/jobs/:id/hard', requireRole('admin','supervisor'), async (req, 
 
 app.delete('/api/records/:id/hard', requireRole('admin','supervisor'), async (req, res) => {
   try {
+    const link = await get('SELECT report_no, forklift_id FROM records WHERE id=?', [req.params.id]);
     await run('DELETE FROM records WHERE id=?', [req.params.id]);
+    if (link && link.report_no){
+      await run('DELETE FROM jobs WHERE report_no=? AND forklift_id=?', [link.report_no, link.forklift_id]);
+    }
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: 'Record hard delete failed' });

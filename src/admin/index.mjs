@@ -545,7 +545,11 @@ export async function setupAdmin() {
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
+                const rows = await conn.execute('SELECT report_no, forklift_id FROM records WHERE id=?', [id]);
                 await conn.execute('DELETE FROM records WHERE id=?', [id]);
+                if (rows && rows[0] && rows[0].report_no) {
+                  await conn.execute('DELETE FROM jobs WHERE report_no=? AND forklift_id=?', [rows[0].report_no, rows[0].forklift_id]);
+                }
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Record hard-deleted', type: 'success' },
@@ -588,7 +592,15 @@ export async function setupAdmin() {
                 const ids = (context?.records || []).map(r => r?.params?.id).filter(Boolean);
                 if (!ids.length) return { notice: { message: 'Tidak ada record dipilih', type: 'info' } };
                 const placeholders = ids.map(() => '?').join(',');
+                const pairs = await conn.execute(`SELECT report_no, forklift_id FROM records WHERE id IN (${placeholders})`, ids);
                 await conn.execute(`DELETE FROM records WHERE id IN (${placeholders})`, ids);
+                if (pairs && pairs.length) {
+                  for (const row of pairs) {
+                    if (row && row.report_no) {
+                      await conn.execute('DELETE FROM jobs WHERE report_no=? AND forklift_id=?', [row.report_no, row.forklift_id]);
+                    }
+                  }
+                }
                 return {
                   records: (context.records || []).map(r => r?.toJSON(context.currentAdmin)),
                   notice: { message: `Hard delete ${ids.length} record`, type: 'success' },

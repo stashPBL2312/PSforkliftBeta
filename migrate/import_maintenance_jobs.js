@@ -33,8 +33,9 @@ function parseCSV(text){
   return rows;
 }
 
-function normStr(v){ const s = String(v ?? '').trim(); if (!s || s.toLowerCase()==='null') return null; return s; }
+function normStr(v){ const s = String(v ?? '').trim(); return s || null; }
 function normIntOrNull(v){ const s = String(v ?? '').trim(); if (!s) return null; const n = parseInt(s.replace(/\D+/g, ''), 10); return isNaN(n) ? null : n; }
+function nullify(v){ const s = String(v ?? '').trim(); if (!s || s.toLowerCase()==='null') return null; return s; }
 
 async function run(){
   console.log(`Reading CSV: ${CSV_FILE}`);
@@ -46,20 +47,22 @@ async function run(){
   const getAsync = (sql, params=[]) => new Promise((resolve, reject)=>{ db.get(sql, params, (err, row)=> err ? reject(err) : resolve(row)); });
   const runAsync = (sql, params=[]) => new Promise((resolve, reject)=>{ db.run(sql, params, function(err){ err ? reject(err) : resolve(this); }); });
 
-  const rows = rawRows.map((r, idx) => ({
-    idx: idx+2,
-    id: normIntOrNull(r.id),
-    forklift_id: normIntOrNull(r.forklift_id),
-    tanggal: normStr(r.tanggal),
-    pekerjaan: normStr(r.pekerjaan),
-    recommendation: normStr(r.recommendation),
-    next_pm: normStr(r.next_pm),
-    report_no: normStr(r.report_no),
-    scanned_documents: normStr(r.scanned_document), // CSV uses singular; map to plural column
-    created_at: normStr(r.created_at),
-    updated_at: normStr(r.updated_at),
-    deleted_at: normStr(r.deleted_at),
-  })).filter(row => Object.values(row).some(v => v !== '' && v !== null && v !== undefined));
+  const rows = rawRows.map((r, idx) => {
+    return {
+      idx: idx+2,
+      id: normIntOrNull(r.id),
+      forklift_id: normIntOrNull(r.forklift_id),
+      tanggal: nullify(r.tanggal),
+      pekerjaan: nullify(r.pekerjaan),
+      recommendation: nullify(r.recommendation),
+      next_pm: nullify(r.next_pm),
+      report_no: nullify(r.report_no),
+      scanned_documents: nullify(r.scanned_document || r.scanned_documents),
+      created_at: nullify(r.created_at),
+      updated_at: nullify(r.updated_at),
+      deleted_at: nullify(r.deleted_at),
+    };
+  }).filter(row => Object.values(row).some(v => v !== '' && v !== null && v !== undefined));
 
   let inserted = 0, updated = 0; const errors = []; const warnings = [];
 
@@ -67,6 +70,7 @@ async function run(){
     await runAsync('BEGIN');
     for (const row of rows){
       try{
+        // Validate forklift_id exists; warn but keep original for later mapping
         let fk = row.forklift_id;
         if (fk != null){
           const exists = await getAsync('SELECT id FROM forklifts WHERE id=?', [fk]);

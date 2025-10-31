@@ -26,11 +26,18 @@
     /* Rich text area mimic textarea */
     .rte { width:100%; min-height:80px; border:1px solid #eee; border-radius:6px; padding:6px; outline:none; }
     .rte:focus { border-color:#c5d9fd; box-shadow:0 0 0 2px #e8f0fe; }
+    /* Dark mode: perhalus kontras editor dan fokus ring */
+    [data-theme="dark"] .rte { background:#0f172a; border-color:#334155; color:#e5e7eb; }
+    [data-theme="dark"] .rte:focus { border-color:#334155; box-shadow:0 0 0 2px #1f2937; }
     /* RTE toolbar */
     .rte-toolbar { display:flex; gap:6px; margin:4px 0 6px; }
     .rte-toolbar button { padding:4px 6px; border:1px solid #ddd; background:#f7f7f7; border-radius:4px; cursor:pointer; }
     .rte-toolbar button:hover { background:#eee; }
     .rte-toolbar button.active { background:#e0e0e0; border-color:#ccc; }
+    /* Dark mode: tone down warna tombol toolbar */
+    [data-theme="dark"] .rte-toolbar button { background:#1f2937; border-color:#334155; color:#e5e7eb; }
+    [data-theme="dark"] .rte-toolbar button:hover { background:#334155; }
+    [data-theme="dark"] .rte-toolbar button.active { background:#374151; border-color:#334155; }
     /* Chips + Suggest */
     .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
     .chip { display:inline-flex; align-items:center; gap:6px; background:#f0f0f0; border:1px solid #e0e0e0; border-radius:16px; padding:2px 8px; font-size:12px; }
@@ -113,11 +120,18 @@
      /* Rich text area mimic textarea */
      .rte { width:100%; min-height:80px; border:1px solid #eee; border-radius:6px; padding:6px; outline:none; }
      .rte:focus { border-color:#c5d9fd; box-shadow:0 0 0 2px #e8f0fe; }
+     /* Dark mode duplicate section: perhalus editor dan ring */
+     [data-theme="dark"] .rte { background:#0f172a; border-color:#334155; color:#e5e7eb; }
+     [data-theme="dark"] .rte:focus { border-color:#334155; box-shadow:0 0 0 2px #1f2937; }
      /* RTE toolbar */
      .rte-toolbar { display:flex; gap:6px; margin:4px 0 6px; }
      .rte-toolbar button { padding:4px 6px; border:1px solid #ddd; background:#f7f7f7; border-radius:4px; cursor:pointer; }
      .rte-toolbar button:hover { background:#eee; }
      .rte-toolbar button.active { background:#e0e0e0; border-color:#ccc; }
+     /* Dark mode duplicate section: tone down toolbar */
+     [data-theme="dark"] .rte-toolbar button { background:#1f2937; border-color:#334155; color:#e5e7eb; }
+     [data-theme="dark"] .rte-toolbar button:hover { background:#334155; }
+     [data-theme="dark"] .rte-toolbar button.active { background:#374151; border-color:#334155; }
      /* Chips + Suggest */
      .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
      .chip { display:inline-flex; align-items:center; gap:6px; background:#f0f0f0; border:1px solid #e0e0e0; border-radius:16px; padding:2px 8px; font-size:12px; }
@@ -260,7 +274,14 @@
         <div id="chosenItems" style="margin-top:6px;"></div>
       </div>
       <div id="itemsFreeWrap" style="display:none;">
-        <label>Item dipakai (free text)</label>
+        <label id="itemsFreeLabel">Item dipakai (free text)</label>
+        <div class="rte-toolbar">
+          <button type="button" data-target="items_free" data-cmd="bold"><b>B</b></button>
+          <button type="button" data-target="items_free" data-cmd="italic"><i>I</i></button>
+          <button type="button" data-target="items_free" data-cmd="underline"><u>U</u></button>
+          <button type="button" data-target="items_free" data-cmd="insertUnorderedList">&bull; List</button>
+          <button type="button" data-target="items_free" data-cmd="insertOrderedList">1. List</button>
+        </div>
         <div id="items_free" class="rte" contenteditable="true"></div>
       </div>
       <div style="text-align:right; margin-top:10px;">
@@ -600,8 +621,13 @@
 
     function updateJenis(){
     const j = jenisSel.value;
-    document.getElementById('itemsUsedWrap').style.display = (j==='PM'||j==='Workshop') ? 'block':'none';
-    document.getElementById('itemsFreeWrap').style.display = (j==='Lapangan') ? 'block':'none';
+    document.getElementById('itemsUsedWrap').style.display = (j==='Workshop') ? 'block':'none';
+    document.getElementById('itemsFreeWrap').style.display = (j==='Lapangan'||j==='PM') ? 'block':'none';
+    // Ubah label Item dipakai agar hilang (free text) saat Lapangan
+    try {
+      const freeLbl = document.getElementById('itemsFreeLabel');
+      if (freeLbl) freeLbl.textContent = (j==='Lapangan'||j==='PM') ? 'Item dipakai' : 'Item dipakai (free text)';
+    } catch {}
     document.getElementById('nextPmWrap').style.display = (j==='PM') ? 'block':'none';
     document.getElementById('report_no').disabled = false;
     if (j==='Workshop' && !reportDirty) { autofillReport(); }
@@ -702,22 +728,22 @@
       const recommendation = getRteValue('recommendation');
       let items_used = '';
       let next_pm = null;
-      if (jenis==='PM' || jenis==='Workshop') {
+      if (jenis==='Workshop') {
         items_used = chosen.map(c=>`${c.code} ${c.nama} x ${c.qty}`).join(', ');
-        if (jenis==='PM') {
-          // Radio atau custom date
-          const radioSel = document.querySelector('input[name="nextpm"]:checked');
-          const customDate = document.getElementById('next_pm_date').value;
-          if (customDate){
-            next_pm = customDate;
-          } else if (radioSel){
-            const months = parseInt(radioSel.value, 10);
-            const base = new Date(tanggal);
-            base.setHours(0,0,0,0);
-            const d = new Date(base);
-            d.setMonth(d.getMonth() + months);
-            next_pm = new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10);
-          }
+      } else if (jenis==='PM') {
+        items_used = getRteValue('items_free');
+        // Radio atau custom date untuk PM
+        const radioSel = document.querySelector('input[name="nextpm"]:checked');
+        const customDate = document.getElementById('next_pm_date').value;
+        if (customDate){
+          next_pm = customDate;
+        } else if (radioSel){
+          const months = parseInt(radioSel.value, 10);
+          const base = new Date(tanggal);
+          base.setHours(0,0,0,0);
+          const d = new Date(base);
+          d.setMonth(d.getMonth() + months);
+          next_pm = new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10);
         }
       } else if (jenis==='Lapangan') {
         items_used = getRteValue('items_free');

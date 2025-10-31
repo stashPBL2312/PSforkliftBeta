@@ -35,7 +35,8 @@
   </script>
   <style>
     body { font-family: system-ui, Arial, sans-serif; margin:0; }
-    .wrap { max-width:1200px; margin:20px auto; padding:0 16px; }
+    .container { padding: 16px; }
+    .table-scroll { overflow:auto; border:1px solid #ddd; border-radius:8px; }
     table { width:100%; border-collapse:collapse; }
     th, td { text-align:left; padding:8px; border-bottom:1px solid #eee; }
     th { background:#fafafa; cursor:pointer; user-select:none; }
@@ -48,7 +49,8 @@
     [data-theme="dark"] .week-date { color:#fde68a; }
     .upcoming-date { color:#16a34a; font-weight:600; }
     [data-theme="dark"] .upcoming-date { color:#86efac; }
-     .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
+     .toolbar { display:flex; gap:8px; align-items:flex-end; margin-bottom:12px; flex-wrap:wrap; }
+    .toolbar label { display:flex; flex-direction:column; font-size:12px; gap:4px; }
     .checks { display:flex; gap:8px; align-items:center; }
     /* Print styles for PDF export */
     @media print {
@@ -58,21 +60,26 @@
     [data-theme="dark"] .muted { color:#fff !important; }
 
     /* Next PM fit konten (nowrap), Description & Recommendation sama lebar, Items Used cukup lega */
-    /* Indeks kolom berubah karena penambahan kolom Location setelah Forklift */
-    #table table th:nth-child(8), #table table td:nth-child(8) { /* Next PM */
+    /* Indeks kolom disesuaikan setelah menghapus kolom Location */
+    /* Lebarkan kolom Forklift agar tidak dempet */
+    #table table th:nth-child(4), #table table td:nth-child(4) { /* Forklift */
+      width: 26%;
+      white-space: normal;
+    }
+    #table table th:nth-child(7), #table table td:nth-child(7) { /* Next PM */
       width: 1%;
       min-width: 0;
       white-space: nowrap;
     }
-    #table table th:nth-child(9), #table table td:nth-child(9) { /* Description */
-      width: 28%;
+    #table table th:nth-child(8), #table table td:nth-child(8) { /* Description */
+      width: 26%;
       white-space: normal;
     }
-    #table table th:nth-child(10), #table table td:nth-child(10) { /* Recommendation */
-      width: 28%;
+    #table table th:nth-child(9), #table table td:nth-child(9) { /* Recommendation */
+      width: 26%;
       white-space: normal;
     }
-    #table table th:nth-child(11), #table table td:nth-child(11) { /* Items Used */
+    #table table th:nth-child(10), #table table td:nth-child(10) { /* Items Used */
       width: 20%;
       min-width: 180px;
       white-space: normal;
@@ -137,7 +144,7 @@
 
     /* Responsive */
     @media (max-width: 768px){
-      .wrap { margin:12px auto; padding:0 12px; }
+      .container { padding:0 12px; }
       /* Hindari child melar penuh agar ikon kalender berada dekat input */
       .toolbar { flex-direction: column; align-items: flex-start; }
       /* Pastikan wrapper input tanggal tidak ikut melar pada mobile */
@@ -145,7 +152,7 @@
       .toolbar .toolbar-row { flex-wrap: wrap; }
       .toolbar .filter-group, .toolbar .toolbar-row .q-field, .toolbar .toolbar-row .tech-field { min-width: 0; width: 100%; max-width: 100%; }
       #table { overflow-x:auto; }
-      #table table { min-width: 900px; }
+      /* Hilangkan min-width agar seragam dengan arsip */
       /* Kecilkan dropdown forklift di modal edit pada mobile */
       #edFkSuggest { max-height: 30vh !important; -webkit-overflow-scrolling: touch; }
     }
@@ -162,11 +169,14 @@
     #table td:last-child button + button { margin-top: 6px; }
     #table button { height: 32px; min-height: 32px; padding: 0 10px; box-sizing: border-box; display:flex; align-items:center; gap:6px; line-height:1; white-space: nowrap; }
     #table button.btn-ico svg { width:16px; height:16px; display:block; }
+    /* Subteks pada kolom Forklift */
+    .subtext { color:#666; font-size:12px; }
+    [data-theme="dark"] .subtext { color:#fff; }
   </style>
 </head>
 <body>
   <div id="header"></div>
-  <div class="wrap">
+  <div class="container">
     <h2>Service Records</h2>
     <div class="toolbar">
       <label>Jenis</label>
@@ -563,7 +573,7 @@
     function indexRows(rows){
       if (!Array.isArray(rows)) return;
       for (const r of rows){
-        r._q = [r.tanggal, r.report_no, r.forklift, r.forklift_location, r.pekerjaan, r.teknisi, r.next_pm, r.description, r.recommendation, r.items_used]
+        r._q = [r.tanggal, r.report_no, r.forklift, r.forklift_owner, r.forklift_location_fk, r.forklift_serial, r.forklift_powertrain, r.pekerjaan, r.teknisi, r.next_pm, r.description, r.recommendation, r.items_used]
           .map(v=> String(v||'').toLowerCase())
           .join(' ');
       }
@@ -575,7 +585,6 @@
       { key: 'tanggal', label: 'Tanggal' },
       { key: 'report_no', label: 'Report No' },
       { key: 'forklift', label: 'Forklift' },
-      { key: 'forklift_location', label: 'Location' },
       { key: 'pekerjaan', label: 'Pekerjaan' },
       { key: 'teknisi', label: 'Teknisi' },
       { key: 'next_pm', label: 'Next PM' },
@@ -855,12 +864,21 @@ function render(){
         }
       }
     }
+    const fkObj = fkCache.find && fkCache.find(x=>x.id===row.forklift_id);
+    const forkliftText = (row.forklift && String(row.forklift).trim()) ? row.forklift : (fkObj ? fkLabel(fkObj) : '');
+    const owner = String(row.forklift_owner||'').trim();
+    const floc = String(row.forklift_location_fk||'').trim();
+    const serial = String(row.forklift_serial||'').trim();
+    const powertrain = String(row.forklift_powertrain||'').trim();
+    const details = [owner, floc].filter(Boolean).join(' / ');
+    const extra = [serial, powertrain].filter(Boolean).join(' · ');
+    const sub = [details, extra].filter(Boolean).join(' — ');
+    const forkliftCell = sub ? `<div>${forkliftText}<div class='subtext'>${sub}</div></div>` : forkliftText;
     const tds = [
       `<td>${cb}</td>`,
       `<td>${row.tanggal||''}</td>`,
       `<td>${row.report_no||''}</td>`,
-      `<td>${row.forklift||''}</td>`,
-      `<td>${row.forklift_location||''}</td>`,
+      `<td>${forkliftCell}</td>`,
       `<td>${row.pekerjaan||''}</td>`,
       `<td>${row.teknisi||''}</td>`,
       `<td>${nextPmCell}</td>`,
@@ -873,7 +891,7 @@ function render(){
   }).join('') + '</tbody>';
 
   const tableEl = document.getElementById('table');
-  if (tableEl) tableEl.innerHTML = `<div class="table-scroll"><table style="min-width:900px">${header}${body}</table></div>`;
+  if (tableEl) tableEl.innerHTML = `<div class="table-scroll"><table>${header}${body}</table></div>`;
   applyTablePerformanceHints('table');
   perfEnd && perfEnd('records.render', `n=${data?.length||0} pageRows=${currentRows.length}`);
 

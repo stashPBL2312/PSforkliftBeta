@@ -1,11 +1,11 @@
-// Comprehensive verification for archive_maintenance_jobs forklift mapping
+// Verify per-row forklift mapping in archive_maintenance_jobs against expectations from CSVs
 const fs = require('fs');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 
 const DB_FILE = path.join(__dirname, '..', 'db.sqlite');
 const FORKLIFTS_CSV = path.join(__dirname, 'forklifts.csv');
-const MAINTENANCE_CSV = path.join(__dirname, 'maintenance_jobs.csv');
+const MAINT_CSV = path.join(__dirname, 'maintenance_jobs.csv');
 
 function parseCSVLine(line){
   const out = []; let cur = ''; let inQuotes = false;
@@ -43,47 +43,55 @@ async function run(){
   const fkRows = parseCSV(fkText);
   console.log(`Forklift rows found: ${fkRows.length}`);
 
-  const mapOldToIdentity = new Map(); // oldId -> { eq_no, serial }
+  const mapOldIdToIdentity = new Map(); // oldId -> {eq_no, serial}
   for (const r of fkRows){
     const oldId = normIntOrNull(r.id);
     if (oldId == null) continue;
-    // CSV bisa pakai 'serial' atau 'serial_number'
-    mapOldToIdentity.set(oldId, { eq_no: normStr(r.eq_no), serial: normStr(r.serial_number || r.serial) });
+    mapOldIdToIdentity.set(oldId, { eq_no: normStr(r.eq_no), serial: normStr(r.serial_number || r.serial) });
   }
 
-  console.log(`Reading maintenance CSV: ${MAINTENANCE_CSV}`);
-  const mText = fs.readFileSync(MAINTENANCE_CSV, 'utf8');
+  console.log(`Reading maintenance jobs CSV: ${MAINT_CSV}`);
+  const mText = fs.readFileSync(MAINT_CSV, 'utf8');
   const mRows = parseCSV(mText);
   console.log(`Maintenance job rows found: ${mRows.length}`);
 
   const jobs = mRows.map(r => ({ id: normIntOrNull(r.id), old_fk: normIntOrNull(r.forklift_id), report_no: normStr(r.report_no) }))
-                   .filter(j => j.id != null && j.old_fk != null);
+                     .filter(j => j.id != null && j.old_fk != null);
 
   const db = new sqlite3.Database(DB_FILE);
   const getAsync = (sql, params=[]) => new Promise((resolve, reject)=>{ db.get(sql, params, (err, row)=> err ? reject(err) : resolve(row)); });
 
-  let total = 0, matched = 0, mismatched = 0, missingExpected = 0, missingJob = 0; const samples = [];
+  let matches = 0, mismatches = 0, missingExpected = 0, missingJob = 0;
+  const mismatchSamples = [];
 
-  for (const job of jobs){
-    total++;
-    const expected = mapOldToIdentity.get(job.old_fk);
-    if (!expected || (!expected.serial && !expected.eq_no)) { missingExpected++; continue; }
+  try{
+    for (const job of jobs){
+      const identity = mapOldIdToIdentity.get(job.old_fk);
+      if (!identity){ missingExpected++; continue; }
 
-    const row = await getAsync('SELECT am.id, am.forklift_id, (SELECT eq_no FROM forklifts f WHERE f.id=am.forklift_id) as eq_no, (SELECT serial FROM forklifts f WHERE f.id=am.forklift_id) as serial FROM archive_maintenance_jobs am WHERE am.id=?', [job.id]);
-    if (!row){ missingJob++; continue; }
+      let expectedFkRow = null;
+      if (identity.serial){ expectedFkRow = await getAsync('SELECT id, brand, type, eq_no, serial FROM forklifts WHERE serial=?', [identity.serial]); }
+      if (!expectedFkRow && identity.eq_no){ expectedFkRow = await getAsync('SELECT id, brand, type, eq_no, serial FROM forklifts WHERE eq_no=?', [identity.eq_no]); }
+      if (!expectedFkRow){ missingExpected++; continue; }
 
-    const eqMatch = expected.eq_no && row.eq_no && expected.eq_no === row.eq_no;
-    const serialMatch = expected.serial && row.serial && expected.serial === row.serial;
-    if (eqMatch || serialMatch){ matched++; }
-    else {
-      mismatched++;
-      if (samples.length < 10){ samples.push({ id: job.id, report_no: job.report_no, expected, actual: { eq_no: row.eq_no || null, serial: row.serial || null, forklift_id: row.forklift_id } }); }
+      const actualRow = await getAsync('SELECT am.id, am.report_no, am.forklift_id, f.brand, f.type, f.eq_no, f.serial FROM archive_maintenance_jobs am LEFT JOIN forklifts f ON f.id=am.forklift_id WHERE am.id=?', [job.id]);
+      if (!actualRow){ missingJob++; continue; }
+
+      if (actualRow.forklift_id === expectedFkRow.id){
+        matches++;
+      } else {
+        mismatches++;
+        if (mismatchSamples.length < 10){
+          mismatchSamples.push({ id: job.id, report_no: job.report_no, expected_id: expectedFkRow.id, expected: { brand: expectedFkRow.brand, type: expectedFkRow.type, eq_no: expectedFkRow.eq_no, serial: expectedFkRow.serial }, actual_id: actualRow.forklift_id, actual: { brand: actualRow.brand, type: actualRow.type, eq_no: actualRow.eq_no, serial: actualRow.serial } });
+        }
+      }
     }
+  } finally {
+    db.close();
   }
 
-  db.close();
-
-  console.log(JSON.stringify({ total, matched, mismatched, missingExpected, missingJob, sampleMismatches: samples }, null, 2));
+  console.log('Verification summary:', { total_jobs: jobs.length, matches, mismatches, missingExpected, missingJob });
+  if (mismatchSamples.length){ console.log('Mismatch samples:', mismatchSamples); }
 }
 
 run().catch(err => { console.error(err); process.exit(1); });
