@@ -532,7 +532,11 @@ export async function setupAdmin() {
               isAccessible: ({ currentAdmin }) => currentAdmin?.role === 'admin',
               handler: async (_req, _res, context) => {
                 const id = context?.record?.params?.id;
+                const rows = await conn.execute('SELECT report_no, forklift_id FROM records WHERE id=?', [id]);
                 await conn.execute("UPDATE records SET deleted_at = NULL, updated_at = "+wibNow+" WHERE id=?", [id]);
+                if (rows && rows[0] && rows[0].report_no) {
+                  await conn.execute("UPDATE jobs SET deleted_at = NULL, updated_at = "+wibNow+" WHERE report_no=? AND forklift_id=?", [rows[0].report_no, rows[0].forklift_id]);
+                }
                 return {
                   record: context.record?.toJSON(context.currentAdmin),
                   notice: { message: 'Record recovered', type: 'success' },
