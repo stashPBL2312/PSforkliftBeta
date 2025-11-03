@@ -1349,38 +1349,37 @@ async function uploadDirToR2Buffers(dirName, filesMap){
 async function listR2Backups(){
   if (!r2Client || !r2Bucket) return [];
   const base = r2PrefixBase.endsWith('/') ? r2PrefixBase : r2PrefixBase + '/';
-  const prefixes = new Map();
+  // Aggregate by sub-prefix (directory) under base. Do NOT use Delimiter,
+  // so we can get objects inside nested prefixes in a single scan.
+  const aggregates = new Map();
   let token = undefined;
   do {
     const out = await r2Client.send(new ListObjectsV2Command({
       Bucket: r2Bucket,
       Prefix: base,
       ContinuationToken: token,
-      Delimiter: '/',
+      // Delimiter intentionally omitted to include objects under sub-prefixes
     }));
-    (out.CommonPrefixes || []).forEach(cp => {
-      const p = cp.Prefix || '';
-      const dirName = p.replace(base, '').replace(/\/$/, '');
-      if (dirName) prefixes.set(dirName, prefixes.get(dirName) || { fileCount: 0, sizeBytes: 0, lastModified: null });
-    });
     for (const obj of (out.Contents || [])){
       const key = obj.Key || '';
       if (!key.startsWith(base)) continue;
-      const parts = key.slice(base.length).split('/');
-      const dirName = parts[0];
-      const file = parts[1];
+      const rel = key.slice(base.length);
+      const slashIdx = rel.indexOf('/');
+      if (slashIdx === -1) continue; // skip objects directly under base
+      const dirName = rel.substring(0, slashIdx);
+      const file = rel.substring(slashIdx + 1);
       if (!dirName || !file) continue;
-      const cur = prefixes.get(dirName) || { fileCount: 0, sizeBytes: 0, lastModified: null };
+      const cur = aggregates.get(dirName) || { fileCount: 0, sizeBytes: 0, lastModified: null };
       cur.fileCount += 1;
       cur.sizeBytes += (obj.Size || 0);
       const lm = obj.LastModified ? new Date(obj.LastModified) : null;
       if (lm && (!cur.lastModified || lm > cur.lastModified)) cur.lastModified = lm;
-      prefixes.set(dirName, cur);
+      aggregates.set(dirName, cur);
     }
     token = out.IsTruncated ? out.NextContinuationToken : undefined;
   } while (token);
   const list = [];
-  for (const [name, agg] of prefixes.entries()){
+  for (const [name, agg] of aggregates.entries()){
     const d = parseDirDate(name);
     const createdAt = d ? d.toISOString() : (agg.lastModified ? agg.lastModified.toISOString() : new Date().toISOString());
     list.push({ name, createdAt, fileCount: agg.fileCount, sizeBytes: agg.sizeBytes });

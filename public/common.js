@@ -526,6 +526,43 @@ async function confirmDialog(message){
     }catch(_){ resolve(window.confirm(message || 'Konfirmasi?')); }
   });
 }
+
+// Lightweight toast popup for success/error notifications
+function showToast(message, type='success'){
+  try{
+    // Remove existing toast to avoid stacking
+    const old = document.getElementById('toast');
+    if (old) { try { old.remove(); } catch(_){} }
+    const el = document.createElement('div');
+    el.id = 'toast';
+    el.textContent = message || '';
+    el.style.position = 'fixed';
+    el.style.bottom = '16px';
+    el.style.right = '16px';
+    el.style.padding = '10px 12px';
+    el.style.borderRadius = '6px';
+    el.style.boxShadow = '0 8px 24px rgba(0,0,0,0.25)';
+    el.style.zIndex = '9999';
+    const isDark = (document.documentElement.getAttribute('data-theme')==='dark');
+    const bgSuccess = isDark ? '#166534' : '#2e7d32';
+    const bgError = isDark ? '#7f1d1d' : '#d32f2f';
+    el.style.background = (type==='error') ? bgError : bgSuccess;
+    el.style.color = '#fff';
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(8px)';
+    document.body.appendChild(el);
+    requestAnimationFrame(()=>{
+      el.style.transition = 'opacity .16s ease, transform .16s ease';
+      el.style.opacity = '1';
+      el.style.transform = 'translateY(0)';
+    });
+    setTimeout(()=>{
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(8px)';
+      setTimeout(()=>{ try{ el.remove(); }catch(_){ } }, 220);
+    }, 2200);
+  }catch(_){ try{ alert(message || 'Info'); }catch(__){} }
+}
 // Lightweight perf helpers (optional usage across pages)
 if (!window.__perf){ window.__perf = { t: new Map() }; }
 function perfStart(name){ try{ window.__perf.t.set(name, (performance.now?performance.now():Date.now())); }catch{} }
