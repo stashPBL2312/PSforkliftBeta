@@ -385,6 +385,7 @@ function nav(user){
     <a href="/records.html" style="color:#fff; text-decoration:none;">Records</a>
     <a href="/archive.html" style="color:#fff; text-decoration:none;">Arsip</a>
     ${user && user.role==='admin' ? '<a href="/users.html" style="color:#fff; text-decoration:none;">Users</a>' : ''}
+    ${user && user.role==='admin' ? '<a href="/backups.html" style="color:#fff; text-decoration:none;">Backups</a>' : ''}
     <div class="right" style="margin-left:auto; display:flex; align-items:center; gap:8px;">
       <button id="themeToggle" aria-label="Toggle theme" title="Toggle theme" style="padding:4px 8px; border-radius:6px; background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.5); cursor:pointer;"></button>
       <span>${label} (${user?user.role:''})</span>

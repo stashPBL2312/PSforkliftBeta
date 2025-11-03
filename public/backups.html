@@ -1,0 +1,316 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Backups - Admin</title>
+  <script src="/common.js" defer></script>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin:0; }
+    .wrap { max-width: 1200px; margin: 20px auto; padding: 0 16px; }
+    h1 { font-size: 20px; margin: 16px 0; }
+    .grid { display:grid; grid-template-columns: 1fr; gap:16px; }
+    @media (min-width: 900px){ .grid { grid-template-columns: 1fr 1fr; } }
+    .card { background: var(--cardBg, #fff); border:1px solid #ddd; border-radius:8px; padding:16px; }
+    label { display:block; font-size:12px; color:#555; margin-top:10px; }
+    /* Textual inputs */
+    input[type="text"], input[type="number"], input[type="time"], input[type="email"], input[type="password"], select {
+      width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:6px; margin-top:6px; box-sizing:border-box; min-height:36px;
+    }
+    /* Checkbox small */
+    input[type="checkbox"]{ width:auto; height:auto; margin-top:0; }
+    button { padding:8px 12px; background:#1e88e5; color:white; border:0; border-radius:6px; cursor:pointer; }
+    table { width:100%; border-collapse: collapse; }
+    th, td { border:1px solid #ddd; padding:8px; text-align:left; }
+    thead th { background:#f4f6f8; }
+    .toolbar { display:flex; gap:8px; align-items:center; justify-content:flex-start; margin-top:12px; }
+    .muted { color:#666; font-size:12px; }
+    .success { color:#2e7d32; font-size:13px; }
+    .error { color:#d32f2f; font-size:13px; }
+    .checkbox-row { display:flex; align-items:center; gap:8px; }
+    .checkbox-row span { font-size:12px; line-height:1; }
+    .table-grid { display:grid; grid-template-columns: repeat(auto-fill,minmax(180px,1fr)); gap:8px; margin-top:8px; }
+    .pill { display:inline-block; font-size:12px; padding:2px 6px; border-radius:999px; background:#eef2ff; color:#1e3a8a; margin-left:8px; }
+    /* Action buttons in history: consistent sizing */
+    .action-btn { padding:6px 10px; border-radius:6px; font-size:12px; }
+    /* Dark mode overrides for label and checkbox text */
+    [data-theme="dark"] label { color:#e5e7eb !important; }
+    [data-theme="dark"] .checkbox-row span { color:#e5e7eb !important; }
+  </style>
+</head>
+<body>
+  <div id="header"></div>
+  <div class="wrap">
+    <h1>Manajemen Backup (Admin)</h1>
+    <div id="guard" class="error" style="display:none;">Halaman ini hanya bisa diakses oleh admin.</div>
+    <div class="grid" id="content" style="display:none;">
+      <div>
+        <div class="card">
+          <h2 style="margin:0 0 8px; font-size:18px;">Jadwal Backup Otomatis</h2>
+          <div class="muted">Atur waktu dan retensi backup harian.</div>
+          <div class="checkbox-row">
+            <input id="sch_enabled" type="checkbox" />
+            <span>Aktifkan backup otomatis</span>
+          </div>
+          <label>Waktu Backup (HH:MM)</label>
+          <input id="sch_time" type="time" />
+          <label>Retensi (hari)</label>
+          <input id="sch_retention" type="number" min="1" max="365" />
+          <div class="toolbar">
+            <button id="btnSaveSchedule">Simpan Jadwal</button>
+            <span id="msgSchedule" class="muted"></span>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:16px;">
+          <h2 style="margin:0 0 8px; font-size:18px;">Backup Manual</h2>
+          <div class="muted">Jalankan backup sekarang. Jika tidak memilih tabel, semua tabel aktif akan diekspor.</div>
+          <label>Label (opsional)</label>
+          <input id="bk_label" />
+          <div class="checkbox-row" style="margin-top:10px;">
+            <input id="bk_all" type="checkbox" checked />
+            <span>Backup semua tabel</span>
+          </div>
+          <div id="tablesWrap" style="margin-top:8px;">
+            <label>Pilih tabel (opsional)</label>
+            <div class="table-grid" id="tablesGrid"></div>
+            <div class="toolbar">
+              <button id="btnClearSel" type="button" style="background:#6b7280;">Bersihkan Pilihan</button>
+            </div>
+          </div>
+          <div class="toolbar">
+            <button id="btnRunBackup">Jalankan Backup</button>
+            <span id="msgRun" class="muted"></span>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <h2 style="margin:0 0 8px; font-size:18px;">Riwayat Backup</h2>
+          <div class="toolbar">
+            <button id="btnRefresh">Refresh</button>
+          </div>
+          <div id="historyWrap" style="margin-top:12px;">
+            <table>
+              <thead id="historyHead">
+                <tr>
+                  <th data-sort="name">Nama</th>
+                  <th data-sort="createdAt">Dibuat</th>
+                  <th data-sort="fileCount">File</th>
+                  <th data-sort="sizeBytes">Ukuran</th>
+                  <th>Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="historyBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function fmtBytes(n){
+      var x = Number(n||0);
+      if (x < 1024) return x + ' B';
+      var i = Math.floor(Math.log(x)/Math.log(1024));
+      var sizes = ['B','KB','MB','GB','TB'];
+      return (x/Math.pow(1024,i)).toFixed(2)+' '+sizes[i];
+    }
+
+    document.addEventListener('DOMContentLoaded', function(){
+      (async function(){
+        const user = await ensureAuthedAndRenderNav();
+        if (!user) return;
+        if (user.role !== 'admin'){
+          document.getElementById('guard').style.display='block';
+          return;
+        }
+        document.getElementById('content').style.display='grid';
+
+        async function loadSchedule(){
+          try{
+            const r = await api('/api/backup/schedule');
+            document.getElementById('sch_enabled').checked = !!r.enabled;
+            var hh = String(r.hour).padStart(2,'0');
+            var mm = String(r.minute).padStart(2,'0');
+            document.getElementById('sch_time').value = hh+':'+mm;
+            document.getElementById('sch_retention').value = r.retentionDays;
+            document.getElementById('msgSchedule').textContent = '';
+          }catch(e){ document.getElementById('msgSchedule').textContent = 'Gagal memuat jadwal'; }
+        }
+
+        async function saveSchedule(){
+          const enabled = document.getElementById('sch_enabled').checked;
+          const timeVal = document.getElementById('sch_time').value || '16:00';
+          const parts = timeVal.split(':');
+          const hour = parseInt(parts[0]||'16',10);
+          const minute = parseInt(parts[1]||'0',10);
+          const retentionDays = parseInt(document.getElementById('sch_retention').value||'30',10);
+          try{
+            await api('/api/backup/schedule', { method:'POST', body:{ enabled, hour, minute, retentionDays } });
+            document.getElementById('msgSchedule').textContent = 'Jadwal tersimpan';
+            document.getElementById('msgSchedule').className = 'success';
+          }catch(e){
+            document.getElementById('msgSchedule').textContent = e && e.error ? e.error : 'Gagal menyimpan';
+            document.getElementById('msgSchedule').className = 'error';
+          }
+        }
+
+        async function runBackup(){
+          const label = document.getElementById('bk_label').value.trim();
+          let body = {};
+          if (label) body.label = label;
+          const allChecked = document.getElementById('bk_all').checked;
+          if (!allChecked){
+            const sels = Array.from(document.querySelectorAll('input[name="tables"]:checked')).map(el=>el.value);
+            if (sels.length) body.tables = sels;
+          }
+          try{
+            const r = await api('/api/backup/run', { method:'POST', body });
+            document.getElementById('msgRun').textContent = 'Backup berhasil: ' + r.dir + ' ('+(r.files||[]).length+' file)';
+            document.getElementById('msgRun').className = 'success';
+            await loadHistory();
+          }catch(e){
+            document.getElementById('msgRun').textContent = e && e.error ? e.error : 'Gagal menjalankan backup';
+            document.getElementById('msgRun').className = 'error';
+          }
+        }
+
+        async function loadTables(){
+          try{
+            const r = await api('/api/backup/tables');
+            const grid = document.getElementById('tablesGrid');
+            grid.innerHTML = '';
+            (r.tables||[]).forEach(t => {
+              const id = 'tbl_'+t;
+              const wrap = document.createElement('div');
+              wrap.className = 'checkbox-row';
+              wrap.innerHTML = `<input type="checkbox" name="tables" id="${id}" value="${t}" /> <label for="${id}" style="margin:0;">${t}</label>`;
+              grid.appendChild(wrap);
+            });
+          }catch(e){
+            document.getElementById('tablesGrid').innerHTML = '<div class="error">Gagal memuat daftar tabel</div>';
+          }
+        }
+
+        var sortState = { key: 'createdAt', dir: 'desc' };
+        var historyData = [];
+
+        function renderHistory(){
+          const body = document.getElementById('historyBody');
+          body.innerHTML = '';
+          const arr = historyData.slice();
+          const key = sortState.key; const dir = sortState.dir;
+          arr.sort((a,b)=>{
+            let va = a[key]; let vb = b[key];
+            if (key === 'createdAt'){ va = new Date(a.createdAt).getTime(); vb = new Date(b.createdAt).getTime(); }
+            if (key === 'fileCount' || key === 'sizeBytes'){ va = Number(va||0); vb = Number(vb||0); }
+            if (va < vb) return dir === 'asc' ? -1 : 1;
+            if (va > vb) return dir === 'asc' ? 1 : -1;
+            return 0;
+          });
+          arr.forEach(b => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${b.name}</td>
+              <td>${new Date(b.createdAt).toLocaleString()}</td>
+              <td>${b.fileCount}</td>
+              <td>${fmtBytes(b.sizeBytes)}</td>
+              <td>
+                <button type="button" class="action-btn" data-import-upsert="${b.name}">Import Upsert</button>
+                <button type="button" class="action-btn" data-import-replace="${b.name}" style="background:#ef6c00;">Import Replace</button>
+                <button type="button" class="action-btn" data-delete="${b.name}" style="background:#b91c1c;">Hapus</button>
+              </td>
+            `;
+            body.appendChild(tr);
+          });
+        }
+
+        async function loadHistory(){
+          try{
+            const r = await api('/api/backup/history');
+            historyData = r.backups||[];
+            renderHistory();
+          }catch(e){
+            const body = document.getElementById('historyBody');
+            body.innerHTML = `<tr><td colspan="5" class="error">Gagal memuat riwayat</td></tr>`;
+          }
+        }
+
+        async function importBackup(name, strategy){
+          try{
+            await api('/api/backup/import', { method:'POST', body:{ name, strategy } });
+            alert('Impor berhasil: '+name+' ('+strategy+')');
+          }catch(e){
+            alert('Impor gagal: '+(e && e.error ? e.error : 'error'));
+          }
+        }
+
+        async function deleteBackup(name){
+          try{
+            await api('/api/backup/'+encodeURIComponent(name), { method:'DELETE' });
+            await loadHistory();
+          }catch(e){
+            alert('Gagal menghapus backup: '+(e && e.error ? e.error : 'error'));
+          }
+        }
+
+        document.getElementById('btnSaveSchedule').onclick = saveSchedule;
+        document.getElementById('btnRunBackup').onclick = runBackup;
+        document.getElementById('btnRefresh').onclick = loadHistory;
+
+        document.getElementById('bk_all').addEventListener('change', function(){
+          const disabled = this.checked;
+          document.querySelectorAll('input[name="tables"]').forEach(el => { el.disabled = disabled; });
+        });
+        // Removed 'Pilih Semua' button; users can use 'Backup semua tabel' checkbox to include semua tabel
+        document.getElementById('btnClearSel').onclick = function(){
+          document.querySelectorAll('input[name="tables"]').forEach(el => { el.checked = false; });
+          document.getElementById('bk_all').checked = true;
+          document.querySelectorAll('input[name="tables"]').forEach(el => { el.disabled = true; });
+        };
+
+        document.getElementById('historyWrap').addEventListener('click', async (ev)=>{
+          // Prevent any default form submit or bubbling side-effects
+          ev.preventDefault(); ev.stopPropagation();
+          const btn = ev.target.closest('button');
+          if (!btn) return;
+          const up = btn.getAttribute('data-import-upsert');
+          const rep = btn.getAttribute('data-import-replace');
+          const del = btn.getAttribute('data-delete');
+          if (up){
+            await importBackup(up, 'upsert');
+            return;
+          }
+          if (rep){
+            if (!(await confirmDialog('Yakin impor dengan replace? Data tabel terkait akan dihapus terlebih dulu.'))) return;
+            await importBackup(rep, 'replace');
+            return;
+          }
+          if (del){
+            if (!(await confirmDialog('Yakin hapus folder backup ini? Tindakan tidak dapat dibatalkan.'))) return;
+            await deleteBackup(del);
+            return;
+          }
+        });
+
+        document.getElementById('historyHead').addEventListener('click', function(ev){
+          const th = ev.target.closest('th');
+          if (!th) return;
+          const key = th.getAttribute('data-sort');
+          if (!key) return;
+          if (sortState.key === key){ sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc'; }
+          else { sortState.key = key; sortState.dir = 'desc'; }
+          renderHistory();
+        });
+
+        await loadSchedule();
+        await loadTables();
+        await loadHistory();
+      })();
+    });
+  </script>
+</body>
+</html>

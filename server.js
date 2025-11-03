@@ -1208,3 +1208,326 @@ app.delete('/api/records/:id/hard', requireRole('admin','supervisor'), async (re
     res.status(400).json({ error: 'Record hard delete failed' });
   }
 });
+
+// === Automatic CSV Backup (configurable schedule) ===
+const BACKUP_BASE_DIR = path.join(__dirname, 'backups');
+let backupConfig = { enabled: true, hour: 16, minute: 0, retentionDays: 30 };
+let scheduleTimer = null;
+
+function ensureDirSync(dir){
+  try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { /* ignore */ }
+}
+
+function csvEscape(val){
+  if (val === null || val === undefined) return '';
+  const s = String(val);
+  const needsQuote = /[",\n\r]/.test(s) || s.startsWith(' ') || s.endsWith(' ');
+  const escaped = s.replace(/"/g, '""');
+  return needsQuote ? '"' + escaped + '"' : escaped;
+}
+
+async function tableExists(name){
+  const row = await get("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [name]);
+  return !!row;
+}
+
+async function listUserTables(){
+  const rows = await all("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
+  return (rows || []).map(r => r.name);
+}
+
+async function exportTableToCSV(tableName, outDir){
+  const rows = await all(`SELECT * FROM ${tableName}`);
+  let columns = [];
+  if (rows && rows.length){
+    columns = Object.keys(rows[0]);
+  } else {
+    const infos = await all(`PRAGMA table_info(${tableName})`);
+    columns = (infos || []).map(i => i.name);
+  }
+  const header = columns.join(',');
+  const lines = [header];
+  for (const row of (rows || [])){
+    const line = columns.map(col => csvEscape(row[col])).join(',');
+    lines.push(line);
+  }
+  const filePath = path.join(outDir, `${tableName}.csv`);
+  fs.writeFileSync(filePath, lines.join('\n'), 'utf-8');
+  return filePath;
+}
+
+function loadBackupConfig(){
+  try{
+    ensureDirSync(BACKUP_BASE_DIR);
+    const fp = path.join(BACKUP_BASE_DIR, 'config.json');
+    if (fs.existsSync(fp)){
+      const parsed = JSON.parse(fs.readFileSync(fp,'utf-8'));
+      const cfg = { ...backupConfig, ...parsed };
+      // sanitize
+      cfg.enabled = !!cfg.enabled;
+      cfg.hour = Math.min(23, Math.max(0, parseInt(cfg.hour||16,10)));
+      cfg.minute = Math.min(59, Math.max(0, parseInt(cfg.minute||0,10)));
+      cfg.retentionDays = Math.min(365, Math.max(1, parseInt(cfg.retentionDays||30,10)));
+      backupConfig = cfg;
+    }
+  }catch(e){ console.warn('[Backup] load config failed:', e.message); }
+  return backupConfig;
+}
+
+function saveBackupConfig(){
+  try{
+    ensureDirSync(BACKUP_BASE_DIR);
+    const fp = path.join(BACKUP_BASE_DIR, 'config.json');
+    fs.writeFileSync(fp, JSON.stringify(backupConfig, null, 2), 'utf-8');
+  }catch(e){ console.warn('[Backup] save config failed:', e.message); }
+}
+
+function scheduleNextBackup(){
+  try{ if (scheduleTimer) { clearTimeout(scheduleTimer); scheduleTimer = null; } }catch(_){ /* ignore */ }
+  if (!backupConfig.enabled){
+    console.log('[Backup] Schedule disabled');
+    return;
+  }
+  const now = new Date();
+  const next = new Date(now.getTime());
+  next.setHours(backupConfig.hour, backupConfig.minute, 0, 0);
+  if (next.getTime() <= now.getTime()){
+    next.setDate(next.getDate() + 1);
+  }
+  const ms = next.getTime() - now.getTime();
+  console.log(`[Backup] Next backup scheduled at ${next.toString()}`);
+  scheduleTimer = setTimeout(async () => {
+    await performBackup();
+    scheduleNextBackup();
+  }, ms);
+}
+
+async function cleanupOldBackups(days){
+  try{
+    const maxAgeMs = (days || backupConfig.retentionDays || 30) * 24 * 60 * 60 * 1000;
+    if (!fs.existsSync(BACKUP_BASE_DIR)) return;
+    const entries = fs.readdirSync(BACKUP_BASE_DIR, { withFileTypes: true });
+    const now = Date.now();
+    for (const ent of entries){
+      if (!ent.isDirectory()) continue;
+      const dirPath = path.join(BACKUP_BASE_DIR, ent.name);
+      const stat = fs.statSync(dirPath);
+      const age = now - stat.mtimeMs;
+      if (age > maxAgeMs){
+        try {
+          fs.rmSync(dirPath, { recursive: true, force: true });
+          console.log(`[Backup] Removed old backup: ${ent.name}`);
+        } catch (e){ console.warn('[Backup] Remove failed:', dirPath, e.message); }
+      }
+    }
+  }catch(e){
+    console.warn('[Backup] Cleanup failed:', e.message);
+  }
+}
+
+function parseCSV(text){
+  const lines = String(text||'').split(/\r?\n/).filter(l => l.length>0);
+  if (!lines.length) return { header: [], rows: [] };
+  function parseLine(line){
+    const out = []; let cur = ''; let inQ = false;
+    for (let i=0;i<line.length;i++){
+      const ch = line[i];
+      if (inQ){
+        if (ch === '"'){
+          if (line[i+1] === '"'){ cur += '"'; i++; } else { inQ = false; }
+        } else {
+          cur += ch;
+        }
+      } else {
+        if (ch === ','){ out.push(cur); cur=''; }
+        else if (ch === '"'){ inQ = true; }
+        else { cur += ch; }
+      }
+    }
+    out.push(cur);
+    return out;
+  }
+  const header = parseLine(lines[0]).map(h => h.trim());
+  const rows = [];
+  for (let i=1;i<lines.length;i++){
+    const vals = parseLine(lines[i]);
+    const obj = {};
+    for (let c=0;c<header.length;c++) obj[header[c]] = vals[c] !== undefined ? vals[c] : '';
+    rows.push(obj);
+  }
+  return { header, rows };
+}
+
+async function performBackup(opts={}){
+  try{
+    ensureDirSync(BACKUP_BASE_DIR);
+    const now = new Date();
+    const stamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}-${String(now.getMinutes()).padStart(2,'0')}-${String(now.getSeconds()).padStart(2,'0')}`;
+    const label = (opts.label||'').trim();
+    const dirName = `backup_${stamp}${label?('_'+label.replace(/[^a-zA-Z0-9_-]+/g,'').slice(0,24)):''}`;
+    const outDir = path.join(BACKUP_BASE_DIR, dirName);
+    ensureDirSync(outDir);
+    const preferred = ['users','forklifts','items','jobs','records','archive_jobs','archive_workshop_jobs','archive_maintenance_jobs'];
+    let tables = Array.isArray(opts.tables) && opts.tables.length ? opts.tables : [];
+    const exist = [];
+    if (!tables.length){
+      for (const t of preferred){ if (await tableExists(t)) exist.push(t); }
+      if (!exist.length){
+        const allTables = await listUserTables();
+        for (const t of allTables) exist.push(t);
+      }
+      tables = exist;
+    } else {
+      const filtered = [];
+      for (const t of tables){ if (await tableExists(t)) filtered.push(t); }
+      tables = filtered;
+    }
+    const written = [];
+    for (const t of tables){
+      const fp = await exportTableToCSV(t, outDir);
+      written.push(path.basename(fp));
+    }
+    console.log(`[Backup] CSV written to ${outDir}:`, written.join(', '));
+    await cleanupOldBackups(backupConfig.retentionDays || 30);
+    return { outDir, files: written };
+  }catch(e){
+    console.error('[Backup] Failed:', e);
+    throw e;
+  }
+}
+
+// Manual trigger endpoint (admin-only)
+app.post('/api/backup/run', requireRole('admin'), async (req, res) => {
+  try{
+    const { label, tables } = req.body || {};
+    const result = await performBackup({ label, tables });
+    res.json({ ok: true, dir: path.basename(result.outDir), files: result.files });
+  }catch(e){
+    res.status(500).json({ error: 'Backup run failed' });
+  }
+});
+
+// Get/set schedule (admin-only)
+app.get('/api/backup/schedule', requireRole('admin'), async (_req, res) => {
+  const cfg = loadBackupConfig();
+  res.json({ enabled: cfg.enabled, hour: cfg.hour, minute: cfg.minute, retentionDays: cfg.retentionDays });
+});
+
+app.post('/api/backup/schedule', requireRole('admin'), async (req, res) => {
+  const { enabled, hour, minute, retentionDays } = req.body || {};
+  try{
+    const cfg = loadBackupConfig();
+    if (typeof enabled === 'boolean') cfg.enabled = enabled;
+    if (hour !== undefined) cfg.hour = Math.min(23, Math.max(0, parseInt(hour,10)));
+    if (minute !== undefined) cfg.minute = Math.min(59, Math.max(0, parseInt(minute,10)));
+    if (retentionDays !== undefined) cfg.retentionDays = Math.min(365, Math.max(1, parseInt(retentionDays,10)));
+    backupConfig = cfg; saveBackupConfig();
+    scheduleNextBackup();
+    res.json({ ok: true, schedule: cfg });
+  }catch(e){ res.status(400).json({ error: 'Schedule update failed' }); }
+});
+
+// List available tables to backup (admin-only)
+app.get('/api/backup/tables', requireRole('admin'), async (_req, res) => {
+  try{
+    const allTables = await listUserTables();
+    const preferred = ['users','forklifts','items','jobs','records','archive_jobs','archive_workshop_jobs','archive_maintenance_jobs'];
+    const set = new Set(allTables);
+    const ordered = preferred.filter(t => set.has(t)).concat(allTables.filter(t => !preferred.includes(t)));
+    res.json({ tables: ordered });
+  }catch(e){ res.status(500).json({ error: 'List tables failed' }); }
+});
+
+// List backup history (admin-only)
+app.get('/api/backup/history', requireRole('admin'), async (_req, res) => {
+  try{
+    ensureDirSync(BACKUP_BASE_DIR);
+    const entries = fs.readdirSync(BACKUP_BASE_DIR, { withFileTypes: true });
+    const list = [];
+    for (const ent of entries){
+      if (!ent.isDirectory()) continue;
+      const dirPath = path.join(BACKUP_BASE_DIR, ent.name);
+      const stat = fs.statSync(dirPath);
+      let fileCount = 0; let size = 0;
+      try{
+        const files = fs.readdirSync(dirPath);
+        fileCount = files.length;
+        for (const f of files){
+          const fp = path.join(dirPath, f);
+          try { size += fs.statSync(fp).size; } catch(_){ /* ignore */ }
+        }
+      }catch(_){ /* ignore */ }
+      list.push({ name: ent.name, createdAt: stat.mtime.toISOString(), fileCount, sizeBytes: size });
+    }
+    // Sort newest first
+    list.sort((a,b)=> a.name < b.name ? 1 : -1);
+    res.json({ backups: list });
+  }catch(e){ res.status(500).json({ error: 'List history failed' }); }
+});
+
+// Delete a backup directory (admin-only)
+app.delete('/api/backup/:name', requireRole('admin'), async (req, res) => {
+  try{
+    const name = String(req.params.name||'').trim();
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const base = path.resolve(BACKUP_BASE_DIR);
+    const dirPath = path.resolve(path.join(BACKUP_BASE_DIR, name));
+    if (!dirPath.startsWith(base + path.sep)){
+      return res.status(400).json({ error: 'Invalid path' });
+    }
+    if (!fs.existsSync(dirPath)) return res.status(404).json({ error: 'Backup not found' });
+    const stat = fs.statSync(dirPath);
+    if (!stat.isDirectory()) return res.status(400).json({ error: 'Not a backup directory' });
+    fs.rmSync(dirPath, { recursive: true, force: true });
+    res.json({ ok: true });
+  }catch(e){ res.status(500).json({ error: 'Delete failed' }); }
+});
+
+// Import backup from a directory (admin-only)
+app.post('/api/backup/import', requireRole('admin'), async (req, res) => {
+  const { name, strategy } = req.body || {};
+  if (!name || typeof name !== 'string') return res.status(400).json({ error: 'name (backup directory) required' });
+  const dirPath = path.join(BACKUP_BASE_DIR, name);
+  if (!fs.existsSync(dirPath)) return res.status(404).json({ error: 'Backup directory not found' });
+  const strat = (strategy || 'upsert').toLowerCase();
+  if (!['upsert','replace'].includes(strat)) return res.status(400).json({ error: 'strategy must be upsert or replace' });
+  try{
+    await run('BEGIN');
+    const files = fs.readdirSync(dirPath).filter(f => f.toLowerCase().endsWith('.csv'));
+    let imported = [];
+    for (const file of files){
+      const table = file.replace(/\.csv$/i,'');
+      const csvText = fs.readFileSync(path.join(dirPath,file),'utf-8');
+      const { header, rows } = parseCSV(csvText);
+      if (!header.length) continue;
+      if (strat === 'replace'){
+        await run(`DELETE FROM ${table}`);
+      }
+      // Use INSERT OR REPLACE when id present, else INSERT
+      const cols = header;
+      const placeholders = cols.map(()=>'?').join(',');
+      const insertReplace = `INSERT OR REPLACE INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`;
+      const insertOnly = `INSERT INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`;
+      for (const r of rows){
+        const values = cols.map(c => r[c] === '' ? null : r[c]);
+        const hasId = cols.includes('id') && r['id'] && String(r['id']).trim() !== '';
+        try{
+          await run(hasId ? insertReplace : insertOnly, values);
+        }catch(e){
+          // fallback: try insert only if replace fails
+          try { await run(insertOnly, values); } catch(_){ /* ignore failed row */ }
+        }
+      }
+      imported.push({ table, rows: rows.length });
+    }
+    await run('COMMIT');
+    res.json({ ok: true, imported });
+  }catch(e){
+    await run('ROLLBACK');
+    res.status(500).json({ error: 'Import failed' });
+  }
+});
+
+// Initialize schedule from config
+backupConfig = loadBackupConfig();
+scheduleNextBackup();
