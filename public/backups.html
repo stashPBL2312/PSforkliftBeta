@@ -171,18 +171,20 @@
             const sels = Array.from(document.querySelectorAll('input[name="tables"]:checked')).map(el=>el.value);
             if (sels.length) body.tables = sels;
           }
+          // Jalankan backup dan beri feedback sukses/gagal
           try{
             const r = await api('/api/backup/run', { method:'POST', body });
             document.getElementById('msgRun').textContent = 'Backup berhasil: ' + r.dir + ' ('+(r.files||[]).length+' file)';
             document.getElementById('msgRun').className = 'success';
-            // Popup konfirmasi agar user mendapat feedback jelas
             showToast('Backup berhasil: '+ r.dir +' ('+(r.files||[]).length+' file)', 'success');
-            await loadHistory();
           }catch(e){
             document.getElementById('msgRun').textContent = e && e.error ? e.error : 'Gagal menjalankan backup';
             document.getElementById('msgRun').className = 'error';
             showToast(e && e.error ? e.error : 'Gagal menjalankan backup', 'error');
+            return; // Jangan lanjut refresh riwayat jika gagal utama
           }
+          // Refresh riwayat secara terpisah agar error refresh tidak menimpa pesan sukses
+          try{ await loadHistory(); }catch(_){ /* abaikan error refresh */ }
         }
 
         async function loadTables(){
@@ -258,12 +260,16 @@
         async function deleteBackup(name){
           try{
             await api('/api/backup/'+encodeURIComponent(name), { method:'DELETE' });
-            // Tampilkan konfirmasi penghapusan
             showToast('Backup terhapus: '+ name, 'success');
-            await loadHistory();
+            // Hapus item dari tampilan segera tanpa menunggu refresh
+            historyData = (historyData||[]).filter(b => b && b.name !== name);
+            renderHistory();
           }catch(e){
             showToast('Gagal menghapus backup: '+(e && e.error ? e.error : 'error'), 'error');
+            return;
           }
+          // Refresh riwayat di background; abaikan jika gagal agar tidak menimpa toast sukses
+          try{ await loadHistory(); }catch(_){ /* abaikan */ }
         }
 
         document.getElementById('btnSaveSchedule').onclick = saveSchedule;
