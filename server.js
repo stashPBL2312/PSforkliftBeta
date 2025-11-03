@@ -1214,6 +1214,43 @@ const BACKUP_BASE_DIR = path.join(__dirname, 'backups');
 let backupConfig = { enabled: true, hour: 16, minute: 0, retentionDays: 30 };
 let scheduleTimer = null;
 
+// Cloudflare R2 (S3-compatible) setup
+const { S3Client, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
+const R2_ENABLED = String(process.env.R2_ENABLED||'').toLowerCase() === '1' || String(process.env.R2_ENABLED||'').toLowerCase() === 'true';
+const R2_ONLY = String(process.env.R2_ONLY||'').toLowerCase() === '1' || String(process.env.R2_ONLY||'').toLowerCase() === 'true';
+let r2Client = null;
+let r2Bucket = null;
+const r2PrefixBase = String(process.env.R2_PREFIX||'backups/');
+const CRON_SECRET = String(process.env.CRON_SECRET||'');
+
+function initR2() {
+  try {
+    if (!R2_ENABLED) return null;
+    const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+    const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+    const accountId = process.env.R2_ACCOUNT_ID;
+    const bucket = process.env.R2_BUCKET;
+    if (!(accessKeyId && secretAccessKey && accountId && bucket)) {
+      console.warn('[R2] Missing credentials; uploads disabled');
+      return null;
+    }
+    const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
+    r2Client = new S3Client({
+      region: 'auto',
+      endpoint,
+      credentials: { accessKeyId, secretAccessKey },
+      forcePathStyle: true,
+    });
+    r2Bucket = bucket;
+    console.log('[R2] Initialized for bucket:', bucket, 'mode:', R2_ONLY ? 'bucket-only' : 'hybrid');
+    return { client: r2Client, bucket: r2Bucket };
+  } catch (e) {
+    console.warn('[R2] Init failed:', e.message);
+    return null;
+  }
+}
+initR2();
+
 function ensureDirSync(dir){
   try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { /* ignore */ }
 }
@@ -1254,6 +1291,133 @@ async function exportTableToCSV(tableName, outDir){
   const filePath = path.join(outDir, `${tableName}.csv`);
   fs.writeFileSync(filePath, lines.join('\n'), 'utf-8');
   return filePath;
+}
+
+// Buffer-based CSV export (for bucket-only uploads)
+async function exportTableToCSVBuffer(tableName){
+  const rows = await all(`SELECT * FROM ${tableName}`);
+  let columns = [];
+  if (rows && rows.length){
+    columns = Object.keys(rows[0]);
+  } else {
+    const infos = await all(`PRAGMA table_info(${tableName})`);
+    columns = (infos || []).map(i => i.name);
+  }
+  const header = columns.join(',');
+  const lines = [header];
+  for (const row of (rows || [])){
+    const line = columns.map(col => csvEscape(row[col])).join(',');
+    lines.push(line);
+  }
+  const text = lines.join('\n');
+  return Buffer.from(text, 'utf-8');
+}
+
+function dirNameFromStamp(now, label){
+  const stamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}-${String(now.getMinutes()).padStart(2,'0')}-${String(now.getSeconds()).padStart(2,'0')}`;
+  const lab = (label||'').trim();
+  return `backup_${stamp}${lab?('_'+lab.replace(/[^a-zA-Z0-9_-]+/g,'').slice(0,24)):''}`;
+}
+
+function parseDirDate(dirName){
+  const m = /^backup_(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})/.exec(dirName || '');
+  if (!m) return null;
+  const d = new Date(Date.UTC(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]));
+  return d;
+}
+
+async function uploadDirToR2Buffers(dirName, filesMap){
+  if (!r2Client || !r2Bucket) return null;
+  const prefix = (r2PrefixBase.endsWith('/') ? r2PrefixBase : r2PrefixBase + '/') + dirName + '/';
+  let count = 0;
+  for (const [filename, buffer] of filesMap){
+    try{
+      await r2Client.send(new PutObjectCommand({
+        Bucket: r2Bucket,
+        Key: prefix + filename,
+        Body: buffer,
+        ContentType: 'text/csv',
+      }));
+      count++;
+    }catch(e){
+      console.warn('[R2] Upload failed:', prefix + filename, e.message);
+    }
+  }
+  return { prefix, files: count };
+}
+
+async function listR2Backups(){
+  if (!r2Client || !r2Bucket) return [];
+  const base = r2PrefixBase.endsWith('/') ? r2PrefixBase : r2PrefixBase + '/';
+  const prefixes = new Map();
+  let token = undefined;
+  do {
+    const out = await r2Client.send(new ListObjectsV2Command({
+      Bucket: r2Bucket,
+      Prefix: base,
+      ContinuationToken: token,
+      Delimiter: '/',
+    }));
+    (out.CommonPrefixes || []).forEach(cp => {
+      const p = cp.Prefix || '';
+      const dirName = p.replace(base, '').replace(/\/$/, '');
+      if (dirName) prefixes.set(dirName, prefixes.get(dirName) || { fileCount: 0, sizeBytes: 0, lastModified: null });
+    });
+    for (const obj of (out.Contents || [])){
+      const key = obj.Key || '';
+      if (!key.startsWith(base)) continue;
+      const parts = key.slice(base.length).split('/');
+      const dirName = parts[0];
+      const file = parts[1];
+      if (!dirName || !file) continue;
+      const cur = prefixes.get(dirName) || { fileCount: 0, sizeBytes: 0, lastModified: null };
+      cur.fileCount += 1;
+      cur.sizeBytes += (obj.Size || 0);
+      const lm = obj.LastModified ? new Date(obj.LastModified) : null;
+      if (lm && (!cur.lastModified || lm > cur.lastModified)) cur.lastModified = lm;
+      prefixes.set(dirName, cur);
+    }
+    token = out.IsTruncated ? out.NextContinuationToken : undefined;
+  } while (token);
+  const list = [];
+  for (const [name, agg] of prefixes.entries()){
+    const d = parseDirDate(name);
+    const createdAt = d ? d.toISOString() : (agg.lastModified ? agg.lastModified.toISOString() : new Date().toISOString());
+    list.push({ name, createdAt, fileCount: agg.fileCount, sizeBytes: agg.sizeBytes });
+  }
+  list.sort((a,b)=> a.name < b.name ? 1 : -1);
+  return list;
+}
+
+async function deleteR2Prefix(dirName){
+  if (!r2Client || !r2Bucket) return;
+  const prefix = (r2PrefixBase.endsWith('/') ? r2PrefixBase : r2PrefixBase + '/') + dirName + '/';
+  let token = undefined;
+  do {
+    const out = await r2Client.send(new ListObjectsV2Command({
+      Bucket: r2Bucket,
+      Prefix: prefix,
+      ContinuationToken: token,
+    }));
+    const objs = out.Contents || [];
+    for (const o of objs) {
+      try {
+        await r2Client.send(new DeleteObjectCommand({ Bucket: r2Bucket, Key: o.Key }));
+      } catch (e) {
+        console.warn('[R2] Delete failed:', o.Key, e.message);
+      }
+    }
+    token = out.IsTruncated ? out.NextContinuationToken : undefined;
+  } while (token);
+}
+
+async function getR2ObjectText(key) {
+  if (!r2Client || !r2Bucket) throw new Error('R2 not initialized');
+  const out = await r2Client.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
+  const stream = out.Body;
+  const chunks = [];
+  for await (const c of stream) { chunks.push(Buffer.isBuffer(c)?c:Buffer.from(c)); }
+  return Buffer.concat(chunks).toString('utf-8');
 }
 
 function loadBackupConfig(){
@@ -1305,6 +1469,19 @@ function scheduleNextBackup(){
 async function cleanupOldBackups(days){
   try{
     const maxAgeMs = (days || backupConfig.retentionDays || 30) * 24 * 60 * 60 * 1000;
+    if (R2_ENABLED && R2_ONLY){
+      const list = await listR2Backups();
+      const now = Date.now();
+      for (const b of list){
+        const d = parseDirDate(b.name);
+        const createdMs = d ? d.getTime() : (new Date(b.createdAt)).getTime();
+        if (now - createdMs > maxAgeMs){
+          try { await deleteR2Prefix(b.name); console.log('[R2] Removed old backup:', b.name); }
+          catch(e){ console.warn('[R2] Remote cleanup failed:', b.name, e.message); }
+        }
+      }
+      return;
+    }
     if (!fs.existsSync(BACKUP_BASE_DIR)) return;
     const entries = fs.readdirSync(BACKUP_BASE_DIR, { withFileTypes: true });
     const now = Date.now();
@@ -1317,6 +1494,7 @@ async function cleanupOldBackups(days){
         try {
           fs.rmSync(dirPath, { recursive: true, force: true });
           console.log(`[Backup] Removed old backup: ${ent.name}`);
+          try { await deleteR2Prefix(ent.name); } catch(e){ console.warn('[R2] Remote cleanup failed:', ent.name, e.message); }
         } catch (e){ console.warn('[Backup] Remove failed:', dirPath, e.message); }
       }
     }
@@ -1365,6 +1543,38 @@ async function performBackup(opts={}){
     const stamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}-${String(now.getMinutes()).padStart(2,'0')}-${String(now.getSeconds()).padStart(2,'0')}`;
     const label = (opts.label||'').trim();
     const dirName = `backup_${stamp}${label?('_'+label.replace(/[^a-zA-Z0-9_-]+/g,'').slice(0,24)):''}`;
+    if (R2_ENABLED && R2_ONLY){
+      const preferred = ['users','forklifts','items','jobs','records','archive_jobs','archive_workshop_jobs','archive_maintenance_jobs'];
+      let tables = Array.isArray(opts.tables) && opts.tables.length ? opts.tables : [];
+      const exist = [];
+      if (!tables.length){
+        for (const t of preferred){ if (await tableExists(t)) exist.push(t); }
+        if (!exist.length){
+          const allTables = await listUserTables();
+          for (const t of allTables) exist.push(t);
+        }
+        tables = exist;
+      } else {
+        const filtered = [];
+        for (const t of tables){ if (await tableExists(t)) filtered.push(t); }
+        tables = filtered;
+      }
+      const filesMap = [];
+      const written = [];
+      for (const t of tables){
+        const buf = await exportTableToCSVBuffer(t);
+        const filename = `${t}.csv`;
+        filesMap.push([filename, buf]);
+        written.push(filename);
+      }
+      let r2Info = null;
+      try{
+        r2Info = await uploadDirToR2Buffers(dirName, filesMap);
+        if (r2Info) console.log('[R2] Uploaded to prefix:', r2Info.prefix, `(${r2Info.files} files)`);
+      }catch(e){ console.warn('[R2] Upload error:', e && e.message ? e.message : e); }
+      await cleanupOldBackups(backupConfig.retentionDays || 30);
+      return { outDir: null, files: written, r2Prefix: r2Info && r2Info.prefix, dirName };
+    }
     const outDir = path.join(BACKUP_BASE_DIR, dirName);
     ensureDirSync(outDir);
     const preferred = ['users','forklifts','items','jobs','records','archive_jobs','archive_workshop_jobs','archive_maintenance_jobs'];
@@ -1401,7 +1611,28 @@ app.post('/api/backup/run', requireRole('admin'), async (req, res) => {
   try{
     const { label, tables } = req.body || {};
     const result = await performBackup({ label, tables });
-    res.json({ ok: true, dir: path.basename(result.outDir), files: result.files });
+    const dir = result.outDir ? path.basename(result.outDir) : (result.dirName || null);
+    res.json({ ok: true, dir, files: result.files });
+  }catch(e){
+    res.status(500).json({ error: 'Backup run failed' });
+  }
+});
+
+// Cron-safe trigger endpoint (uses header secret, no session)
+app.post('/api/backup/run-cron', async (req, res) => {
+  try{
+    // Require secret when configured
+    if (!CRON_SECRET){
+      return res.status(400).json({ error: 'CRON_SECRET not configured' });
+    }
+    const h = req.get('X-Cron-Secret') || req.get('x-cron-secret') || '';
+    if (h !== CRON_SECRET){
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const { label, tables } = req.body || {};
+    const result = await performBackup({ label, tables });
+    const dir = result.outDir ? path.basename(result.outDir) : (result.dirName || null);
+    res.json({ ok: true, dir, files: result.files });
   }catch(e){
     res.status(500).json({ error: 'Backup run failed' });
   }
@@ -1441,6 +1672,10 @@ app.get('/api/backup/tables', requireRole('admin'), async (_req, res) => {
 // List backup history (admin-only)
 app.get('/api/backup/history', requireRole('admin'), async (_req, res) => {
   try{
+    if (R2_ENABLED && R2_ONLY){
+      const list = await listR2Backups();
+      return res.json({ backups: list });
+    }
     ensureDirSync(BACKUP_BASE_DIR);
     const entries = fs.readdirSync(BACKUP_BASE_DIR, { withFileTypes: true });
     const list = [];
@@ -1470,6 +1705,10 @@ app.delete('/api/backup/:name', requireRole('admin'), async (req, res) => {
   try{
     const name = String(req.params.name||'').trim();
     if (!name) return res.status(400).json({ error: 'name required' });
+    if (R2_ENABLED && R2_ONLY){
+      await deleteR2Prefix(name);
+      return res.json({ ok: true });
+    }
     const base = path.resolve(BACKUP_BASE_DIR);
     const dirPath = path.resolve(path.join(BACKUP_BASE_DIR, name));
     if (!dirPath.startsWith(base + path.sep)){
@@ -1488,37 +1727,78 @@ app.post('/api/backup/import', requireRole('admin'), async (req, res) => {
   const { name, strategy } = req.body || {};
   if (!name || typeof name !== 'string') return res.status(400).json({ error: 'name (backup directory) required' });
   const dirPath = path.join(BACKUP_BASE_DIR, name);
-  if (!fs.existsSync(dirPath)) return res.status(404).json({ error: 'Backup directory not found' });
   const strat = (strategy || 'upsert').toLowerCase();
   if (!['upsert','replace'].includes(strat)) return res.status(400).json({ error: 'strategy must be upsert or replace' });
   try{
     await run('BEGIN');
-    const files = fs.readdirSync(dirPath).filter(f => f.toLowerCase().endsWith('.csv'));
     let imported = [];
-    for (const file of files){
-      const table = file.replace(/\.csv$/i,'');
-      const csvText = fs.readFileSync(path.join(dirPath,file),'utf-8');
-      const { header, rows } = parseCSV(csvText);
-      if (!header.length) continue;
-      if (strat === 'replace'){
-        await run(`DELETE FROM ${table}`);
-      }
-      // Use INSERT OR REPLACE when id present, else INSERT
-      const cols = header;
-      const placeholders = cols.map(()=>'?').join(',');
-      const insertReplace = `INSERT OR REPLACE INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`;
-      const insertOnly = `INSERT INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`;
-      for (const r of rows){
-        const values = cols.map(c => r[c] === '' ? null : r[c]);
-        const hasId = cols.includes('id') && r['id'] && String(r['id']).trim() !== '';
-        try{
-          await run(hasId ? insertReplace : insertOnly, values);
-        }catch(e){
-          // fallback: try insert only if replace fails
-          try { await run(insertOnly, values); } catch(_){ /* ignore failed row */ }
+    if (R2_ENABLED && R2_ONLY){
+      const prefix = (r2PrefixBase.endsWith('/') ? r2PrefixBase : r2PrefixBase + '/') + name + '/';
+      let token = undefined;
+      const objKeys = [];
+      do {
+        const out = await r2Client.send(new ListObjectsV2Command({
+          Bucket: r2Bucket,
+          Prefix: prefix,
+          ContinuationToken: token,
+        }));
+        (out.Contents || []).forEach(o=>{ if (o.Key && o.Key.toLowerCase().endsWith('.csv')) objKeys.push(o.Key); });
+        token = out.IsTruncated ? out.NextContinuationToken : undefined;
+      } while (token);
+      for (const key of objKeys){
+        const file = key.replace(prefix, '');
+        const table = file.replace(/\.csv$/i,'');
+        const csvText = await getR2ObjectText(key);
+        const { header, rows } = parseCSV(csvText);
+        if (!header.length) continue;
+        if (strat === 'replace'){
+          await run(`DELETE FROM ${table}`);
         }
+        const cols = header;
+        const placeholders = cols.map(()=>'?').join(',');
+        const insertReplace = `INSERT OR REPLACE INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`;
+        const insertOnly = `INSERT INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`;
+        let count = 0;
+        for (const r of rows){
+          const values = cols.map(c => r[c] === '' ? null : r[c]);
+          const hasId = cols.includes('id') && r['id'] && String(r['id']).trim() !== '';
+          try{
+            await run(hasId ? insertReplace : insertOnly, values);
+            count++;
+          }catch(e){
+            try { await run(insertOnly, values); count++; } catch(_){ /* ignore failed row */ }
+          }
+        }
+        imported.push({ table, rows: count });
       }
-      imported.push({ table, rows: rows.length });
+    } else {
+      if (!fs.existsSync(dirPath)) { await run('ROLLBACK'); return res.status(404).json({ error: 'Backup directory not found' }); }
+      const files = fs.readdirSync(dirPath).filter(f => f.toLowerCase().endsWith('.csv'));
+      for (const file of files){
+        const table = file.replace(/\.csv$/i,'');
+        const csvText = fs.readFileSync(path.join(dirPath,file),'utf-8');
+        const { header, rows } = parseCSV(csvText);
+        if (!header.length) continue;
+        if (strat === 'replace'){
+          await run(`DELETE FROM ${table}`);
+        }
+        const cols = header;
+        const placeholders = cols.map(()=>'?').join(',');
+        const insertReplace = `INSERT OR REPLACE INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`;
+        const insertOnly = `INSERT INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`;
+        let count = 0;
+        for (const r of rows){
+          const values = cols.map(c => r[c] === '' ? null : r[c]);
+          const hasId = cols.includes('id') && r['id'] && String(r['id']).trim() !== '';
+          try{
+            await run(hasId ? insertReplace : insertOnly, values);
+            count++;
+          }catch(e){
+            try { await run(insertOnly, values); count++; } catch(_){ /* ignore failed row */ }
+          }
+        }
+        imported.push({ table, rows: count });
+      }
     }
     await run('COMMIT');
     res.json({ ok: true, imported });
