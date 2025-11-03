@@ -82,11 +82,13 @@ app.use(express.static(path.join(__dirname, 'public'), isProd ? {
   etag: true,
   lastModified: true,
   setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.html')) {
+    // Prevent caching of HTML, JS, and CSS to avoid stale frontend on Render/CDN
+    if (filePath.endsWith('.html') || filePath.endsWith('.js') || filePath.endsWith('.css')) {
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
     } else {
+      // Static assets like images can be cached for performance
       res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=60');
     }
   }
