@@ -1859,6 +1859,7 @@ app.post('/api/backup/import', requireRole('admin'), async (req, res) => {
     await run('BEGIN');
     let imported = [];
     const allowedTables = new Set(['users','forklifts','items','jobs','records','archive_jobs','archive_workshop_jobs','archive_maintenance_jobs']);
+    const preferredOrder = ['users','forklifts','items','jobs','records','archive_workshop_jobs','archive_maintenance_jobs','archive_jobs'];
     function conflictTargetFor(table, cols, row){
       const hasId = cols.includes('id') && row['id'] && String(row['id']).trim() !== '';
       if (hasId) return 'id';
@@ -1898,10 +1899,23 @@ app.post('/api/backup/import', requireRole('admin'), async (req, res) => {
         (out.Contents || []).forEach(o=>{ if (o.Key && o.Key.toLowerCase().endsWith('.csv')) objKeys.push(o.Key); });
         token = out.IsTruncated ? out.NextContinuationToken : undefined;
       } while (token);
-      for (const key of objKeys){
-        const file = key.replace(prefix, '');
-        const table = file.replace(/\.csv$/i,'');
-        if (!allowedTables.has(table)) continue;
+      const entries = objKeys
+        .map(key => {
+          const file = key.replace(prefix, '');
+          const table = file.replace(/\.csv$/i,'');
+          return { key, file, table };
+        })
+        .filter(ent => allowedTables.has(ent.table));
+      entries.sort((a,b)=>{
+        const ai = preferredOrder.indexOf(a.table);
+        const bi = preferredOrder.indexOf(b.table);
+        const av = ai === -1 ? 999 : ai;
+        const bv = bi === -1 ? 999 : bi;
+        if (av !== bv) return av - bv;
+        return a.file.localeCompare(b.file);
+      });
+      for (const ent of entries){
+        const { key, file, table } = ent;
         const csvText = await getR2ObjectText(key);
         const { header, rows } = parseCSV(csvText);
         if (!header.length) continue;
@@ -1920,10 +1934,20 @@ app.post('/api/backup/import', requireRole('admin'), async (req, res) => {
       }
     } else {
       if (!fs.existsSync(dirPath)) { await run('ROLLBACK'); return res.status(404).json({ error: 'Backup directory not found' }); }
-      const files = fs.readdirSync(dirPath).filter(f => f.toLowerCase().endsWith('.csv'));
+      let files = fs.readdirSync(dirPath).filter(f => f.toLowerCase().endsWith('.csv'));
+      files = files.filter(f => allowedTables.has(f.replace(/\.csv$/i,'')));
+      files.sort((a,b)=>{
+        const ta = a.replace(/\.csv$/i,'');
+        const tb = b.replace(/\.csv$/i,'');
+        const ai = preferredOrder.indexOf(ta);
+        const bi = preferredOrder.indexOf(tb);
+        const av = ai === -1 ? 999 : ai;
+        const bv = bi === -1 ? 999 : bi;
+        if (av !== bv) return av - bv;
+        return a.localeCompare(b);
+      });
       for (const file of files){
         const table = file.replace(/\.csv$/i,'');
-        if (!allowedTables.has(table)) continue;
         const csvText = fs.readFileSync(path.join(dirPath,file),'utf-8');
         const { header, rows } = parseCSV(csvText);
         if (!header.length) continue;
