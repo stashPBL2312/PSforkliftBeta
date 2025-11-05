@@ -36,6 +36,12 @@
       /* Subteks pada kolom Forklift */
       .subtext { color:#666; font-size:12px; }
       [data-theme="dark"] .subtext { color:#fff; }
+      /* Tag input untuk filter Forklift (chip + tombol X) */
+      .tag-input { display:flex; flex-wrap:wrap; align-items:center; gap:6px; border:1px solid #ddd; border-radius:6px; padding:4px; background:inherit; }
+      .tag-input input { border:none; outline:none; padding:6px 8px; min-width:120px; flex:1; }
+      .tag { display:inline-flex; align-items:center; padding:2px 8px; border-radius:12px; background:#eef2ff; color:#111; font-size:12px; }
+      .tag .remove { appearance:none; border:none; background:transparent; color:inherit; cursor:pointer; margin-left:6px; font-weight:bold; line-height:1; }
+      [data-theme="dark"] .tag { background:#1f2937; color:#e5e7eb; }
     </style>
     <script src="/common.js"></script>
   </head>
@@ -51,7 +57,9 @@
         <!-- Forklift filter: input teks + dropdown suggest (single select), menyamakan mekanisme dengan records -->
         <div class="filter-group" style="position:relative; min-width:260px; max-width:460px;">
           <div class="label-row"><label>Forklift</label></div>
-          <input id="arch_forklift_input" placeholder="Ketik untuk cari forklift..." autocomplete="off" />
+          <div class="tag-input" id="fkTagWrap">
+            <input id="arch_forklift_input" placeholder="Ketik untuk cari forklift..." autocomplete="off" />
+          </div>
           <div id="archFkSuggest" class="suggest" style="display:none; content-visibility:auto; contain-intrinsic-size: 120px;"></div>
           <input type="hidden" id="forklift_id" value="" />
         </div>
@@ -69,6 +77,7 @@
           <select id="jenis">
             <option value="Workshop">Workshop</option>
             <option value="PM">PM/Lapangan Jobs (PM)</option>
+            <option value="All" selected>All</option>
           </select>
           </label>
         <label>
@@ -151,6 +160,18 @@
           }};
           return [selCol, ...base, { key:'next_pm', label:'Next PM' }, { key:'pekerjaan', label:'Pekerjaan' }, { key:'recommendation', label:'Recommendation' }, { key:'notes', label:'Catatan' }, actionCol];
         }
+        if (v === 'all'){
+          const actionCol = { key:'__act', label:'Aksi', render: (row)=>{
+            return `<button class='btn-view' data-view='${row.id}' title='View' aria-label='View'>
+              <svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='vertical-align:middle;margin-right:6px'>
+                <path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'></path>
+                <circle cx='12' cy='12' r='3'></circle>
+              </svg>
+              View
+            </button>`;
+          }};
+          return [selCol, ...base, { key:'next_pm', label:'Next PM' }, { key:'pekerjaan', label:'Pekerjaan' }, { key:'recommendation', label:'Recommendation' }, { key:'item_dipakai', label:'Item Dipakai' }, { key:'notes', label:'Catatan' }, actionCol];
+        }
         const actionCol = { key:'__act', label:'Aksi', render: (row)=>{
           return `<button class='btn-view' data-view='${row.id}' title='View' aria-label='View'>
             <svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='vertical-align:middle;margin-right:6px'>
@@ -194,14 +215,20 @@
       async function fetchAndRender(){
         try{
           const f = getFilters();
-          // Pastikan filter jenis diterjemahkan ke job_source agar konsisten dengan backend
-          const mappedJenis = f.jenis ? (f.jenis.toLowerCase() === 'pm' ? 'maintenance' : 'workshop') : '';
-          const paramsObj = { ...f, limit: String(limit), offset: String(offset) };
-          if (mappedJenis) {
-            paramsObj.job_source = mappedJenis;
-          }
+          // Terjemahkan jenis ke job_source; "All" artinya union (tanpa job_source)
+          const jenisLower = String(f.jenis||'').toLowerCase();
+          const mappedJenis = jenisLower === 'pm' ? 'maintenance' : (jenisLower === 'workshop' ? 'workshop' : '');
+          const paramsObj = {
+            q: f.q,
+            forklift_id: f.forklift_id,
+            start: f.start,
+            end: f.end,
+            limit: String(limit),
+            offset: String(offset),
+            order: orderDir,
+          };
+          if (mappedJenis) paramsObj.job_source = mappedJenis;
           // Sorting berdasarkan tanggal
-          paramsObj.order = orderDir;
           const params = new URLSearchParams(paramsObj);
           const res = await api(`/api/archive/jobs?${params.toString()}`);
           const rows = res.rows || [];
@@ -261,10 +288,12 @@
         document.getElementById('resetBtn').onclick = () => {
           document.getElementById('q').value = '';
           document.getElementById('forklift_id').value = '';
+          // Hapus tag forklift jika ada
+          try{ clearFkTag(); }catch{}
           
           document.getElementById('start').value = '';
           document.getElementById('end').value = '';
-          document.getElementById('jenis').value = 'Workshop';
+          document.getElementById('jenis').value = 'All';
           const rpp = document.getElementById('rowsPerPage'); if (rpp) rpp.value = '25'; limit = 25;
           offset = 0;
           fetchAndRender();
@@ -371,11 +400,13 @@
       }
       async function fetchAllFilteredRows(){
         const f = getFilters();
+        const jenisLower = String(f.jenis||'').toLowerCase();
+        const mappedJenis = jenisLower === 'pm' ? 'maintenance' : (jenisLower === 'workshop' ? 'workshop' : '');
         const params = new URLSearchParams();
         if (f.q) params.set('q', f.q);
         if (f.start) params.set('start', f.start);
         if (f.end) params.set('end', f.end);
-        params.set('jenis', f.jenis);
+        if (mappedJenis) params.set('job_source', mappedJenis);
         params.set('limit', '100000');
         params.set('offset', '0');
         const r = await api('/api/archive/jobs?' + params.toString());
@@ -497,6 +528,35 @@
       const fkInput = document.getElementById('arch_forklift_input');
       const fkSuggest = document.getElementById('archFkSuggest');
       const fkIdEl = document.getElementById('forklift_id');
+      const fkTagWrap = document.getElementById('fkTagWrap');
+      function clearFkTag(){
+        try{
+          (fkTagWrap && fkTagWrap.querySelectorAll('.tag') || []).forEach(t=> t.remove());
+        }catch{}
+        if (fkIdEl) fkIdEl.value = '';
+        // Tampilkan kembali input pencarian saat tidak ada tag
+        if (fkInput) fkInput.style.display = '';
+      }
+      function setFkTag(f){
+        if (!fkTagWrap || !fkInput) return;
+        clearFkTag();
+        if (fkIdEl) fkIdEl.value = String(f.id);
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = fkLabel(f);
+        const x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'remove';
+        x.textContent = '×';
+        x.title = 'Hapus forklift';
+        x.onclick = ()=>{ clearFkTag(); offset = 0; fetchAndRender(); };
+        tag.appendChild(x);
+        fkTagWrap.insertBefore(tag, fkInput);
+        fkInput.value = '';
+        // Sembunyikan input pencarian ketika ada tag terpilih
+        fkInput.style.display = 'none';
+        if (fkSuggest) fkSuggest.style.display = 'none';
+      }
       function filterForkliftList(query){
         const q = String(query||'').trim().toLowerCase();
         if (!q) return fkCache;
@@ -527,8 +587,7 @@
             if (fkSuggest._isDragging && fkSuggest._isDragging()) { ev.preventDefault(); return; }
             const id = +it.getAttribute('data-id');
             const f = (fkCache||[]).find(x=>x.id===id); if (!f) return;
-            if (fkIdEl) fkIdEl.value = String(f.id);
-            fkInput.value = fkLabel(f);
+            setFkTag(f);
             fkSuggest.style.display='none';
             offset = 0; fetchAndRender();
           };

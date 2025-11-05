@@ -933,42 +933,42 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
       pWork.push(likeFk);
     }
     if (q) {
-      const like = `%${q}%`;
-      // Maintenance: report_no, pekerjaan, recommendation, dan forklift fields
+      const likeNoSpace = `%${String(q).replace(/\s+/g, '')}%`;
+      // Maintenance: gunakan pembandingan yang menghapus spasi agar pencarian tidak sensitif spasi
       whMaint.push(`(
-        LOWER(COALESCE(am.report_no, "")) LIKE LOWER(?) OR
-        LOWER(COALESCE(am.pekerjaan, "")) LIKE LOWER(?) OR
-        LOWER(COALESCE(am.recommendation, "")) LIKE LOWER(?) OR
+        LOWER(REPLACE(COALESCE(am.report_no, ""), ' ', '')) LIKE LOWER(?) OR
+        LOWER(REPLACE(COALESCE(am.pekerjaan, ""), ' ', '')) LIKE LOWER(?) OR
+        LOWER(REPLACE(COALESCE(am.recommendation, ""), ' ', '')) LIKE LOWER(?) OR
         EXISTS (
           SELECT 1 FROM forklifts f
           WHERE f.id = am.forklift_id AND (
-            LOWER(COALESCE(f.eq_no, "")) LIKE LOWER(?) OR
-            LOWER(COALESCE(f.brand, "")) LIKE LOWER(?) OR
-            LOWER(COALESCE(f.type, "")) LIKE LOWER(?) OR
-            LOWER(COALESCE(f.serial, "")) LIKE LOWER(?) OR
-            LOWER(COALESCE(f.location, "")) LIKE LOWER(?)
+            LOWER(REPLACE(COALESCE(f.eq_no, ""), ' ', '')) LIKE LOWER(?) OR
+            LOWER(REPLACE(COALESCE(f.brand, ""), ' ', '')) LIKE LOWER(?) OR
+            LOWER(REPLACE(COALESCE(f.type, ""), ' ', '')) LIKE LOWER(?) OR
+            LOWER(REPLACE(COALESCE(f.serial, ""), ' ', '')) LIKE LOWER(?) OR
+            LOWER(REPLACE(COALESCE(f.location, ""), ' ', '')) LIKE LOWER(?)
           )
         )
       )`);
-      pMaint.push(like, like, like, like, like, like, like, like);
-      // Workshop: report_no, pekerjaan, notes, item_dipakai, dan forklift fields
+      pMaint.push(likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace);
+      // Workshop: report_no, pekerjaan, notes, item_dipakai, dan forklift fields — non-spasi sensitif
       whWork.push(`(
-        LOWER(COALESCE(aw.report_no, "")) LIKE LOWER(?) OR
-        LOWER(COALESCE(aw.pekerjaan, "")) LIKE LOWER(?) OR
-        LOWER(COALESCE(aw.notes, "")) LIKE LOWER(?) OR
-        LOWER(COALESCE(aw.item_dipakai, "")) LIKE LOWER(?) OR
+        LOWER(REPLACE(COALESCE(aw.report_no, ""), ' ', '')) LIKE LOWER(?) OR
+        LOWER(REPLACE(COALESCE(aw.pekerjaan, ""), ' ', '')) LIKE LOWER(?) OR
+        LOWER(REPLACE(COALESCE(aw.notes, ""), ' ', '')) LIKE LOWER(?) OR
+        LOWER(REPLACE(COALESCE(aw.item_dipakai, ""), ' ', '')) LIKE LOWER(?) OR
         EXISTS (
           SELECT 1 FROM forklifts f
           WHERE f.id = aw.forklift_id AND (
-            LOWER(COALESCE(f.eq_no, "")) LIKE LOWER(?) OR
-            LOWER(COALESCE(f.brand, "")) LIKE LOWER(?) OR
-            LOWER(COALESCE(f.type, "")) LIKE LOWER(?) OR
-            LOWER(COALESCE(f.serial, "")) LIKE LOWER(?) OR
-            LOWER(COALESCE(f.location, "")) LIKE LOWER(?)
+            LOWER(REPLACE(COALESCE(f.eq_no, ""), ' ', '')) LIKE LOWER(?) OR
+            LOWER(REPLACE(COALESCE(f.brand, ""), ' ', '')) LIKE LOWER(?) OR
+            LOWER(REPLACE(COALESCE(f.type, ""), ' ', '')) LIKE LOWER(?) OR
+            LOWER(REPLACE(COALESCE(f.serial, ""), ' ', '')) LIKE LOWER(?) OR
+            LOWER(REPLACE(COALESCE(f.location, ""), ' ', '')) LIKE LOWER(?)
           )
         )
       )`);
-      pWork.push(like, like, like, like, like, like, like, like, like);
+      pWork.push(likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace);
     }
 
     const selMaint = `SELECT am.id AS id, 'maintenance' AS job_source, 'PM' AS jenis,

@@ -1,4 +1,0 @@
-id,jenis,forklift_id,tanggal,teknisi,report_no,description,recommendation,items_used,next_pm,deleted_at,updated_at,created_at
-49,Lapangan,338,2025-10-31,"Afrizal, Mesman",28284,<ul><li>Universal Joint Rusak</li><li>Ganti Filter Udara</li></ul><br>,<ul><li>Switch Engine Oil</li></ul>,Universal Join 2 pcsFilter Udara 1 pc,,,2025-10-31 14:40:00,2025-10-31 14:40:00
-52,Lapangan,530,2025-10-31,"Toyib, Liping",28410,<ul><li>Cek dan ganti plug auto filling battery</li></ul>,<ul><li>Plug battery Assy</li></ul>,<ul><li>Plug Battery (auto filling) 1 pc</li></ul>,,,2025-10-31 16:21:24,2025-10-31 16:21:24
-53,Lapangan,510,2025-11-03,"Toyib, Liping",28471,<ul><li>Repair sensor rak dan ganti relay 24V DC</li></ul>,<ul><li>Relay 24V DC 3 Kotak</li></ul>,<ul><li>Relay 24V DC 1 pc</li></ul>,,,2025-11-03 15:01:47,2025-11-03 15:01:47
