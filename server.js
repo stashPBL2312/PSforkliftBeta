@@ -1723,6 +1723,131 @@ app.delete('/api/backup/:name', requireRole('admin'), async (req, res) => {
   }catch(e){ res.status(500).json({ error: 'Delete failed' }); }
 });
 
+// Download a backup as ZIP (admin-only)
+app.get('/api/backup/:name/zip', requireRole('admin'), async (req, res) => {
+  try{
+    const name = String(req.params.name||'').trim();
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const zipFilename = `${name}.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
+    const archiver = require('archiver');
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => {
+      try{ console.warn('[Backup] ZIP error:', err && err.message ? err.message : err); }catch(_){ }
+      try{ res.status(500).end(); }catch(_){ }
+    });
+    archive.pipe(res);
+    if (R2_ENABLED && R2_ONLY){
+      if (!r2Client || !r2Bucket){
+        return res.status(500).json({ error: 'R2 not initialized' });
+      }
+      const prefix = (r2PrefixBase.endsWith('/') ? r2PrefixBase : r2PrefixBase + '/') + name + '/';
+      let token = undefined;
+      do {
+        const out = await r2Client.send(new ListObjectsV2Command({
+          Bucket: r2Bucket,
+          Prefix: prefix,
+          ContinuationToken: token,
+        }));
+        for (const o of (out.Contents || [])){
+          const key = o.Key || '';
+          if (!key.startsWith(prefix)) continue;
+          const fileName = key.slice(prefix.length);
+          if (!fileName) continue;
+          try{
+            const obj = await r2Client.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
+            const body = obj.Body; // Readable stream
+            archive.append(body, { name: fileName });
+          }catch(e){ console.warn('[R2] GetObject failed:', key, e && e.message ? e.message : e); }
+        }
+        token = out.IsTruncated ? out.NextContinuationToken : undefined;
+      } while (token);
+      await archive.finalize();
+      return;
+    }
+    const base = path.resolve(BACKUP_BASE_DIR);
+    const dirPath = path.resolve(path.join(BACKUP_BASE_DIR, name));
+    if (!dirPath.startsWith(base + path.sep)){
+      return res.status(400).json({ error: 'Invalid path' });
+    }
+    if (!fs.existsSync(dirPath)) return res.status(404).json({ error: 'Backup not found' });
+    const stat = fs.statSync(dirPath);
+    if (!stat.isDirectory()) return res.status(400).json({ error: 'Not a backup directory' });
+    archive.directory(dirPath, false);
+    await archive.finalize();
+  }catch(e){
+    console.warn('[Backup] ZIP download failed:', e && e.message ? e.message : e);
+    try{ res.status(500).json({ error: 'ZIP download failed' }); }catch(_){ }
+  }
+});
+
+// Upload a ZIP and add it to backup history (admin-only)
+app.post('/api/backup/upload', requireRole('admin'), require('express-formidable')({ multiples: false, maxFileSize: 100 * 1024 * 1024 }), async (req, res) => {
+  try {
+    const file = (req.files && (req.files.zip || req.files.file)) || null;
+    if (!file) return res.status(400).json({ error: 'ZIP file required' });
+    const tmpPath = file.path || file.filepath || file._path;
+    let baseName = String(file.name || '').replace(/\.zip$/i, '');
+    baseName = baseName.replace(/[^a-zA-Z0-9_.-]+/g, '_').slice(0, 48);
+    const dirName = (baseName && baseName.startsWith('backup_')) ? baseName : dirNameFromStamp(new Date(), baseName || 'uploaded');
+
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip(tmpPath);
+    const entries = zip.getEntries();
+    let count = 0;
+
+    if (R2_ENABLED && R2_ONLY) {
+      if (!r2Client || !r2Bucket) return res.status(500).json({ error: 'R2 not initialized' });
+      const prefix = (r2PrefixBase.endsWith('/') ? r2PrefixBase : r2PrefixBase + '/') + dirName + '/';
+      for (const e of entries) {
+        try {
+          if (e.isDirectory) continue;
+          const entryName = (e.entryName || '').split('/').pop();
+          if (!/\.csv$/i.test(entryName)) continue;
+          const safeName = String(entryName).replace(/[^a-zA-Z0-9_.-]+/g, '_');
+          const buffer = e.getData();
+          await r2Client.send(new PutObjectCommand({
+            Bucket: r2Bucket,
+            Key: prefix + safeName,
+            Body: buffer,
+            ContentType: 'text/csv',
+          }));
+          count++;
+        } catch (err) {
+          try { console.warn('[Backup] R2 upload entry failed:', err && err.message ? err.message : err); } catch(_){}
+        }
+      }
+      return res.json({ ok: true, dir: dirName, files: count });
+    }
+
+    ensureDirSync(BACKUP_BASE_DIR);
+    const base = path.resolve(BACKUP_BASE_DIR);
+    const outDir = path.resolve(path.join(BACKUP_BASE_DIR, dirName));
+    if (!outDir.startsWith(base + path.sep)) return res.status(400).json({ error: 'Invalid path' });
+    try { fs.mkdirSync(outDir, { recursive: true }); } catch(_){ /* ignore */ }
+
+    for (const e of entries) {
+      try {
+        if (e.isDirectory) continue;
+        const entryName = (e.entryName || '').split('/').pop();
+        if (!/\.csv$/i.test(entryName)) continue;
+        const safeName = String(entryName).replace(/[^a-zA-Z0-9_.-]+/g, '_');
+        const buffer = e.getData();
+        const fp = path.join(outDir, safeName);
+        fs.writeFileSync(fp, buffer);
+        count++;
+      } catch (err) {
+        try { console.warn('[Backup] Write entry failed:', err && err.message ? err.message : err); } catch(_){}
+      }
+    }
+    return res.json({ ok: true, dir: path.basename(outDir), files: count });
+  } catch (e) {
+    console.warn('[Backup] ZIP upload failed:', e && e.message ? e.message : e);
+    res.status(500).json({ error: 'Upload failed' });
+  }
+});
+
 // Import backup from a directory (admin-only)
 app.post('/api/backup/import', requireRole('admin'), async (req, res) => {
   const { name, strategy } = req.body || {};
@@ -1733,6 +1858,33 @@ app.post('/api/backup/import', requireRole('admin'), async (req, res) => {
   try{
     await run('BEGIN');
     let imported = [];
+    const allowedTables = new Set(['users','forklifts','items','jobs','records','archive_jobs','archive_workshop_jobs','archive_maintenance_jobs']);
+    function conflictTargetFor(table, cols, row){
+      const hasId = cols.includes('id') && row['id'] && String(row['id']).trim() !== '';
+      if (hasId) return 'id';
+      const lc = table.toLowerCase();
+      if (lc === 'forklifts'){
+        if (cols.includes('eq_no') && row['eq_no'] && String(row['eq_no']).trim() !== '') return 'eq_no';
+        if (cols.includes('serial') && row['serial'] && String(row['serial']).trim() !== '') return 'serial';
+      } else if (lc === 'items'){
+        if (cols.includes('code') && row['code'] && String(row['code']).trim() !== '') return 'code';
+      } else if (lc === 'users'){
+        if (cols.includes('email') && row['email'] && String(row['email']).trim() !== '') return 'email';
+      } else if (lc === 'jobs' || lc === 'records'){
+        // expect id present in exports; if not, no safe unique key, fall back to insert
+      }
+      return null;
+    }
+    function buildUpsertSQL(table, cols, conflict){
+      const placeholders = cols.map(()=>'?').join(',');
+      if (!conflict){
+        // no conflict target: ignore duplicates to avoid errors
+        return { sql: `INSERT OR IGNORE INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`, type:'insert_ignore' };
+      }
+      const updates = cols.filter(c => c !== conflict && c !== 'id').map(c => `${c}=excluded.${c}`);
+      if (!updates.length) return { sql: `INSERT INTO ${table} (${cols.join(',')}) VALUES (${placeholders}) ON CONFLICT(${conflict}) DO NOTHING`, type:'upsert_nop' };
+      return { sql: `INSERT INTO ${table} (${cols.join(',')}) VALUES (${placeholders}) ON CONFLICT(${conflict}) DO UPDATE SET ${updates.join(',')}`, type:'upsert' };
+    }
     if (R2_ENABLED && R2_ONLY){
       const prefix = (r2PrefixBase.endsWith('/') ? r2PrefixBase : r2PrefixBase + '/') + name + '/';
       let token = undefined;
@@ -1749,6 +1901,7 @@ app.post('/api/backup/import', requireRole('admin'), async (req, res) => {
       for (const key of objKeys){
         const file = key.replace(prefix, '');
         const table = file.replace(/\.csv$/i,'');
+        if (!allowedTables.has(table)) continue;
         const csvText = await getR2ObjectText(key);
         const { header, rows } = parseCSV(csvText);
         if (!header.length) continue;
@@ -1756,19 +1909,12 @@ app.post('/api/backup/import', requireRole('admin'), async (req, res) => {
           await run(`DELETE FROM ${table}`);
         }
         const cols = header;
-        const placeholders = cols.map(()=>'?').join(',');
-        const insertReplace = `INSERT OR REPLACE INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`;
-        const insertOnly = `INSERT INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`;
         let count = 0;
         for (const r of rows){
           const values = cols.map(c => r[c] === '' ? null : r[c]);
-          const hasId = cols.includes('id') && r['id'] && String(r['id']).trim() !== '';
-          try{
-            await run(hasId ? insertReplace : insertOnly, values);
-            count++;
-          }catch(e){
-            try { await run(insertOnly, values); count++; } catch(_){ /* ignore failed row */ }
-          }
+          const conflict = conflictTargetFor(table, cols, r);
+          const { sql } = buildUpsertSQL(table, cols, conflict);
+          try { await run(sql, values); count++; } catch(_){ /* ignore failed row */ }
         }
         imported.push({ table, rows: count });
       }
@@ -1777,6 +1923,7 @@ app.post('/api/backup/import', requireRole('admin'), async (req, res) => {
       const files = fs.readdirSync(dirPath).filter(f => f.toLowerCase().endsWith('.csv'));
       for (const file of files){
         const table = file.replace(/\.csv$/i,'');
+        if (!allowedTables.has(table)) continue;
         const csvText = fs.readFileSync(path.join(dirPath,file),'utf-8');
         const { header, rows } = parseCSV(csvText);
         if (!header.length) continue;
@@ -1784,19 +1931,12 @@ app.post('/api/backup/import', requireRole('admin'), async (req, res) => {
           await run(`DELETE FROM ${table}`);
         }
         const cols = header;
-        const placeholders = cols.map(()=>'?').join(',');
-        const insertReplace = `INSERT OR REPLACE INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`;
-        const insertOnly = `INSERT INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`;
         let count = 0;
         for (const r of rows){
           const values = cols.map(c => r[c] === '' ? null : r[c]);
-          const hasId = cols.includes('id') && r['id'] && String(r['id']).trim() !== '';
-          try{
-            await run(hasId ? insertReplace : insertOnly, values);
-            count++;
-          }catch(e){
-            try { await run(insertOnly, values); count++; } catch(_){ /* ignore failed row */ }
-          }
+          const conflict = conflictTargetFor(table, cols, r);
+          const { sql } = buildUpsertSQL(table, cols, conflict);
+          try { await run(sql, values); count++; } catch(_){ /* ignore failed row */ }
         }
         imported.push({ table, rows: count });
       }

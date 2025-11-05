@@ -132,6 +132,8 @@
           <h2 style="margin:0 0 8px; font-size:18px;">Riwayat Backup</h2>
           <div class="toolbar">
             <button id="btnRefresh">Refresh</button>
+            <button id="btnImportZip" style="background:#16a34a;">Import ZIP</button>
+            <input type="file" id="zipFile" accept=".zip" style="display:none;" />
           </div>
           <div id="historyWrap" style="margin-top:12px;">
             <table>
@@ -270,6 +272,7 @@
               <td>${b.fileCount}</td>
               <td>${fmtBytes(b.sizeBytes)}</td>
               <td>
+                <button type="button" class="action-btn" data-download="${b.name}" style="background:#0ea5e9;">Download ZIP</button>
                 <button type="button" class="action-btn" data-import-upsert="${b.name}">Import Upsert</button>
                 <button type="button" class="action-btn" data-import-replace="${b.name}" style="background:#ef6c00;">Import Replace</button>
                 <button type="button" class="action-btn" data-delete="${b.name}" style="background:#b91c1c;">Hapus</button>
@@ -318,6 +321,31 @@
         document.getElementById('btnRunBackup').onclick = runBackup;
         document.getElementById('btnRefresh').onclick = loadHistory;
 
+        // Import ZIP: open file picker then upload via FormData
+        document.getElementById('btnImportZip').onclick = function(){
+          const inp = document.getElementById('zipFile');
+          inp.value = '';
+          inp.click();
+        };
+        document.getElementById('zipFile').addEventListener('change', async function(){
+          const f = this.files && this.files[0];
+          if (!f) return;
+          const fd = new FormData();
+          fd.append('zip', f, f.name);
+          try{
+            const r = await fetch('/api/backup/upload', { method:'POST', body: fd, credentials:'include', cache:'no-store' });
+            if (r.status === 401){ location.href = '/login.html'; return; }
+            const data = await r.json().catch(()=>({}));
+            if (!r.ok) throw data;
+            showToast('Import ZIP berhasil: '+ (data && data.dir ? data.dir : 'backup baru'), 'success');
+            await loadHistory();
+          }catch(e){
+            showToast('Gagal import ZIP: '+ (e && e.error ? e.error : 'error'), 'error');
+          }finally{
+            this.value = '';
+          }
+        });
+
         document.getElementById('bk_all').addEventListener('change', function(){
           const disabled = this.checked;
           document.querySelectorAll('input[name="tables"]').forEach(el => { el.disabled = disabled; });
@@ -337,6 +365,15 @@
           const up = btn.getAttribute('data-import-upsert');
           const rep = btn.getAttribute('data-import-replace');
           const del = btn.getAttribute('data-delete');
+          const dl = btn.getAttribute('data-download');
+          if (dl){
+            try{
+              const url = '/api/backup/'+encodeURIComponent(dl)+'/zip';
+              // Open in new tab to avoid navigation issues
+              window.open(url, '_blank');
+            }catch(e){ showToast('Gagal memulai unduhan ZIP', 'error'); }
+            return;
+          }
           if (up){
             await importBackup(up, 'upsert');
             return;
