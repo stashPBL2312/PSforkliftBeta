@@ -108,6 +108,20 @@
     [data-theme="dark"] #editModal textarea { background:#0b1220; border-color:#334155; color:#e5e7eb; }
     [data-theme="dark"] input::placeholder, [data-theme="dark"] textarea::placeholder { color:#e5e7eb !important; opacity:1 !important; }
 
+    /* Rich text editor styles (seragam dengan jobs.html), posisi toolbar di atas editor */
+    #editModal label.stack { display:flex; flex-direction:column; gap:6px; }
+    .rte { width:100%; min-height: clamp(80px, 22vh, 160px); border:1px solid #eee; border-radius:6px; padding:6px; outline:none; }
+    .rte:focus { border-color:#c5d9fd; box-shadow:0 0 0 2px #e8f0fe; }
+    [data-theme="dark"] .rte { background:#0f172a; border-color:#334155; color:#e5e7eb; }
+    [data-theme="dark"] .rte:focus { border-color:#334155; box-shadow:0 0 0 2px #1f2937; }
+    .rte-toolbar { display:flex; gap:6px; margin:4px 0 6px; flex-wrap:wrap; align-items:center; }
+    .rte-toolbar button { padding: clamp(2px, 0.5vw, 6px) clamp(6px, 1vw, 10px); border:1px solid #ddd; background:#f7f7f7; border-radius:4px; cursor:pointer; font-size: clamp(11px, 1.6vw, 13px); }
+    .rte-toolbar button:hover { background:#eee; }
+    .rte-toolbar button.active { background:#e0e0e0; border-color:#ccc; }
+    [data-theme="dark"] .rte-toolbar button { background:#1f2937; border-color:#334155; color:#e5e7eb; }
+    [data-theme="dark"] .rte-toolbar button:hover { background:#334155; }
+    [data-theme="dark"] .rte-toolbar button.active { background:#374151; border-color:#334155; }
+
     /* Pastikan layout label di modal rapi (stacked) dan chips terlihat penuh */
     #editModal .input-suggest-wrap .clear-btn { position:absolute; right:4px; top:50%; transform:translateY(-50%); border:none; background:transparent; cursor:pointer; font-size:16px; color:#888; padding:2px; line-height:1; }
     #editModal .input-suggest-wrap .clear-btn:hover { color:#000; }
@@ -248,6 +262,9 @@
               <option>Workshop</option>
             </select>
           </label>
+          <label id="ed_next_pm_wrap" style="display:none; grid-column: 2 / 3;">Next PM
+            <div class="date-input-wrap"><input id="ed_next_pm" type="date" /></div>
+          </label>
           <label for="ed_teknisi_input" style="grid-column: 1 / -1;">Teknisi</label>
           <div class="teknisi-field" style="grid-column: 1 / -1;">
             <div id="ed_teknisi_tags" class="chips"></div>
@@ -258,7 +275,16 @@
             <div class="muted" style="font-size:11px; color:#777;">Klik hasil untuk menambahkan. Hapus dengan tanda × pada chip.</div>
           </div>
           <label>Location (Snapshot) <input id="ed_location" placeholder="Lokasi saat service (snapshot)" /></label>
-          <label>Description <textarea id="ed_description" rows="3"></textarea></label>
+          <label class="stack" style="grid-column: 1 / -1;">Description
+            <div class="rte-toolbar">
+              <button type="button" data-target="ed_description_rich" data-cmd="bold"><b>B</b></button>
+              <button type="button" data-target="ed_description_rich" data-cmd="italic"><i>I</i></button>
+              <button type="button" data-target="ed_description_rich" data-cmd="underline"><u>U</u></button>
+              <button type="button" data-target="ed_description_rich" data-cmd="insertUnorderedList">• List</button>
+              <button type="button" data-target="ed_description_rich" data-cmd="insertOrderedList">1. List</button>
+            </div>
+            <div id="ed_description_rich" class="rte" contenteditable="true"></div>
+          </label>
           <label>Recommendation <textarea id="ed_recommendation" rows="3"></textarea></label>
           <div id="ed_itemsChoiceWrap" style="grid-column: 1 / -1; display:none;">
             <div style="font-size:12px; color:#666; margin-bottom:4px;">Item dipakai (pilih dari katalog)</div>
@@ -275,7 +301,16 @@
             <div id="ed_chosenItems" style="margin-top:8px; max-height:240px; overflow:auto; border:1px solid #eee; padding:8px; border-radius:6px;"></div>
             <div class="muted" style="font-size:11px; color:#777; margin-top:6px;">Ketik untuk mencari item, pilih untuk menambahkan. Anda bisa menghapus item terpilih.</div>
           </div>
-          <label id="ed_itemsFreeWrap" style="grid-column: 1 / -1;">Item dipakai <textarea id="ed_items_used" rows="3"></textarea></label>
+          <label id="ed_itemsFreeWrap" style="grid-column: 1 / -1;" class="stack">Item dipakai (free text)
+            <div class="rte-toolbar" id="ed_items_toolbar">
+              <button type="button" data-target="ed_items_used_rich" data-cmd="bold"><b>B</b></button>
+              <button type="button" data-target="ed_items_used_rich" data-cmd="italic"><i>I</i></button>
+              <button type="button" data-target="ed_items_used_rich" data-cmd="underline"><u>U</u></button>
+              <button type="button" data-target="ed_items_used_rich" data-cmd="insertUnorderedList">• List</button>
+              <button type="button" data-target="ed_items_used_rich" data-cmd="insertOrderedList">1. List</button>
+            </div>
+            <div id="ed_items_used_rich" class="rte" contenteditable="true"></div>
+          </label>
         </div>
         <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
           <button id="btnCancelEdit">Batal</button>
@@ -374,6 +409,10 @@
         if (!inEdTech && edTechSuggest){ edTechSuggest.style.display = 'none'; }
         if (!inEdItem && edItemSuggest){ edItemSuggest.style.display = 'none'; }
       });
+      // Click-away: tutup modal jika klik di overlay (di luar konten)
+      editModal.addEventListener('click', (ev)=>{
+        if (ev.target === editModal){ editModal.style.display = 'none'; }
+      });
     }
 
     // ===== Items chooser untuk modal edit (PM/Workshop) =====
@@ -441,8 +480,10 @@
       const j = edJenisSel ? edJenisSel.value : '';
       const choice = document.getElementById('ed_itemsChoiceWrap');
       const free = document.getElementById('ed_itemsFreeWrap');
-      if (choice) choice.style.display = (j==='PM'||j==='Workshop') ? 'block' : 'none';
-      if (free) free.style.display = (j==='Lapangan') ? 'block' : 'none';
+      const nextPmWrap = document.getElementById('ed_next_pm_wrap');
+      if (choice) choice.style.display = (j==='Workshop') ? 'block' : 'none';
+      if (free) free.style.display = (j==='PM' || j==='Lapangan') ? 'block' : 'none';
+      if (nextPmWrap) nextPmWrap.style.display = (j==='PM') ? 'block' : 'none';
     }
     if (edJenisSel){ edJenisSel.addEventListener('change', ()=>{ edUpdateJenisUI(); }); }
     const edSearch = document.getElementById('ed_itemSearch');
@@ -485,6 +526,65 @@
         };
       });
     }
+
+    // ===== Rich Text Editor helpers (adopted from jobs.html) =====
+    function sanitizeHTML(html){
+      const allowed = new Set(['B','I','U','BR','P','UL','OL','LI','STRONG','EM']);
+      const div = document.createElement('div');
+      div.innerHTML = html;
+      const walker = document.createTreeWalker(div, NodeFilter.SHOW_ELEMENT, null);
+      const toRemove = [];
+      let node;
+      while(node = walker.nextNode()){
+        if (!allowed.has(node.tagName)) toRemove.push(node);
+        else {
+          while(node.attributes && node.attributes.length>0){ node.removeAttribute(node.attributes[0].name); }
+        }
+      }
+      toRemove.forEach(n=> n.replaceWith(document.createTextNode(n.textContent || '')));
+      return div.innerHTML.replace(/\u00A0/g, ' ').trim();
+    }
+
+    function getRteValue(id){
+      const el = document.getElementById(id);
+      return sanitizeHTML(el ? (el.innerHTML||'') : '');
+    }
+
+    function getActiveRteId(){
+      const sel = document.getSelection();
+      if (!sel || !sel.anchorNode) return null;
+      let n = sel.anchorNode.nodeType===1 ? sel.anchorNode : sel.anchorNode.parentElement;
+      while(n && n !== document){
+        if (n.getAttribute && n.getAttribute('contenteditable')==='true') return n.id;
+        n = n.parentElement;
+      }
+      return null;
+    }
+
+    function updateToolbarState(){
+      const activeId = getActiveRteId();
+      const commands = ['bold','italic','underline','insertUnorderedList','insertOrderedList'];
+      document.querySelectorAll('#editModal .rte-toolbar button').forEach(btn=>{
+        const target = btn.dataset.target;
+        const cmd = btn.dataset.cmd;
+        if (target===activeId && commands.includes(cmd)){
+          let on = false; try { on = document.queryCommandState(cmd); } catch (e) {}
+          btn.classList.toggle('active', !!on);
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+    }
+    document.querySelectorAll('#editModal .rte-toolbar button').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const target = document.getElementById(btn.dataset.target);
+        if (!target) return;
+        target.focus();
+        try { document.execCommand(btn.dataset.cmd, false, null); } catch (e) {}
+        updateToolbarState();
+      });
+    });
+    document.addEventListener('selectionchange', updateToolbarState);
 
     const fetchAndRenderEdTech = async ()=>{
       if (!edTechInput || !edTechSuggest) return;
@@ -976,13 +1076,17 @@ function openEditModal(item, readOnly=false){
   }
   document.getElementById('ed_pekerjaan').value = item.pekerjaan || 'PM';
   document.getElementById('ed_location').value = item.forklift_location || '';
-  document.getElementById('ed_description').value = item.description || '';
+  const descRichEl = document.getElementById('ed_description_rich');
+  if (descRichEl) descRichEl.innerHTML = item.description || '';
   document.getElementById('ed_recommendation').value = item.recommendation || '';
-  document.getElementById('ed_items_used').value = item.items_used || '';
+  const itemsRichEl = document.getElementById('ed_items_used_rich');
+  if (itemsRichEl) itemsRichEl.innerHTML = item.items_used || '';
+  const nextPmEl = document.getElementById('ed_next_pm');
+  if (nextPmEl) nextPmEl.value = item.next_pm || '';
   // Toggle UI by jenis + prefill chosen items jika PM/Workshop
   edUpdateJenisUI();
   const jNow = document.getElementById('ed_pekerjaan').value;
-  if (jNow==='PM' || jNow==='Workshop'){
+  if (jNow==='Workshop'){
     edChosen = [];
     const txt = String(item.items_used||'');
     if (txt){
@@ -1017,10 +1121,12 @@ function openEditModal(item, readOnly=false){
   }catch(_){}
   if (readOnly){
     // Matikan semua input & suggest di modal
-    ['ed_tanggal','ed_report_no','ed_pekerjaan','ed_location','ed_description','ed_recommendation','ed_items_used'].forEach(id=>{
+    ['ed_tanggal','ed_report_no','ed_pekerjaan','ed_location','ed_recommendation'].forEach(id=>{
       const el = document.getElementById(id);
       if (el){ el.disabled = true; el.readOnly = true; }
     });
+    const descRich = document.getElementById('ed_description_rich'); if (descRich) descRich.setAttribute('contenteditable','false');
+    const itemsRich = document.getElementById('ed_items_used_rich'); if (itemsRich) itemsRich.setAttribute('contenteditable','false');
     if (typeof edFkInput !== 'undefined' && edFkInput) edFkInput.disabled = true;
     if (typeof edTechInput !== 'undefined' && edTechInput) edTechInput.disabled = true;
     if (typeof edItemInput !== 'undefined' && edItemInput) edItemInput.disabled = true;
@@ -1035,10 +1141,12 @@ function openEditModal(item, readOnly=false){
     document.querySelectorAll('#ed_chosenItems .chosen-row .xbtn').forEach(btn=>{ btn.style.display = 'none'; });
   } else {
     // Pastikan semua input aktif di mode edit
-    ['ed_tanggal','ed_report_no','ed_pekerjaan','ed_location','ed_description','ed_recommendation','ed_items_used'].forEach(id=>{
+    ['ed_tanggal','ed_report_no','ed_pekerjaan','ed_location','ed_recommendation'].forEach(id=>{
       const el = document.getElementById(id);
       if (el){ el.disabled = false; el.readOnly = false; }
     });
+    const descRich = document.getElementById('ed_description_rich'); if (descRich) descRich.setAttribute('contenteditable','true');
+    const itemsRich = document.getElementById('ed_items_used_rich'); if (itemsRich) itemsRich.setAttribute('contenteditable','true');
     if (typeof edFkInput !== 'undefined' && edFkInput) edFkInput.disabled = false;
     if (typeof edTechInput !== 'undefined' && edTechInput) edTechInput.disabled = false;
     if (typeof edItemInput !== 'undefined' && edItemInput) edItemInput.disabled = false;
@@ -1075,12 +1183,26 @@ function openEditModal(item, readOnly=false){
         forklift_id: parseInt(edForkliftId||0),
         pekerjaan: document.getElementById('ed_pekerjaan').value,
         teknisi: teknisiList.join(', '),
-        description: document.getElementById('ed_description').value,
+        description: getRteValue('ed_description_rich'),
         recommendation: document.getElementById('ed_recommendation').value,
-        items_used: ((()=>{ const j=document.getElementById('ed_pekerjaan').value; return (j==='PM'||j==='Workshop') ? (edChosen||[]).map(c=>`${c.code} ${c.nama} x ${c.qty}`).join(', ') : document.getElementById('ed_items_used').value; })()),
+        items_used: ((()=>{ const j=document.getElementById('ed_pekerjaan').value; if (j==='Workshop') { return (edChosen||[]).map(c=>`${c.code} ${c.nama} x ${c.qty}`).join(', '); } return getRteValue('ed_items_used_rich'); })()),
         location: document.getElementById('ed_location').value,
       };
       await api('/api/records/'+item.id, { method:'PUT', body: payload });
+      // Jika jenis PM dan ada Next PM, update/insert pada jobs
+      const jenisNow = document.getElementById('ed_pekerjaan').value;
+      const nextPmVal = document.getElementById('ed_next_pm') ? document.getElementById('ed_next_pm').value : '';
+      if (jenisNow==='PM' && nextPmVal){
+        try{
+          const jobs = await api('/api/jobs');
+          const target = (Array.isArray(jobs)?jobs:[]).find(j=> String(j.jenis||'').toUpperCase()==='PM' && String(j.forklift_id)==String(edForkliftId) && String(j.report_no||'')===String(document.getElementById('ed_report_no').value||''));
+          if (target && target.id){
+            await api('/api/jobs/'+target.id, { method:'PUT', body: { jenis: target.jenis, forklift_id: target.forklift_id, tanggal: target.tanggal, teknisi: target.teknisi, report_no: target.report_no, description: target.description, recommendation: target.recommendation, items_used: target.items_used, next_pm: nextPmVal } });
+          } else {
+            await api('/api/jobs', { method:'POST', body: { jenis: 'PM', forklift_id: parseInt(edForkliftId||0), tanggal: document.getElementById('ed_tanggal').value, teknisi: teknisiList.join(', '), report_no: document.getElementById('ed_report_no').value, description: getRteValue('ed_description_rich'), recommendation: document.getElementById('ed_recommendation').value, items_used: getRteValue('ed_items_used_rich'), next_pm: nextPmVal } });
+          }
+        }catch(_){ /* ignore update next_pm errors */ }
+      }
       alert('Record berhasil diperbarui');
       modal.style.display='none';
       await load();
