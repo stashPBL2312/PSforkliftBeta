@@ -133,7 +133,10 @@
         const base = [
           { key:'id', label:'ID' },
           { key:'job_no', label:'Report No' },
-          { key:'jenis', label:'Jenis' },
+          { key:'jenis', label:'Jenis', render:(row)=>{
+            const j = String(row.jenis||'').toLowerCase();
+            return (j==='pm' || row.job_source==='maintenance') ? 'PM/Lapangan' : (row.jenis||'');
+          } },
           { key:'job_date', label:'Tanggal' },
           { key:'forklift', label:'Forklift', render:(row)=>{
             const main = String(row.forklift||'');
@@ -361,7 +364,14 @@
           const keys = columns.map(c=> c.key);
           const lines = [toCSVRow(headers)];
           (Array.isArray(lastRows)? lastRows : []).forEach(r=>{
-            const vals = keys.map(k=> r && r[k]);
+            const vals = keys.map(k=>{
+              let v = r && r[k];
+              if (k === 'jenis'){
+                const isPM = (String(r.jenis||'').toLowerCase()==='pm') || r.job_source === 'maintenance';
+                v = isPM ? 'PM/Lapangan' : (r.jenis || 'Workshop');
+              }
+              return v;
+            });
             lines.push(toCSVRow(vals));
           });
           const csv = lines.join('\n');
@@ -433,7 +443,14 @@
           const rowsSource = useSelected ? allRows.filter(r=> idSet.has(String(r.id))) : allRows;
           rowsSource.forEach(r=>{
             const row = {};
-            cols.forEach(c=>{ row[c.key] = r[c.key]; });
+            cols.forEach(c=>{
+              let v = r[c.key];
+              if (c.key === 'jenis'){
+                const isPM = (String(r.jenis||'').toLowerCase()==='pm') || r.job_source === 'maintenance';
+                v = isPM ? 'PM/Lapangan' : (r.jenis || 'Workshop');
+              }
+              row[c.key] = v;
+            });
             ws.addRow(row);
           });
           // Header styling, freeze, autoFilter
@@ -480,7 +497,14 @@
           const useSelected = selected && selected.size>0;
           const idSet = useSelected ? new Set(Array.from(selected)) : null;
           const rowsSource = useSelected ? allRows.filter(r=> idSet.has(String(r.id))) : allRows;
-          const body = rowsSource.map(r=> cols.map(c=> r[c.key]||''));
+          const body = rowsSource.map(r=> cols.map(c=>{
+            let v = r[c.key]||'';
+            if (c.key === 'jenis'){
+              const isPM = (String(r.jenis||'').toLowerCase()==='pm') || r.job_source === 'maintenance';
+              v = isPM ? 'PM/Lapangan' : (r.jenis || 'Workshop');
+            }
+            return v;
+          }));
           doc.text('Archive Export', 14, 16);
           doc.autoTable({ head, body, styles:{ fontSize:8, cellPadding:3, overflow:'linebreak' }, headStyles:{ fillColor:[13,71,161], textColor:255 }, startY:20, margin:{ left:14, right:14 } });
           doc.save('archive.pdf');
@@ -493,12 +517,12 @@
           ['ID', d.id],
           ['Job No', d.job_no],
           ['Sumber', d.job_source],
-          ['Jenis', d.jenis || (d.job_source === 'maintenance' ? 'PM' : 'Workshop')],
+          ['Jenis', ((String(d.jenis||'').toLowerCase()==='pm') || d.job_source === 'maintenance') ? 'PM/Lapangan' : (d.jenis || 'Workshop')],
           ['Tanggal', d.job_date],
           ['Forklift', d.forklift],
           ...(isPM ? [['Next PM', d.next_pm || '']] : []),
           ['Pekerjaan', d.pekerjaan || ''],
-          ['Deskripsi', d.description || ''],
+          ['Recommendation', (d.recommendation ?? d.description) || ''],
           ['Item Dipakai', d.items_used || d.item_dipakai || ''],
           ['Catatan', d.notes || ''],
           ['Dibuat', d.created_at || ''],

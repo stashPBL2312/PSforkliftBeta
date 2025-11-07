@@ -186,6 +186,9 @@
     /* Subteks pada kolom Forklift */
     .subtext { color:#666; font-size:12px; }
     [data-theme="dark"] .subtext { color:#fff; }
+    /* Tag penanda baris arsip */
+    .arsip-tag { display:inline-block; margin-left:6px; padding:2px 8px; border-radius:10px; font-size:11px; background:#eef2ff; color:#111; border:1px solid #dbeafe; }
+    [data-theme="dark"] .arsip-tag { background:#1f2937; color:#e5e7eb; border-color:#374151; }
   </style>
 </head>
 <body>
@@ -239,7 +242,18 @@
       </div>
     </div>
     <div id="table"></div>
-    <div id="pagination" style="margin-top:8px;"></div>
+  <div id="pagination" style="margin-top:8px;"></div>
+
+    <!-- Modal Detail Arsip (view-only) -->
+    <div id="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.3); align-items:center; justify-content:center;">
+      <div style="background:#fff; padding:16px; width:720px; max-width:95vw; max-height:90vh; overflow:auto; border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,.2);">
+        <h3 id="modalTitle" style="margin-top:0;">Detail Arsip</h3>
+        <div id="modalBody" style="overflow:auto;"></div>
+        <div style="margin-top:12px; text-align:right;">
+          <button id="closeBtn">Tutup</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Modal Edit -->
     <div id="editModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35); align-items:center; justify-content:center;">
@@ -909,6 +923,60 @@ async function load(){
         return techTokens.some(tok=> (tok.email && t.includes(tok.email)) || (tok.name && t.includes(tok.name)) );
       });
     }
+
+    // Integrasi hasil pencarian arsip langsung dari input Cari Record
+    // Hanya fetch arsip saat ada kata kunci (untuk menghindari beban besar bila kosong)
+    if (q){
+      const includeMaint = !Array.isArray(jenisVals) || jenisVals.length===0 || jenisVals.includes('PM') || jenisVals.includes('Lapangan');
+      const includeWorkshop = !Array.isArray(jenisVals) || jenisVals.length===0 || jenisVals.includes('Workshop');
+      const baseParams = new URLSearchParams();
+      baseParams.set('limit','50'); baseParams.set('offset','0');
+      if (q) baseParams.set('q', q);
+      if (start) baseParams.set('start', start);
+      if (end) baseParams.set('end', end);
+      const archiveRows = [];
+      const fetchArch = async (src)=>{
+        const p = new URLSearchParams(baseParams);
+        p.set('job_source', src);
+        try{
+          const resp = await api('/api/archive/jobs?' + p.toString());
+          const arr = Array.isArray(resp?.rows) ? resp.rows : (Array.isArray(resp) ? resp : []);
+          for (const ar of arr){
+            const isMaint = src==='maintenance';
+            const tag = isMaint ? 'Arsip PM/Lapangan' : 'Arsip Workshop';
+            const forkliftLabel = [String(ar.forklift_eq_no||'').trim(), String(ar.forklift_serial||'').trim()].filter(Boolean).join(' / ');
+            archiveRows.push({
+              id: -(100000 + (parseInt(ar.id,10)||0)),
+              tanggal: ar.job_date || '',
+              report_no: ar.job_no || '',
+              forklift: forkliftLabel || (ar.forklift || ''),
+              forklift_id: ar.forklift_id || null,
+              pekerjaan: isMaint ? 'PM/Lapangan' : 'Workshop',
+              teknisi: '',
+              next_pm: ar.next_pm || '',
+              description: ar.description || '',
+              recommendation: isMaint ? (ar.recommendation || '') : '',
+              items_used: '',
+              __arsip: true,
+              __arsip_source: src,
+              __arsip_id: ar.id,
+              __arsip_tag: tag,
+              forklift_owner: '',
+              forklift_location_fk: '',
+              forklift_serial: ar.forklift_serial || '',
+              forklift_powertrain: '',
+            });
+          }
+        }catch(e){ console.warn('Gagal fetch arsip', src, e); }
+      };
+      if (includeMaint) await fetchArch('maintenance');
+      if (includeWorkshop) await fetchArch('workshop');
+      // Terapkan filter forklift pada hasil arsip jika ada
+      if (fkIdSet && fkIdSet.size>0){
+        archiveRows.splice(0, archiveRows.length, ...archiveRows.filter(r=> fkIdSet.has(r.forklift_id)));
+      }
+      rows = rows.concat(archiveRows);
+    }
     // Apply sorting
     data = sortRows(rows);
     indexRows(data);
@@ -933,18 +1001,23 @@ function render(){
   }).join('') + '</tr></thead>';
 
   const body = '<tbody>' + currentRows.map(row=>{
-    const cb = `<input type="checkbox" data-id="${row.id}" ${selected.has(row.id)?'checked':''}/>`;
+    const cb = row.__arsip ? `<input type="checkbox" disabled />` : `<input type="checkbox" data-id="${row.id}" ${selected.has(row.id)?'checked':''}/>`;
     let actions;
-    if (user.role==='admin'||user.role==='supervisor') {
-      actions = `<button data-edit="${row.id}">Edit</button> <button data-del="${row.id}">Hapus</button>`;
-    } else if (user.role==='teknisi') {
-      const t = String(row.teknisi||'').toLowerCase();
-      const email = String(user.email||'').toLowerCase();
-      const name = String(user.name||'').toLowerCase();
-      const assigned = t.includes(email) || (!!name && t.includes(name));
-      actions = assigned ? `<button data-edit="${row.id}">Edit</button> <button data-del="${row.id}">Hapus</button>` : `<button data-detail="${row.id}">Detail</button>`;
+    if (row.__arsip){
+      const src = row.__arsip_source || 'maintenance';
+      actions = `<button data-arch="${row.__arsip_id}" data-src="${src}">View</button>`;
     } else {
-      actions = `<button data-detail="${row.id}">Detail</button>`;
+      if (user.role==='admin'||user.role==='supervisor') {
+        actions = `<button data-edit="${row.id}">Edit</button> <button data-del="${row.id}">Hapus</button>`;
+      } else if (user.role==='teknisi') {
+        const t = String(row.teknisi||'').toLowerCase();
+        const email = String(user.email||'').toLowerCase();
+        const name = String(user.name||'').toLowerCase();
+        const assigned = t.includes(email) || (!!name && t.includes(name));
+        actions = assigned ? `<button data-edit="${row.id}">Edit</button> <button data-del="${row.id}">Hapus</button>` : `<button data-detail="${row.id}">Detail</button>`;
+      } else {
+        actions = `<button data-detail="${row.id}">Detail</button>`;
+      }
     }
     // Highlight Next PM yang terlambat (sebelum hari ini)
     const nextPmRaw = row.next_pm || '';
@@ -974,12 +1047,13 @@ function render(){
     const extra = [serial, powertrain].filter(Boolean).join(' · ');
     const sub = [details, extra].filter(Boolean).join(' — ');
     const forkliftCell = sub ? `<div>${forkliftText}<div class='subtext'>${sub}</div></div>` : forkliftText;
+    const pekerjaanCell = row.__arsip ? `${row.pekerjaan||''} <span class="arsip-tag">${row.__arsip_tag||'Arsip'}</span>` : (row.pekerjaan||'');
     const tds = [
       `<td>${cb}</td>`,
       `<td>${row.tanggal||''}</td>`,
       `<td>${row.report_no||''}</td>`,
       `<td>${forkliftCell}</td>`,
-      `<td>${row.pekerjaan||''}</td>`,
+      `<td>${pekerjaanCell}</td>`,
       `<td>${row.teknisi||''}</td>`,
       `<td>${nextPmCell}</td>`,
       `<td>${row.description||''}</td>`,
@@ -998,8 +1072,9 @@ function render(){
   // Select-all per halaman saat klik header "Sel"
   const selHeader = document.querySelector('th.sel-header');
   if (selHeader) selHeader.onclick = ()=>{
-    const allSelected = currentRows.length>0 && currentRows.every(r=> selected.has(r.id));
-    if (allSelected){ currentRows.forEach(r=> selected.delete(r.id)); } else { currentRows.forEach(r=> selected.add(r.id)); }
+    const actionableRows = currentRows.filter(r=> !r.__arsip);
+    const allSelected = actionableRows.length>0 && actionableRows.every(r=> selected.has(r.id));
+    if (allSelected){ actionableRows.forEach(r=> selected.delete(r.id)); } else { actionableRows.forEach(r=> selected.add(r.id)); }
     render();
   };
 
@@ -1031,6 +1106,17 @@ function render(){
     tableContainer.addEventListener('click', async (ev)=>{
       const btn = ev.target.closest('button');
       if (!btn) return;
+      // View arsip in-place (modal)
+      if (btn.hasAttribute('data-arch')){
+        const id = btn.getAttribute('data-arch');
+        const src = btn.getAttribute('data-src') || '';
+        try{
+          const qs = src ? `?job_source=${encodeURIComponent(src)}` : '';
+          const d = await api(`/api/archive/jobs/${encodeURIComponent(id)}${qs}`);
+          openArchiveView('Detail Arsip', d || {});
+        }catch(e){ console.error('Gagal ambil detail arsip', e); alert('Gagal memuat detail arsip'); }
+        return;
+      }
       if (btn.hasAttribute('data-edit')){
         const id = +btn.getAttribute('data-edit');
         const item = currentRows.find(r=>r.id===id) || data.find(r=>r.id===id);
@@ -1422,6 +1508,41 @@ if (bulkBtn) bulkBtn.onclick = async ()=>{
     if (fail>0){ alert(`Bulk delete selesai. Sukses: ${ok}, Gagal: ${fail}`); }
   }catch(e){ console.error(e); alert('Gagal hapus massal'); }
 };
+
+// Detail Arsip modal helpers
+function renderArchiveDetailHtml(d){
+  const isPM = (String(d.jenis||'').toLowerCase()==='pm') || d.job_source==='maintenance';
+  const rows = [
+    ['ID', d.id],
+    ['Job No', d.job_no],
+    ['Sumber', d.job_source],
+    ['Jenis', ((String(d.jenis||'').toLowerCase()==='pm') || d.job_source === 'maintenance') ? 'PM/Lapangan' : (d.jenis || 'Workshop')],
+    ['Tanggal', d.job_date],
+    ['Forklift', d.forklift || [d.forklift_eq_no, d.forklift_serial].filter(Boolean).join(' / ')],
+    ...(isPM ? [['Next PM', d.next_pm || '']] : []),
+    ['Pekerjaan', d.pekerjaan || ''],
+    ['Recommendation', d.recommendation || ''],
+    ['Item Dipakai', d.items_used || d.item_dipakai || ''],
+    ['Catatan', d.notes || ''],
+    ['Dibuat', d.created_at || ''],
+    ['Diupdate', d.updated_at || ''],
+  ];
+  return `<div style='display:grid; grid-template-columns: 160px 1fr; gap:8px;'>${rows.map(([k,v])=>`<div style='color:#666'>${k}</div><div>${String(v??'')}</div>`).join('')}</div>`;
+}
+
+function openArchiveView(title, detail){
+  const modal = document.getElementById('modal');
+  const titleEl = document.getElementById('modalTitle');
+  const bodyEl = document.getElementById('modalBody');
+  const closeBtn = document.getElementById('closeBtn');
+  if (!modal || !titleEl || !bodyEl || !closeBtn) return;
+  titleEl.textContent = title;
+  bodyEl.innerHTML = renderArchiveDetailHtml(detail||{});
+  modal.style.display = 'flex';
+  const close = ()=>{ modal.style.display='none'; };
+  closeBtn.onclick = close;
+  modal.onclick = (ev)=>{ if (ev.target === modal) close(); };
+}
 
 // Initial load
 renderTechTags();
