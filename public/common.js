@@ -380,7 +380,7 @@ function nav(user){
   <div class="topbar" style="display:flex; gap:12px; align-items:center; padding:10px 16px; background:#0d47a1; color:white;">
     <a href="/dashboard.html" style="color:#fff; text-decoration:none; font-weight:600;">Dashboard</a>
     <a href="/forklift.html" style="color:#fff; text-decoration:none;">Forklifts</a>
-    <a href="/jobs.html" style="color:#fff; text-decoration:none;">Jobs</a>
+    <a href="/jobs.html" style="color:#fff; text-decoration:none;">Input Jobs</a>
     <a href="/items.html" style="color:#fff; text-decoration:none;">Items</a>
     <a href="/records.html" style="color:#fff; text-decoration:none;">Records</a>
     <a href="/archive.html" style="color:#fff; text-decoration:none;">Arsip</a>

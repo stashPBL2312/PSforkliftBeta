@@ -90,7 +90,7 @@
 
     const columns = [
       { key:'__sel', label:'Sel' },
-      { key:'code', label:'Code' },
+      { key:'code', label:'ID' },
       { key:'nama', label:'Nama' },
       { key:'unit', label:'Unit' },
       { key:'description', label:'Description' },
@@ -135,10 +135,15 @@
 
     function formHtml(item={}){
       const stOptions = statusList.map(v=>`<option value="${v}">${v}</option>`).join('');
+      const unitList = [ {value:'L', label:'Liter (L)'}, {value:'Set', label:'Set'}, {value:'Pcs', label:'Pcs'} ];
+      const unitSel = String(item.unit ?? 'Pcs');
+      const unitOptions = unitList.map(u=>`<option value="${u.value}" ${u.value===unitSel?'selected':''}>${u.label}</option>`).join('');
       return `
-        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>CODE</div><input id='f_code' value='${item.code??''}' /></div>
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>ID</div><input id='f_code' value='${item.code??''}' /></div>
         <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>NAMA</div><input id='f_nama' value='${item.nama??''}' /></div>
-        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>UNIT</div><input id='f_unit' value='${item.unit??''}' /></div>
+        <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>UNIT</div>
+          <select id='f_unit'>${unitOptions}</select>
+        </div>
         <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>DESCRIPTION</div><input id='f_description' value='${item.description??''}' /></div>
         <div style='margin-bottom:8px;'><div style='font-size:12px; color:#666;'>STATUS</div>
           <select id='f_status'>${stOptions}</select>
@@ -474,7 +479,7 @@
           await wb.xlsx.load(ab);
           const ws = wb.worksheets[0];
           if (!ws){ alert('Worksheet tidak ditemukan.'); return; }
-          const expected = ['Code','Nama','Unit','Description','Status'];
+          const expected = ['ID','Nama','Unit','Description','Status'];
           const header = expected.map((_,i)=> String(ws.getRow(1).getCell(i+1).value||'').trim());
           const okHeader = expected.every((h,i)=> (header[i]||'').toLowerCase() === h.toLowerCase());
           if (!okHeader){ alert('Format header tidak sesuai. Pastikan sama seperti hasil Export: '+expected.join(', ')); return; }
@@ -490,7 +495,7 @@
             rows.push({ code, nama, unit, description, status });
           }
           if (!rows.length){ alert('Tidak ada data untuk diimport.'); return; }
-          // Insert/Update per baris berdasarkan CODE
+          // Insert/Update per baris berdasarkan ID (kolom Code)
           const existingByCode = new Map((data||[]).map(it=> [String(it.code||'').trim().toLowerCase(), it]));
           let inserted = 0, updated = 0, errors = 0;
           const errorDetails = [];
@@ -505,10 +510,10 @@
               console.error('Import row error:', e);
               errors++;
               const msg = (e && (e.error || e.message)) ? (e.error || e.message) : 'Unknown error';
-              errorDetails.push({ code: r.code || '(kosong)', error: msg });
+              errorDetails.push({ id: r.code || '(kosong)', error: msg });
             }
           }
-          const firstErr = errorDetails.length ? ` (Code ${errorDetails[0].code}: ${errorDetails[0].error})` : '';
+          const firstErr = errorDetails.length ? ` (ID ${errorDetails[0].id}: ${errorDetails[0].error})` : '';
           alert(`Import selesai. Inserted: ${inserted}, Updated: ${updated}${errors?`, Errors: ${errors}${firstErr}`:''}`);
           data = await api('/api/items'); indexRows(data); render();
         };

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Jobs</title>
+  <title>Input Jobs</title>
   <script src="/common.js" defer></script>
   <style>
     body { font-family: system-ui, Arial, sans-serif; margin:0; }
@@ -38,6 +38,19 @@
     [data-theme="dark"] .rte-toolbar button { background:#1f2937; border-color:#334155; color:#e5e7eb; }
     [data-theme="dark"] .rte-toolbar button:hover { background:#334155; }
     [data-theme="dark"] .rte-toolbar button.active { background:#374151; border-color:#334155; }
+    /* Radio group untuk Jenis Pekerjaan */
+    .radio-group { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    /* Intro mode: tampilkan Jenis Pekerjaan lebih besar dan jelas */
+    .intro-mode #jenisLabel { font-size:22px; font-weight:700; }
+    .intro-mode #jenisGroup { font-size:18px; gap:14px; }
+    .intro-mode #jenisGroup label { padding:10px 14px; border:2px solid #64748b; border-radius:10px; background:#f8fafc; }
+    [data-theme="dark"] .intro-mode #jenisGroup label { border-color:#94a3b8; background:#0b1220; }
+    .intro-mode #jenisGuide { font-size:14px; }
+    /* Overlay yang jelas untuk blok form yang disabled */
+    .form-blocked { position: relative; pointer-events: none; }
+    .form-blocked::after { content:""; position:absolute; inset:0; border-radius:6px; background:rgba(255,255,255,0.55); }
+    [data-theme="dark"] .form-blocked::after { background:rgba(2,6,23,0.55); }
+    .form-blocked { filter: grayscale(0.4) saturate(0.8); }
     /* Chips + Suggest */
     .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
     .chip { display:inline-flex; align-items:center; gap:6px; background:#f0f0f0; border:1px solid #e0e0e0; border-radius:16px; padding:2px 8px; font-size:12px; }
@@ -189,22 +202,23 @@
 <body>
   <div id="header"></div>
   <div class="wrap">
-    <h2>Buat Job</h2>
+    <h2>Input Jobs</h2>
     <div class="card">
       <div class="row">
-        <div>
-          <label>Jenis Pekerjaan</label>
-          <select id="jenis">
-            <option>PM</option>
-            <option>Lapangan</option>
-            <option>Workshop</option>
-          </select>
+        <div id="jenisWrap">
+          <label id="jenisLabel">Jenis Pekerjaan</label>
+          <div id="jenisGroup" class="radio-group">
+            <label><input type="radio" name="jenis" value="PM" /> PM</label>
+            <label><input type="radio" name="jenis" value="Lapangan" /> Lapangan</label>
+            <label><input type="radio" name="jenis" value="Workshop" /> Workshop</label>
+          </div>
+          <div id="jenisGuide" class="muted">Pilih jenis pekerjaan terlebih dahulu sebelum mengisi form.</div>
         </div>
-        <div>
+        <div id="tglWrap">
           <label>Tanggal</label>
           <div class="date-input-wrap"><input id="tanggal" type="date" required /></div>
         </div>
-        <div>
+        <div id="fkWrap">
           <label>Forklift</label>
           <div class="input-suggest-wrap fk" style="position:relative;">
              <input id="fk_input" placeholder="Ketik untuk cari forklift..." autocomplete="off" />
@@ -212,7 +226,7 @@
              <div id="fkSuggest" class="suggest" style="display:none;"></div>
            </div>
         </div>
-        <div>
+        <div id="techWrap">
           <label>Teknisi</label>
           <div id="teknisi_tags" class="chips"></div>
           <div class="input-suggest-wrap" style="position:relative;">
@@ -221,7 +235,7 @@
           </div>
           <div class="muted">Klik pada hasil untuk menambahkan. Hapus dengan klik tanda &times; pada chip.</div>
         </div>
-        <div>
+        <div id="reportWrap">
           <label>Report No</label>
           <input id="report_no" placeholder="Ketik Report No" />
         </div>
@@ -236,7 +250,7 @@
           <div class="muted">Pilih radio untuk autofill, atau isi langsung date untuk custom</div>
         </div>
       </div>
-      <div>
+      <div id="descWrap">
         <label>Pekerjaan</label>
         <div class="rte-toolbar">
           <button type="button" data-target="description" data-cmd="bold"><b>B</b></button>
@@ -247,7 +261,7 @@
         </div>
         <div id="description" class="rte" contenteditable="true"></div>
       </div>
-      <div>
+      <div id="recWrap">
         <label>Recommendation</label>
         <div class="rte-toolbar">
           <button type="button" data-target="recommendation" data-cmd="bold"><b>B</b></button>
@@ -284,7 +298,7 @@
         </div>
         <div id="items_free" class="rte" contenteditable="true"></div>
       </div>
-      <div style="text-align:right; margin-top:10px;">
+      <div id="saveWrap" style="text-align:right; margin-top:10px;">
         <button id="saveBtn">Simpan Job</button>
       </div>
     </div>
@@ -354,12 +368,13 @@
           fkInput.value = fkLabel(f);
           fkSuggest.style.display='none';
           reportDirty = false; try { if (typeof autofillReport === 'function') { autofillReport(); } } catch(e) {}
+          try { if (typeof saveDraft === 'function') saveDraft(); } catch {}
         };
       });
     }
     if (fkInput){
       const debouncedFk = (fn=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),200); }; })(renderFkSuggest);
-      fkInput.addEventListener('input', ()=>{ jobForkliftId = null; });
+      fkInput.addEventListener('input', ()=>{ jobForkliftId = null; try{ if (typeof saveDraft==='function') saveDraft(); }catch{} });
       fkInput.addEventListener('input', debouncedFk);
       fkInput.addEventListener('focus', ()=> renderFkSuggest());
       fkInput.addEventListener('click', ()=> renderFkSuggest());
@@ -594,6 +609,7 @@
           const id = +inp.getAttribute('data-qty');
           let v = parseInt(inp.value||'1', 10); if (!v || v<1) v = 1; inp.value = String(v);
           const row = chosen.find(x=>x.id===id); if (row) row.qty = v;
+          try{ if (typeof saveDraft==='function') saveDraft(); }catch{}
         };
       });
       // handlers remove (tap-friendly)
@@ -608,7 +624,17 @@
     // document.getElementById('itemSearch').oninput = ()=> renderItems(items);
     // renderItems(items);
 
-    const jenisSel = document.getElementById('jenis');
+    // Jenis pekerjaan: gunakan radio, wajib dipilih sebelum mengisi form
+    function getJenis(){ const r = document.querySelector('input[name="jenis"]:checked'); return r ? r.value : ''; }
+    const jenisRadios = Array.from(document.querySelectorAll('input[name="jenis"]'));
+    function setFormEnabled(enabled){
+      const toggle = (id)=>{ const el=document.getElementById(id); if(!el) return; el.disabled = !enabled; el.readOnly = !enabled; };
+      ['tanggal','fk_input','teknisi_input','report_no','itemSearch','itemQty','next_pm_date'].forEach(toggle);
+      const save=document.getElementById('saveBtn'); if (save) save.disabled = !enabled;
+      ['description','recommendation','items_free'].forEach(id=>{ const el=document.getElementById(id); if(el){ el.setAttribute('contenteditable', enabled?'true':'false'); } });
+      const blockedWraps = ['tglWrap','fkWrap','techWrap','reportWrap','descWrap','recWrap','itemsUsedWrap','itemsFreeWrap','nextPmWrap','saveWrap'];
+      blockedWraps.forEach(id=>{ const el=document.getElementById(id); if(!el) return; if(enabled){ el.classList.remove('form-blocked'); } else { el.classList.add('form-blocked'); } });
+    }
     // Next PM radio autofill handlers
     const tanggalEl = document.getElementById('tanggal');
     const nextPmDateEl = document.getElementById('next_pm_date');
@@ -620,7 +646,7 @@
     tanggalEl.addEventListener('change', recalcNextPM);
 
     function updateJenis(){
-    const j = jenisSel.value;
+    const j = getJenis();
     document.getElementById('itemsUsedWrap').style.display = (j==='Workshop') ? 'block':'none';
     document.getElementById('itemsFreeWrap').style.display = (j==='Lapangan'||j==='PM') ? 'block':'none';
     // Ubah label Item dipakai agar hilang (free text) saat Lapangan
@@ -646,7 +672,7 @@
     reportInput.addEventListener('input', ()=>{ reportDirty = true; });
     
     async function autofillReport(){
-    const j = jenisSel.value;
+    const j = getJenis();
     const fid = parseInt(jobForkliftId||0);
     if (j==='Workshop' && fid){
     try {
@@ -659,7 +685,25 @@
     }
     }
     
-    jenisSel.onchange = ()=>{ updateJenis(); recalcNextPM(); }; updateJenis(); recalcNextPM();
+    // ---- Intro Mode (hanya Jenis Pekerjaan tampil besar) ----
+    function showFormSections(show){
+      const ids=['tglWrap','fkWrap','techWrap','reportWrap','descWrap','recWrap','itemsUsedWrap','itemsFreeWrap','nextPmWrap','saveWrap'];
+      ids.forEach(id=>{ const el=document.getElementById(id); if(el){ el.style.display = show? '': 'none'; } });
+    }
+    function enterIntroMode(){
+      document.body.classList.add('intro-mode');
+      showFormSections(false);
+      setFormEnabled(false);
+      const guide = document.getElementById('jenisGuide'); if (guide) guide.style.display='';
+    }
+    function exitIntroMode(){
+      document.body.classList.remove('intro-mode');
+      showFormSections(true);
+      setFormEnabled(true);
+      const guide = document.getElementById('jenisGuide'); if (guide) guide.style.display='none';
+    }
+    enterIntroMode();
+    jenisRadios.forEach(r=> r.addEventListener('change', ()=>{ exitIntroMode(); updateJenis(); recalcNextPM(); }));
     
     // Autofill when forklift changes for Workshop (if not manually edited)
     // removed: fSel.onchange handler, replaced by suggest selection handler
@@ -717,7 +761,8 @@
     }
 
     document.getElementById('saveBtn').onclick = async ()=>{
-      const jenis = jenisSel.value;
+      const jenis = getJenis();
+      if (!jenis){ alert('Silakan pilih Jenis Pekerjaan terlebih dahulu.'); return; }
       const tanggal = document.getElementById('tanggal').value;
       if (!tanggal){ alert('Tanggal wajib diisi.'); document.getElementById('tanggal').focus(); return; }
       if (!jobForkliftId){ alert('Forklift wajib dipilih dari daftar.'); document.getElementById('fk_input').focus(); return; }
@@ -758,6 +803,70 @@
         alert(e.error || 'Gagal simpan');
       }
     };
+
+    // ---- Draft Persistensi (localStorage) ----
+    const DRAFT_KEY = 'jobs_form_draft';
+    function saveDraft(){
+      try {
+        const nextpmSel = document.querySelector('input[name="nextpm"]:checked');
+        const draft = {
+          tanggal: document.getElementById('tanggal')?.value || '',
+          forklift_id: (typeof jobForkliftId !== 'undefined' && jobForkliftId) ? jobForkliftId : null,
+          forklift_label: (function(){
+            try{ if(jobForkliftId){ const f=fkCache.find(x=>x.id===jobForkliftId); return f? fkLabel(f): (document.getElementById('fk_input')?.value||''); }
+            }catch{}
+            return document.getElementById('fk_input')?.value||'';
+          })(),
+          teknisi: Array.isArray(selectedTech) ? selectedTech.map(t=>({id:t.id,label:t.label,value:t.value})) : [],
+          report_no: document.getElementById('report_no')?.value || '',
+          description: getRteValue('description'),
+          recommendation: getRteValue('recommendation'),
+          items_free: getRteValue('items_free'),
+          chosen: Array.isArray(chosen) ? chosen.map(c=>({id:c.id, code:c.code, nama:c.nama, qty:c.qty})) : [],
+          next_pm_date: document.getElementById('next_pm_date')?.value || '',
+          nextpm: nextpmSel ? nextpmSel.value : ''
+        };
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      } catch (e) { /* ignore */ }
+    }
+    function loadDraft(){
+      try {
+        const raw = localStorage.getItem(DRAFT_KEY); if (!raw) return;
+        const d = JSON.parse(raw||'{}');
+        const t = document.getElementById('tanggal'); if (t && d.tanggal) t.value = d.tanggal;
+        if (d.forklift_id){
+          jobForkliftId = d.forklift_id;
+          try{ const f=fkCache.find(x=>x.id===jobForkliftId); if (f && fkInput) fkInput.value = fkLabel(f); else if (fkInput && d.forklift_label) fkInput.value = d.forklift_label; }catch{}
+        } else if (fkInput && d.forklift_label){ fkInput.value = d.forklift_label; }
+        if (Array.isArray(d.teknisi)){ selectedTech = d.teknisi; renderTechTags(); }
+        if (reportInput && d.report_no){ reportInput.value = d.report_no; reportDirty = true; }
+        const descEl = document.getElementById('description'); if (descEl && d.description) descEl.innerHTML = d.description;
+        const recEl = document.getElementById('recommendation'); if (recEl && d.recommendation) recEl.innerHTML = d.recommendation;
+        const itemsFreeEl = document.getElementById('items_free'); if (itemsFreeEl && d.items_free) itemsFreeEl.innerHTML = d.items_free;
+        if (Array.isArray(d.chosen)){ chosen = d.chosen; renderChosen(); }
+        const nd = document.getElementById('next_pm_date'); if (nd && d.next_pm_date) nd.value = d.next_pm_date;
+        if (d.nextpm){ const r = document.querySelector(`input[name="nextpm"][value="${d.nextpm}"]`); if (r) r.checked = true; }
+      } catch (e) { /* ignore */ }
+    }
+    // panggil setelah data siap (forklifts/items dimuat)
+    loadDraft();
+    // auto-save hooks
+    ['tanggal','report_no','next_pm_date'].forEach(id=>{ const el=document.getElementById(id); if(el){ el.addEventListener('input', saveDraft); }});
+    const saveRte = (id)=>{ const el=document.getElementById(id); if(el){ el.addEventListener('input', saveDraft); el.addEventListener('keyup', saveDraft); }};
+    ['description','recommendation','items_free'].forEach(saveRte);
+    // forklift select/clear
+    if (fkClear) fkClear.addEventListener('click', saveDraft);
+    if (fkSuggest){ fkSuggest.addEventListener('click', saveDraft); }
+    // teknisi chips save setelah render/hapus
+    const origRenderTags = renderTechTags;
+    renderTechTags = function(){ origRenderTags(); saveDraft(); };
+    document.addEventListener('click', (e)=>{ if (e.target && e.target.matches('#teknisi_tags .x')) { setTimeout(saveDraft, 0); } });
+    // items chosen: save setelah renderChosen/qty berubah
+    const origRenderChosen = renderChosen;
+    renderChosen = function(){ origRenderChosen(); saveDraft(); };
+    document.querySelectorAll('input[name="nextpm"]').forEach(r=> r.addEventListener('change', ()=>{ recalcNextPM(); saveDraft(); }));
+    tanggalEl.addEventListener('change', ()=>{ recalcNextPM(); saveDraft(); });
+    window.addEventListener('beforeunload', saveDraft);
   })(); });
    </script>
 </body>
