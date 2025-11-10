@@ -58,7 +58,7 @@
     <h2>Items</h2>
     <div class="toolbar">
       <input id="search" placeholder="Cari..." />
-      <select id="rowsPerPage"><option>10</option><option>15</option><option>25</option></select>
+      <select id="rowsPerPage"><option>25</option><option>50</option><option>100</option><option value="all">All</option></select>
       <button id="addBtn">Tambah</button>
       <button id="bulkDeleteBtn">Hapus Terpilih</button>
       <button id="importExcel">Import Excel</button>
@@ -98,7 +98,9 @@
       { key:'__act', label:'Aksi' },
     ];
 
-    let page = 1; let rows = 10;
+    let page = 1; let rows = 25;
+    // Sorting untuk kolom ID (code)
+    let sortDir = 'asc';
     let currentRows = [];
 
     // helper untuk kapitalisasi status saat ditampilkan
@@ -131,6 +133,29 @@
         for (const p of parts){ if (s.indexOf(p)===-1) return false; }
         return true;
       });
+    }
+
+    // Comparator: urutkan berdasarkan kode item (prefix huruf lalu angka) naik
+    function sortByItemCodeAsc(a, b){
+      const ac0 = String(a?.code||'').trim();
+      const bc0 = String(b?.code||'').trim();
+      if (!ac0 && !bc0) return 0;
+      if (!ac0) return 1;
+      if (!bc0) return -1;
+      const ac = ac0.toUpperCase();
+      const bc = bc0.toUpperCase();
+      const ma = ac.match(/^([A-Z]+)(\d+)/);
+      const mb = bc.match(/^([A-Z]+)(\d+)/);
+      if (ma && mb){
+        if (ma[1] !== mb[1]) return ma[1].localeCompare(mb[1]);
+        const na = parseInt(ma[2], 10);
+        const nb = parseInt(mb[2], 10);
+        if (isNaN(na) && isNaN(nb)) return ac.localeCompare(bc);
+        if (isNaN(na)) return 1;
+        if (isNaN(nb)) return -1;
+        return na - nb;
+      }
+      return ac.localeCompare(bc);
     }
 
     function formHtml(item={}){
@@ -225,11 +250,16 @@
        perfStart && perfStart('items.render');
        const q = document.getElementById('search').value;
        const filtered = q ? fastFilter(data, q) : (data||[]);
+       const sorted = (filtered||[]).slice().sort((a,b)=> sortDir==='asc' ? sortByItemCodeAsc(a,b) : sortByItemCodeAsc(b,a));
        const start = (page-1)*rows; const end = start+rows;
-       const rowsData = filtered.slice(start,end).map(x=>Object.assign({}, x));
+       const rowsData = sorted.slice(start,end).map(x=>Object.assign({}, x));
        currentRows = rowsData;
        const header = '<thead><tr>' + columns.map(c=>{
          if (c.key==='__sel') return `<th class="sel-header" style="cursor:pointer" title="Pilih semua di halaman">Sel</th>`;
+         if (c.key==='code'){
+           const arrow = sortDir==='asc' ? '▲' : '▼';
+           return `<th class="sort-code" style="cursor:pointer" title="Urutkan ID">${c.label} ${arrow}</th>`;
+         }
          return `<th>${c.label}</th>`;
        }).join('') + '</tr></thead>';
        const body = '<tbody>' + rowsData.map(row=>{
@@ -253,7 +283,7 @@
            <td>${cb}</td>
            <td>${row.code||''}</td>
            <td>${row.nama||''}</td>
-           <td>${row.unit||''}</td>
+           <td>${row.unit||'Pcs'}</td>
            <td>${row.description||''}</td>
            <td>${statusCell}</td>
            <td>${actions}</td>
@@ -261,10 +291,35 @@
        }).join('') + '</tbody>';
        document.getElementById('table').innerHTML = `<table>${header}${body}</table>`;
   applyTablePerformanceHints('table');
+       const sortCodeHeader = document.querySelector('th.sort-code');
+       if (sortCodeHeader){ sortCodeHeader.onclick = ()=>{ sortDir = (sortDir==='asc' ? 'desc' : 'asc'); page=1; render(); }; }
   perfEnd && perfEnd('items.render', `q="${q}" n=${data?.length||0} filtered=${filtered.length} pageRows=${rowsData.length}`);
-  const pages = Math.max(1, Math.ceil(filtered.length/rows));
-       document.getElementById('pagination').innerHTML = Array.from({length: pages}, (_,i)=>`<button data-p='${i+1}' ${i+1===page?'style="font-weight:700"':''}>${i+1}</button>`).join(' ');
-       document.querySelectorAll('#pagination button').forEach(b=>b.onclick = ()=>{ page = parseInt(b.getAttribute('data-p')); render();});
+  const pages = Math.max(1, Math.ceil(sorted.length/rows));
+       document.getElementById('pagination').innerHTML = `
+         <div style="display:flex; gap:8px; align-items:center;">
+           <button id="prevBtn">Prev</button>
+           <span>Halaman</span>
+           <input id="pageInput" type="number" min="1" value="${page}" style="width:64px;" />
+           <span>/ ${pages}</span>
+           <button id="nextBtn">Next</button>
+         </div>`;
+       const prevBtn = document.getElementById('prevBtn');
+       const nextBtn = document.getElementById('nextBtn');
+       const pageInput = document.getElementById('pageInput');
+       if (prevBtn) prevBtn.disabled = page <= 1;
+       if (nextBtn) nextBtn.disabled = page >= pages;
+       if (prevBtn) prevBtn.onclick = ()=>{ if (page>1){ page = page-1; render(); } };
+       if (nextBtn) nextBtn.onclick = ()=>{ if (page<pages){ page = page+1; render(); } };
+       if (pageInput){
+         pageInput.onchange = ()=>{
+           let p = parseInt(pageInput.value, 10);
+           if (isNaN(p) || p<1) p = 1;
+           if (p>pages) p = pages;
+           page = p;
+           render();
+         };
+         pageInput.onkeydown = (e)=>{ if (e.key==='Enter'){ e.preventDefault(); pageInput.onchange(); } };
+       }
        // Select-all per halaman saat klik header "Sel"
        const selHeader = document.querySelector('th.sel-header');
        if (selHeader) selHeader.onclick = ()=>{
@@ -368,7 +423,7 @@
     }
 
     document.getElementById('search').oninput = debounce(render, 200);
-    document.getElementById('rowsPerPage').onchange = (e)=>{ rows = parseInt(e.target.value); page=1; render(); };
+    document.getElementById('rowsPerPage').onchange = (e)=>{ const val = String(e.target.value||''); rows = (val==='all') ? Number.MAX_SAFE_INTEGER : parseInt(val); page=1; render(); };
     // ... existing code ...
     const addBtn = document.getElementById('addBtn');
     if (addBtn){

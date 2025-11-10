@@ -109,8 +109,10 @@
         </div>
       </div>
       <div id="detail" style="margin-top:16px; display:none;"></div>
-      <div class="pagination" style="margin-top:12px;">
+      <div class="pagination" style="margin-top:12px; display:flex; gap:8px; align-items:center;">
         <button id="prevBtn">Prev</button>
+        <span>Halaman</span>
+        <input id="pageInput" type="number" min="1" value="1" style="width:64px;" />
         <span id="pageInfo"></span>
         <button id="nextBtn">Next</button>
       </div>
@@ -281,9 +283,11 @@
           document.getElementById('summary').textContent = `Menampilkan ${rows.length} dari total ${total} data.`;
           const page = Math.floor(offset / limit) + 1;
           const pages = Math.max(1, Math.ceil(total / limit));
-          const pageEl = document.getElementById('pageInfo'); if (pageEl) pageEl.textContent = `Halaman ${page} / ${pages}`;
-          document.getElementById('prevBtn').disabled = offset <= 0;
-          document.getElementById('nextBtn').disabled = offset + limit >= total;
+          const pageEl = document.getElementById('pageInfo'); if (pageEl) pageEl.textContent = ` / ${pages}`;
+          const pageInput = document.getElementById('pageInput'); if (pageInput) pageInput.value = String(page);
+          const prevBtn = document.getElementById('prevBtn'); const nextBtn = document.getElementById('nextBtn');
+          if (prevBtn) prevBtn.disabled = page <= 1;
+          if (nextBtn) nextBtn.disabled = page >= pages;
         }catch(e){ console.error('Gagal memuat arsip', e); alert('Gagal memuat arsip'); }
       }
 
@@ -301,8 +305,19 @@
           offset = 0;
           fetchAndRender();
         };
-        document.getElementById('prevBtn').onclick = () => { if (offset > 0) { offset = Math.max(0, offset - limit); fetchAndRender(); } };
-        document.getElementById('nextBtn').onclick = () => { offset = offset + limit; fetchAndRender(); };
+        document.getElementById('prevBtn').onclick = () => { const pages = Math.max(1, Math.ceil(total/limit)); const page = Math.floor(offset/limit)+1; if (page>1){ offset = Math.max(0, offset - limit); fetchAndRender(); } };
+        document.getElementById('nextBtn').onclick = () => { const pages = Math.max(1, Math.ceil(total/limit)); const page = Math.floor(offset/limit)+1; if (page<pages){ offset = offset + limit; fetchAndRender(); } };
+        const pageInput = document.getElementById('pageInput');
+        if (pageInput){
+          pageInput.addEventListener('change', ()=>{
+            const pages = Math.max(1, Math.ceil(total / limit));
+            let p = parseInt(pageInput.value, 10) || 1;
+            if (p < 1) p = 1; if (p > pages) p = pages;
+            offset = (p - 1) * limit;
+            fetchAndRender();
+          });
+          pageInput.addEventListener('keydown', (e)=>{ if (e.key === 'Enter'){ e.preventDefault(); pageInput.dispatchEvent(new Event('change')); } });
+        }
         // Pencarian realtime: debounce saat mengetik kata kunci
         const trigger = () => { offset = 0; fetchAndRender(); };
         const debouncedTrigger = debounce(trigger, 250);
