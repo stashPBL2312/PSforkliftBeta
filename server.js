@@ -580,6 +580,19 @@ function reportPrefixForPowertrain(powertrain){
   if (p.includes('diesel') || p.includes('lpg')) return 'W';
   return 'W';
 }
+// Generate next TMI code for ad-hoc items (e.g., TMI-1, TMI-2, ...)
+async function nextTmiCode(){
+  const rows = await all("SELECT code FROM items WHERE code LIKE 'TMI-%' ORDER BY id DESC LIMIT 200");
+  let max = 0;
+  for (const r of rows) {
+    const m = /^TMI-(\d+)$/.exec(String(r.code||''));
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (!isNaN(n) && n > max) max = n;
+    }
+  }
+  return `TMI-${max+1}`;
+}
 // Endpoint untuk autofill report number di form Jobs
 app.get('/api/jobs/next-report', requireLogin, async (req, res) => {
   try{
@@ -599,14 +612,54 @@ app.get('/api/jobs', requireLogin, async (req, res) => {
   res.json(rows);
 });
 app.post('/api/jobs', requireRole('admin','supervisor','teknisi'), async (req, res) => {
-  let { jenis, forklift_id, tanggal, teknisi, report_no, description, recommendation, items_used, next_pm } = req.body;
+  let { jenis, forklift_id, tanggal, teknisi, report_no, description, recommendation, items_used, next_pm, chosen_items } = req.body;
   try {
     if (!teknisi || !String(teknisi).trim()) return res.status(400).json({ error: 'Teknisi wajib diisi' });
+    // Validasi wajib item: untuk semua jenis pekerjaan, items_used harus terisi
+    if (['Workshop','PM','Lapangan'].includes(String(jenis||''))){
+      if (!items_used || !String(items_used).trim()){
+        return res.status(400).json({ error: 'Items wajib diisi' });
+      }
+    }
 
     // Pastikan variabel terdeklarasi
     let fk = null;
     let fkLoc = null;
     let prefix = 'W';
+
+    // Buat item baru otomatis untuk entri chosen_items yang ditandai baru
+    try {
+      if (Array.isArray(chosen_items)){
+        const techName = (req.session && req.session.user && (req.session.user.name || req.session.user.email)) || '';
+        for (const ci of chosen_items){
+          if (!ci) continue;
+          const isNew = !!ci.isNew || ci.id == null;
+          const namaBaru = String(ci.nama||'').trim();
+          if (isNew && namaBaru){
+            const code = await nextTmiCode();
+            const desc = techName ? `Input Oleh Teknisi ${techName}` : 'Input Oleh Teknisi';
+            try {
+              const rItem = await run("INSERT INTO items (code, nama, unit, description, status, created_at, updated_at) VALUES (?,?,?,?,?,datetime('now','+7 hours'),datetime('now','+7 hours'))", [code, namaBaru, null, desc, null]);
+              // Update objek chosen agar downstream memiliki id/code jika diperlukan
+              ci.id = rItem.id;
+              ci.code = code;
+              ci.isNew = false;
+            } catch (e) {
+              // Jika gagal karena konflik UNIQUE, coba ambil existing dan restore
+              try {
+                const ex = await get('SELECT id FROM items WHERE code=?', [code]);
+                if (ex && ex.id){
+                  await run("UPDATE items SET nama=?, unit=?, description=?, status=?, deleted_at=NULL, updated_at = datetime('now','+7 hours') WHERE id=?", [namaBaru, null, desc, null, ex.id]);
+                  ci.id = ex.id;
+                  ci.code = code;
+                  ci.isNew = false;
+                }
+              } catch (_) {}
+            }
+          }
+        }
+      }
+    } catch (_) {}
 
     if (jenis === 'Workshop') {
       fk = await get('SELECT powertrain, location FROM forklifts WHERE id=?', [forklift_id]);
@@ -617,7 +670,15 @@ app.post('/api/jobs', requireRole('admin','supervisor','teknisi'), async (req, r
         const rows = await all("SELECT report_no FROM records WHERE report_no LIKE ? AND pekerjaan='Workshop' ORDER BY id DESC LIMIT 100", [prefix + '%']);
         report_no = nextReportNo(prefix, rows);
       }
+    }
+
+    // Validasi unik report_no (tidak boleh sama pada Jobs yang aktif)
+    if (report_no) {
+      const dup = await get('SELECT id FROM jobs WHERE report_no=? AND deleted_at IS NULL', [report_no]);
+      if (dup) {
+        return res.status(400).json({ error: 'Report number sudah digunakan' });
       }
+    }
 
       const r = await run("INSERT INTO jobs (jenis,forklift_id,tanggal,teknisi,report_no,description,recommendation,items_used,next_pm,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,datetime('now','+7 hours'),datetime('now','+7 hours'))", [jenis, forklift_id, tanggal, teknisi, report_no, description, recommendation, items_used, next_pm || null]);
 
@@ -639,6 +700,14 @@ app.put('/api/jobs/:id', requireRole('admin','supervisor'), async (req, res) => 
   try {
     // Ambil data lama untuk sinkronisasi ke records
     const old = await get('SELECT report_no, forklift_id FROM jobs WHERE id=?', [req.params.id]);
+
+    // Validasi unik report_no ketika diubah
+    if (report_no) {
+      const conflict = await get('SELECT id FROM jobs WHERE report_no=? AND id<>? AND deleted_at IS NULL', [report_no, req.params.id]);
+      if (conflict) {
+        return res.status(400).json({ error: 'Report number sudah digunakan' });
+      }
+    }
 
     await run("UPDATE jobs SET jenis=?, forklift_id=?, tanggal=?, teknisi=?, report_no=?, description=?, recommendation=?, items_used=?, next_pm=?, updated_at = datetime('now','+7 hours') WHERE id=?", [jenis,forklift_id,tanggal,teknisi,report_no,description,recommendation,items_used,next_pm || null, req.params.id]);
 

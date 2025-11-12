@@ -181,7 +181,7 @@
      .input-suggest-wrap.fk input { padding-left:28px; padding-right:8px; }
      /* Qty input placed before adding item */
      #itemQty { width:72px; }
-     .suggest { position:absolute; z-index:1000; top: calc(100% + 4px); left:0; width:100%; border:1px solid #e0e0e0; border-radius:6px; max-height:96px; overflow:auto; background:#fff; box-shadow:0 6px 16px rgba(0,0,0,0.12); }
+     .suggest { position:absolute; z-index:1000; top: calc(100% + 4px); left:0; width:100%; border:1px solid #e0e0e0; border-radius:6px; max-height:320px; min-height:120px; overflow:auto; background:#fff; box-shadow:0 6px 16px rgba(0,0,0,0.12); }
      .suggest .item { padding:6px 8px; cursor:pointer; border-bottom:1px solid #f5f5f5; }
      .suggest .item:hover { background:#f6f9ff; }
      /* Dark mode: tone down suggest dropdown contrast */
@@ -203,7 +203,7 @@
       .rte-toolbar { flex-wrap: wrap; }
       .input-suggest-wrap { width:100%; }
       /* Tinggikan suggest dan buat lebih mudah discroll di mobile */
-      .suggest { max-height: 35vh; -webkit-overflow-scrolling: touch; }
+      .suggest { max-height: 50vh; -webkit-overflow-scrolling: touch; }
        #itemList { max-height: 50vh !important; overflow: auto !important; }
     }
   </style>
@@ -293,6 +293,7 @@
             <input id="itemQty" type="number" min="1" value="1" />
           </div>
         </div>
+        <div id="itemAddPrompt" role="button" tabindex="0" style="display:none; margin-top:6px; padding:6px 8px; border-radius:4px; cursor:pointer; font-weight:600; font-size:12px; color:#fff; background:#1e90ff;">Item tidak ditemukan, tambahkan item baru?</div>
         <div id="itemList" style="display:none;"></div>
         <div id="chosenItems" style="margin-top:6px;"></div>
       </div>
@@ -320,7 +321,12 @@
     const items = await api('/api/items');
     // Indexing untuk pencarian cepat (_q) tanpa mengubah perilaku
     function indexFk(rows){
-      try { (rows||[]).forEach(r=>{ const vals=[r.location,r.eq_no,r.brand,r.type,r.powertrain]; r._q = vals.map(v=> String(v||'').toLowerCase()).join(' | '); }); } catch {}
+      try {
+        (rows||[]).forEach(r=>{
+          const vals=[r.location,r.owner,r.eq_no,r.serial,r.brand,r.type,r.powertrain];
+          r._q = vals.map(v=> String(v||'').toLowerCase()).join(' | ');
+        });
+      } catch {}
       return rows;
     }
     function indexItems(rows){
@@ -348,11 +354,35 @@
       });
     }
     function fkLabel(f){ return [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - '); }
+    // Pencarian forklift yang lebih intuitif: token-based dan mengabaikan spasi/tanda hubung
+    function normalizeNoSpace(str){ return String(str||'').toLowerCase().replace(/[\s-]+/g, ''); }
+    function makeTokens(q){
+      const base = String(q||'').trim().toLowerCase();
+      const bySpace = base.split(/\s+/).filter(Boolean);
+      const byGroup = (base.match(/[a-z]+|\d+/g) || []);
+      // gabungkan dan unikkan
+      const set = new Set([...bySpace, ...byGroup]);
+      return Array.from(set);
+    }
+    function matchesForklift(f, q){
+      const tokens = makeTokens(q);
+      if (!tokens.length) return true;
+      const fields = [f.location, f.owner, f.eq_no, f.serial, f.brand, f.type, f.powertrain];
+      const normFields = fields.map(normalizeNoSpace);
+      const joined = normalizeNoSpace(fields.map(v=> String(v||'')).join(' | '));
+      const qNoSpace = normalizeNoSpace(q);
+      // Cocokkan: seluruh query tanpa spasi ada di gabungan, ATAU semua token ada di salah satu field
+      if (qNoSpace && joined.includes(qNoSpace)) return true;
+      return tokens.every(tok => {
+        const nt = normalizeNoSpace(tok);
+        return normFields.some(nf => nf.includes(nt));
+      });
+    }
     function filterFk(q){
-      const s = String(q||'').toLowerCase();
-      if (!s) return fkCache;
-      try { return fkCache.filter(f=> String(f._q||'').includes(s)); }
-      catch { return fkCache.filter(f=> [f.location, f.eq_no, f.brand, f.type, f.powertrain].some(v=> String(v||'').toLowerCase().includes(s)) ); }
+      const s = String(q||'');
+      if (!s.trim()) return fkCache;
+      try { return fkCache.filter(f=> matchesForklift(f, s)); }
+      catch { return fkCache.filter(f=> matchesForklift(f, s)); }
     }
     function renderFkSuggest(){
       if (!fkInput || !fkSuggest) return;
@@ -541,12 +571,27 @@
     document.addEventListener('selectionchange', updateToolbarState);
 
     let chosen = [];
+    let rowSeq = 1;
 
     // Item suggest (dropdown) mirip forklift/teknisi
     const itemInput = document.getElementById('itemSearch');
     const itemSuggest = document.getElementById('itemSuggest');
+    const itemAddPrompt = document.getElementById('itemAddPrompt');
     ;[itemSuggest].forEach(el=>{ try{ if(el && !el.dataset.perfApplied){ el.style.contentVisibility = el.style.contentVisibility || 'auto'; el.style.containIntrinsicSize = el.style.containIntrinsicSize || '120px'; el.dataset.perfApplied='1'; } }catch{} });
     const itemQtyEl = document.getElementById('itemQty');
+
+    function addNewItemFromPrompt(){
+      try {
+        const name = (itemInput && itemInput.value ? String(itemInput.value).trim() : '');
+        if (!name) return;
+        let qty = 1;
+        if (itemQtyEl){ qty = parseInt(itemQtyEl.value||'1',10); if (!qty || qty<1) qty = 1; }
+        chosen.push({ rowId: rowSeq++, id: null, code: '', nama: name, qty, isNew: true });
+        renderChosen();
+        if (itemInput) itemInput.value = '';
+        if (itemAddPrompt) itemAddPrompt.style.display='none';
+      } catch {}
+    }
 
     function filterItems(q){
       const s = String(q||'').toLowerCase();
@@ -558,12 +603,29 @@
     function renderItemSuggest(){
       if (!itemInput || !itemSuggest) return;
       const list = filterItems(itemInput.value);
-      if (!Array.isArray(list) || list.length===0){ itemSuggest.style.display='none'; itemSuggest.innerHTML=''; return; }
+      const q = (itemInput.value||'').trim();
+      if (!Array.isArray(list) || list.length===0){
+        // Sembunyikan dropdown dan tampilkan prompt klik di bawah input
+        itemSuggest.style.display='none';
+        itemSuggest.innerHTML='';
+        if (itemAddPrompt){
+          if (q.length>0){
+            itemAddPrompt.style.display='block';
+            itemAddPrompt.textContent = 'Item tidak ditemukan, tambahkan item baru?';
+            // Handler dipasang permanen di inisialisasi; di sini hanya mengatur visibilitas.
+          } else {
+            itemAddPrompt.style.display='none';
+          }
+        }
+        return;
+      }
+      if (itemAddPrompt) itemAddPrompt.style.display='none';
       itemSuggest.innerHTML = list.map(i=>{
         const unavailable = String(i.status||'').toLowerCase()==='unavailable';
         const rowStyle = unavailable ? 'opacity:0.5;' : '';
         const statusBadge = unavailable ? " <span class='muted'>(unavailable)</span>" : '';
-        return `<div class="item" data-id="${i.id}" data-unavail="${unavailable?1:0}" style="${rowStyle}">${i.code} - ${i.nama}${statusBadge}</div>`;
+        // Sembunyikan kode item di dropdown untuk Jobs
+        return `<div class="item" data-id="${i.id}" data-unavail="${unavailable?1:0}" style="${rowStyle}">${i.nama}${statusBadge}</div>`;
       }).join('');
       itemSuggest.style.display='block';
       // drag guard untuk mobile
@@ -583,7 +645,7 @@
           const f = items.find(x=>x.id===id); if (!f) return;
           let qty = 1; if (itemQtyEl){ qty = parseInt(itemQtyEl.value||'1',10); if (!qty || qty<1) qty = 1; }
           const exist = chosen.find(c=>c.id===id);
-          if (exist) { exist.qty += qty; } else { chosen.push({ id, code: f.code, nama: f.nama, qty }); }
+          if (exist) { exist.qty += qty; } else { chosen.push({ rowId: rowSeq++, id, code: f.code, nama: f.nama, qty }); }
           renderChosen();
           itemInput.value = '';
           if (itemQtyEl) { /* keep user input or reset? choose to keep as-is */ }
@@ -599,33 +661,41 @@
       itemInput.addEventListener('click', ()=> renderItemSuggest());
       itemInput.addEventListener('keydown', (e)=>{
         if (e.key==='Enter'){
+          if (itemAddPrompt && itemAddPrompt.style.display!=='none'){ addNewItemFromPrompt(); e.preventDefault(); return; }
           const first = itemSuggest && itemSuggest.querySelector('.item[data-unavail="0"]');
           if (first){ first.click(); e.preventDefault(); }
         }
         if (e.key==='Escape'){ if (itemSuggest) itemSuggest.style.display='none'; }
       });
       document.addEventListener('click', (e)=>{ if (itemSuggest && !itemSuggest.contains(e.target) && e.target!==itemInput){ itemSuggest.style.display='none'; } });
+      // Pasang handler untuk prompt biru sekali saja
+      if (itemAddPrompt && !itemAddPrompt.dataset.hook){
+        itemAddPrompt.addEventListener('click', ()=> addNewItemFromPrompt(), { passive: true });
+        itemAddPrompt.addEventListener('keydown', (e)=>{ if (e.key==='Enter' || e.key===' ') { e.preventDefault(); addNewItemFromPrompt(); } }, { passive: false });
+        itemAddPrompt.addEventListener('pointerdown', (e)=>{ if (e.pointerType==='touch'){ e.preventDefault(); addNewItemFromPrompt(); } }, { passive: false });
+        itemAddPrompt.dataset.hook='1';
+      }
     }
 
     function renderChosen(){
       const html = chosen.map(c=>`<div class='chosen-row'>
-        <div class='label'>${c.code} - ${c.nama}</div>
-        <input class='qty' type='number' min='1' value='${c.qty}' data-qty='${c.id}' />
-        <button class='xbtn' aria-label='Hapus item' title='Hapus' data-rem='${c.id}'>&times;</button>
+        <div class='label'>${c.nama}</div>
+        <input class='qty' type='number' min='1' value='${c.qty}' data-row='${c.rowId}' />
+        <button class='xbtn' aria-label='Hapus item' title='Hapus' data-row='${c.rowId}'>&times;</button>
       </div>`).join('');
       document.getElementById('chosenItems').innerHTML = html;
       // handlers qty
-      document.querySelectorAll("input[data-qty]").forEach(inp=>{
+      document.querySelectorAll("input[data-row]").forEach(inp=>{
         inp.onchange = (e)=>{
-          const id = +inp.getAttribute('data-qty');
+          const rid = parseInt(inp.getAttribute('data-row'),10);
           let v = parseInt(inp.value||'1', 10); if (!v || v<1) v = 1; inp.value = String(v);
-          const row = chosen.find(x=>x.id===id); if (row) row.qty = v;
+          const row = chosen.find(x=>x.rowId===rid); if (row) row.qty = v;
           try{ if (typeof saveDraft==='function') saveDraft(); }catch{}
         };
       });
       // handlers remove (tap-friendly)
-      document.querySelectorAll('button[data-rem]').forEach(b=>{
-        const removeFn = ()=>{ const id = +b.getAttribute('data-rem'); chosen = chosen.filter(c=>c.id!==id); renderChosen(); };
+      document.querySelectorAll('button[data-row]').forEach(b=>{
+        const removeFn = ()=>{ const rid = parseInt(b.getAttribute('data-row'),10); chosen = chosen.filter(c=>c.rowId!==rid); renderChosen(); };
         b.addEventListener('click', removeFn, { passive: true });
         b.addEventListener('pointerdown', (e)=>{ if (e.pointerType === 'touch') { e.preventDefault(); removeFn(); } }, { passive: false });
       });
@@ -774,6 +844,13 @@
       const tanggal = document.getElementById('tanggal').value;
       if (!tanggal){ alert('Tanggal wajib diisi.'); document.getElementById('tanggal').focus(); return; }
       if (!jobForkliftId){ alert('Forklift wajib dipilih dari daftar.'); document.getElementById('fk_input').focus(); return; }
+      // Validasi: item katalog wajib dipilih minimal 1 untuk semua jenis pekerjaan
+      const needsItems = (jenis==='Workshop' || jenis==='PM' || jenis==='Lapangan');
+      if (needsItems && (!Array.isArray(chosen) || chosen.length===0)){
+        alert('Item wajib dipilih (minimal 1). Silakan pilih dari katalog.');
+        try { if (itemInput) { itemInput.focus(); renderItemSuggest(); } } catch {}
+        return;
+      }
       const forklift_id = parseInt(jobForkliftId||0);
       const teknisi = selectedTech.map(o=>o.value).join(', ');
       const report_no = document.getElementById('report_no').value;
@@ -782,10 +859,10 @@
       let items_used = '';
       let next_pm = null;
       if (jenis==='Workshop') {
-        items_used = chosen.map(c=>`${c.code} ${c.nama} x ${c.qty}`).join(', ');
+        items_used = chosen.map(c=>`${c.code ? (c.code+" ") : ''}${c.nama} x ${c.qty}`).join(', ');
       } else if (jenis==='PM') {
         // PM juga menggunakan katalog item (bukan free text)
-        items_used = chosen.map(c=>`${c.code} ${c.nama} x ${c.qty}`).join(', ');
+        items_used = chosen.map(c=>`${c.code ? (c.code+" ") : ''}${c.nama} x ${c.qty}`).join(', ');
         // Radio atau custom date untuk PM
         const radioSel = document.querySelector('input[name="nextpm"]:checked');
         const customDate = document.getElementById('next_pm_date').value;
@@ -801,10 +878,11 @@
         }
       } else if (jenis==='Lapangan') {
         // Lapangan juga menggunakan katalog item (bukan free text)
-        items_used = chosen.map(c=>`${c.code} ${c.nama} x ${c.qty}`).join(', ');
+        items_used = chosen.map(c=>`${c.code ? (c.code+" ") : ''}${c.nama} x ${c.qty}`).join(', ');
       }
 
-      const payload = { jenis, tanggal, forklift_id, teknisi, report_no, description, recommendation, items_used, next_pm };
+      const chosen_items = chosen.map(c=>({ id: c.id || null, nama: c.nama || '', qty: c.qty || 1, isNew: !!c.isNew }));
+      const payload = { jenis, tanggal, forklift_id, teknisi, report_no, description, recommendation, items_used, next_pm, chosen_items };
       try {
         const r = await api('/api/jobs', { method:'POST', body: payload });
         alert('Tersimpan. Report No: '+r.report_no);
@@ -832,7 +910,7 @@
           description: getRteValue('description'),
           recommendation: getRteValue('recommendation'),
           items_free: getRteValue('items_free'),
-          chosen: Array.isArray(chosen) ? chosen.map(c=>({id:c.id, code:c.code, nama:c.nama, qty:c.qty})) : [],
+          chosen: Array.isArray(chosen) ? chosen.map(c=>({rowId:c.rowId, id:c.id, code:c.code, nama:c.nama, qty:c.qty, isNew: !!c.isNew})) : [],
           next_pm_date: document.getElementById('next_pm_date')?.value || '',
           nextpm: nextpmSel ? nextpmSel.value : ''
         };
@@ -853,7 +931,12 @@
         const descEl = document.getElementById('description'); if (descEl && d.description) descEl.innerHTML = d.description;
         const recEl = document.getElementById('recommendation'); if (recEl && d.recommendation) recEl.innerHTML = d.recommendation;
         const itemsFreeEl = document.getElementById('items_free'); if (itemsFreeEl && d.items_free) itemsFreeEl.innerHTML = d.items_free;
-        if (Array.isArray(d.chosen)){ chosen = d.chosen; renderChosen(); }
+        if (Array.isArray(d.chosen)){
+          chosen = d.chosen.map(c=>({ rowId: c.rowId||null, id: c.id||null, code: c.code||'', nama: c.nama||'', qty: c.qty||1, isNew: !!c.isNew }));
+          // Atur sequence agar unik setelah load draft
+          try{ const maxRow = Math.max(0, ...chosen.map(x=> (typeof x.rowId==='number' ? x.rowId : 0))); rowSeq = (isFinite(maxRow) ? maxRow : 0) + 1; }catch{ rowSeq = 1; }
+          renderChosen();
+        }
         const nd = document.getElementById('next_pm_date'); if (nd && d.next_pm_date) nd.value = d.next_pm_date;
         if (d.nextpm){ const r = document.querySelector(`input[name="nextpm"][value="${d.nextpm}"]`); if (r) r.checked = true; }
       } catch (e) { /* ignore */ }
