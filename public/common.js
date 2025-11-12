@@ -151,6 +151,11 @@ function injectResponsiveStyles(){
     .topbar .right #themeToggle { padding:6px 8px; }
     .topbar .right #logoutBtn { padding:6px 8px; }
 
+    /* Kompakkan semua tabel agar seragam seperti forklift.html */
+    #table { overflow-x:auto; }
+    #table table th, #table table td { padding:6px !important; font-size:13px !important; line-height:1.35; }
+    .table-scroll table th, .table-scroll table td { padding:6px !important; font-size:13px !important; line-height:1.35; }
+
     /* Mobile drawer panel */
     .mobile-drawer .panel { width:78%; max-width:300px; height:100%; background:#fff; color:#111827; box-shadow:0 10px 30px rgba(0,0,0,.35); padding:14px; display:flex; flex-direction:column; }
     [data-theme="dark"] .mobile-drawer .panel { background:#0f172a; color:#e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.6); }
@@ -190,6 +195,9 @@ function injectResponsiveStyles(){
     .toolbar input[type="text"], .toolbar input[type="search"], .toolbar select { padding:5px 8px; font-size:13px; }
     .toolbar button { padding:5px 8px; font-size:13px; }
     h2 { font-size:18px; margin:8px 0; }
+    /* Tabel tetap kompak di layar sangat kecil */
+    #table table th, #table table td { padding:6px !important; font-size:13px !important; }
+    .table-scroll table th, .table-scroll table td { padding:6px !important; font-size:13px !important; }
   }
 
   /* Metrics cards horizontal scroll on narrow widths */
