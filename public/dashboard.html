@@ -7,6 +7,7 @@
   <script src="/common.js" defer></script>
   <style>
     body { font-family: system-ui, Arial, sans-serif; margin:0; background:#f5f7fb; }
+    html, body { max-width:100%; overflow-x:hidden; }
     .wrap { max-width:1100px; margin:20px auto; padding:0 16px; }
     .grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; }
     .card { background:#fff; padding:14px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,.06); }
@@ -34,22 +35,55 @@
     [data-theme="dark"] .status-upcoming { background:rgba(134,239,172,0.12); color:#86efac; }
 
     /* Responsive adjustments */
+    /* Toolbar default (desktop) */
+    .pm-toolbar { display:flex; align-items:center; gap:8px; }
+    .pm-toolbar h3 { margin:0; }
+    .pm-toolbar select, .pm-toolbar input { height:34px; }
+    #rowsPerPage { width:80px; }
+
     @media (max-width: 768px){
-      .wrap { margin:12px auto; padding:0 12px; }
+      .wrap { margin:12px auto; padding:0 10px; }
       .card > div:first-child { flex-wrap: wrap; gap: 8px; }
       #pmTable { overflow-x:auto; }
       #pagination { display:flex; flex-wrap: wrap; gap: 6px; }
-      /* Keep 3 columns on tablets/phones and scale content */
-      .grid { grid-template-columns: repeat(3, 1fr) !important; gap: 8px; grid-auto-flow: row !important; overflow-x: visible !important; }
-      .grid .card { padding: 10px; }
-      .grid .card > div:nth-child(2) { font-size: 18px !important; }
-      .muted { font-size: 11px; }
-    }
-    @media (max-width: 480px){
-      /* Extra small phones: still 3 columns, tighter spacing */
-      .grid { grid-template-columns: repeat(3, 1fr) !important; gap: 6px; grid-auto-flow: row !important; overflow-x: visible !important; }
+      /* Use 2 columns so cards tidak dempet di sisi kanan */
+      .grid { grid-template-columns: repeat(2, 1fr) !important; gap: 8px; grid-auto-flow: row !important; overflow-x: visible !important; }
       .grid .card { padding: 8px; }
       .grid .card > div:nth-child(2) { font-size: 16px !important; }
+      .muted { font-size: 10px; }
+
+      /* Jadwal PM toolbar in mobile: grid 2 kolom simetris */
+      .pm-toolbar { display:grid; grid-template-columns: 1fr 1fr; column-gap:10px; row-gap:8px; align-items:stretch; }
+      .pm-toolbar h3 { grid-column: 1 / -1; margin:0; }
+      .pm-toolbar select, .pm-toolbar input { height:36px; font-size:14px; width:100%; box-sizing:border-box; }
+      #search { width:100%; }
+      #rowsPerPage { justify-self: stretch; }
+
+      /* Sticky first three columns for PM table on mobile; lebih ramping supaya kolom ke-4 terlihat default */
+      #pmTable { --w0: 120px; --w1: 104px; --w2: 88px; }
+      #pmTable .table-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+      #pmTable table th.sticky-col, #pmTable table td.sticky-col { position: sticky; background:#fff; z-index: 2; }
+      [data-theme="dark"] #pmTable table th.sticky-col, [data-theme="dark"] #pmTable table td.sticky-col { background:#111827; }
+      #pmTable table th.col-0, #pmTable table td.col-0 { min-width: var(--w0); width: var(--w0); left: 0; }
+      #pmTable table th.col-1, #pmTable table td.col-1 { min-width: var(--w1); width: var(--w1); left: var(--w0); }
+      #pmTable table th.col-2, #pmTable table td.col-2 { min-width: var(--w2); width: var(--w2); left: calc(var(--w0) + var(--w1)); }
+      /* Smaller font/padding supaya muat lebih banyak konten */
+      #pmTable table th, #pmTable table td { padding: 6px; font-size: 13px; }
+      /* Ensure later columns can extend beyond viewport while page itself stays fixed;
+         sisakan ruang awal untuk kolom ke-4 terlihat default */
+      #pmTable .table-scroll table { min-width: calc(var(--w0) + var(--w1) + var(--w2) + 300px); }
+    }
+    @media (max-width: 480px){
+      /* Extra small phones: tetap 2 kolom vertikal, tanpa scroll horizontal, semua kartu utuh */
+      .grid { grid-template-columns: repeat(2, 1fr) !important; gap: 6px; grid-auto-flow: row !important; overflow-x: visible !important; }
+      .grid .card { padding: 6px; }
+      .grid .card > div:nth-child(2) { font-size: 15px !important; }
+      .muted { font-size: 10px; }
+      /* Toolbar extra small: kompak */
+      .pm-toolbar select, .pm-toolbar input { height:34px; font-size:13px; width:100%; box-sizing:border-box; }
+      #rowsPerPage { justify-self: stretch; }
+      /* Narrower sticky widths for small phones */
+      #pmTable { --w0: 114px; --w1: 100px; --w2: 84px; }
     }
   </style>
 </head>
@@ -60,9 +94,10 @@
     <div id="metrics" class="grid"></div>
 
     <div class="card" style="margin-top:16px;">
-      <div style="display:flex; align-items:center; gap:8px;">
-        <h3 style="margin:0;">Jadwal PM</h3>
+      <div class="pm-toolbar">
+        <h3>Jadwal PM</h3>
         <select id="pmCategory" title="Kategori PM">
+          <option value="all" selected>Semua</option>
           <option value="late">Terlambat</option>
           <option value="week">Minggu Ini</option>
           <option value="upcoming">Akan Datang</option>
@@ -72,7 +107,7 @@
           <option value="electric">Electric</option>
           <option value="diesel">Diesel</option>
         </select>
-        <input id="search" placeholder="Cari..." style="margin-left:auto;" />
+        <input id="search" placeholder="Cari..." />
         <select id="rowsPerPage">
           <option>10</option><option>15</option><option>25</option>
         </select>
@@ -175,6 +210,26 @@
         const src = Array.isArray(data.pmMonth) ? data.pmMonth : [];
         return byDateRange(src, ({d,today})=> d >= today);
       }
+      if (cat==='all'){
+        // Semua: ambil seluruh PM (late, week, upcoming) dari allJobs bila tersedia
+        if (Array.isArray(allJobs) && allJobs.length){
+          const list = allJobs.filter(j => String(j.jenis||'').toUpperCase() === 'PM' && j.next_pm);
+          return normalizeList(list);
+        }
+        // Fallback: gabungkan semua sumber yang tersedia lalu dedupe berdasarkan forklift+jadwal
+        const combined = [];
+        if (Array.isArray(data.pmLate)) combined.push(...data.pmLate);
+        if (Array.isArray(data.pmWeek)) combined.push(...data.pmWeek);
+        if (Array.isArray(data.pmUpcoming)) combined.push(...data.pmUpcoming);
+        const norm = normalizeList(combined);
+        const seen = new Set();
+        const out = [];
+        for (const r of norm){
+          const key = `${r.forklift}|${r.jadwal_pm}`;
+          if (seen.has(key)) continue; seen.add(key); out.push(r);
+        }
+        return out;
+      }
       // fallback umum
       return normalizeList([]);
     }
@@ -194,17 +249,28 @@
     ];
     document.getElementById('metrics').innerHTML = m.map(x=>`<div class='card'><div class='muted'>${x.label}</div><div style='font-size:22px; font-weight:700;'>${x.value}</div><div class='muted' style='margin-top:4px;'>${x.desc}</div></div>`).join('');
 
-    let category = (document.getElementById('pmCategory')?.value) || 'late';
+    let category = (document.getElementById('pmCategory')?.value) || 'all';
+
+    function classifyPM(row){
+      const d = parseISODate(row.jadwal_pm); if(!d) return 'unknown';
+      const today = new Date(); today.setHours(0,0,0,0); d.setHours(0,0,0,0);
+      const next7 = new Date(today); next7.setDate(today.getDate()+7);
+      if (d < today) return 'late';
+      if (d <= next7) return 'week';
+      return 'upcoming';
+    }
     const columns = [
-      { key:'forklift', label:'Forklift' },
-      { key:'jadwal_pm', label:'Jadwal PM', render: r => {
-          const cls = category==='late'? 'late-date' : (category==='week'? 'week-date' : 'upcoming-date');
-          return `<span class="${cls}">${r.jadwal_pm}</span>`;
+      { key:'forklift', label:'Forklift', class:'sticky-col col-0' },
+      { key:'jadwal_pm', label:'Jadwal PM', class:'sticky-col col-1', render: r => {
+          const st = (category==='all' ? classifyPM(r) : category);
+          const cls = st==='late'? 'late-date' : (st==='week'? 'week-date' : 'upcoming-date');
+          return `<span class="${cls}">${r.jadwal_pm||''}</span>`;
         }
       },
-      { key:'status', label:'Status', render: r => {
-          const text = category==='late'? 'Terlambat' : (category==='week'? 'Minggu Ini' : 'Akan Datang');
-          const scls = category==='late'? 'status-badge status-late' : (category==='week'? 'status-badge status-week' : 'status-badge status-upcoming');
+      { key:'status', label:'Status', class:'sticky-col col-2', render: r => {
+          const st = (category==='all' ? classifyPM(r) : category);
+          const text = st==='late'? 'Terlambat' : (st==='week'? 'Minggu Ini' : 'Akan Datang');
+          const scls = st==='late'? 'status-badge status-late' : (st==='week'? 'status-badge status-week' : 'status-badge status-upcoming');
           return `<span class="${scls}">${text}</span>`;
         }
       },
@@ -216,7 +282,8 @@
     const datasetLate = indexRows(getDatasetForCategory('late'));
     const datasetWeek = indexRows(getDatasetForCategory('week'));
     const datasetUpcoming = indexRows(getDatasetForCategory('upcoming'));
-    let pmData = (category==='late'?datasetLate:(category==='week'?datasetWeek:datasetUpcoming));
+    const datasetAll = indexRows(getDatasetForCategory('all'));
+    let pmData = (category==='late'?datasetLate:(category==='week'?datasetWeek:(category==='upcoming'?datasetUpcoming:datasetAll)));
     let page = 1; let rows = 10;
 
     function render(){
@@ -240,7 +307,7 @@
     const pmCatEl = document.getElementById('pmCategory');
     if (pmCatEl){ pmCatEl.onchange = ()=>{
       category = pmCatEl.value; page=1;
-      pmData = (category==='late'?datasetLate:(category==='week'?datasetWeek:datasetUpcoming));
+      pmData = (category==='late'?datasetLate:(category==='week'?datasetWeek:(category==='upcoming'?datasetUpcoming:datasetAll)));
       render();
     }; }
     const ptEl = document.getElementById('ptFilter');

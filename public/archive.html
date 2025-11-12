@@ -11,15 +11,27 @@
       .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; margin-bottom:12px; }
       .toolbar label { display:flex; flex-direction:column; font-size:12px; gap:4px; }
       .toolbar input, .toolbar select { padding:6px 8px; }
+      /* Actions container (desktop: dorong ke kanan) */
+      .toolbar .actions { margin-left:auto; display:flex; gap:8px; align-items:center; }
+      .toolbar .actions button, .toolbar .actions select { height:36px; min-height:36px; }
+      /* Pastikan teks tombol sejajar ke kiri agar konsisten */
+      .toolbar .actions button { display:flex; align-items:center; justify-content:flex-start; gap:6px; text-align:left; }
+      /* Kelompok Rows agar label dan dropdown berdampingan */
+      .toolbar .rows-group { display:inline-flex; align-items:center; gap:8px; height:36px; }
+      .toolbar .rows-group select { width:96px; min-width:96px; height:36px; }
       .table-scroll { overflow:auto; border:1px solid #ddd; border-radius:8px; }
       /* Border tabel ala records (terlihat jelas di light mode) */
       #table table { width:100%; border-collapse:collapse; }
       #table table th, #table table td { text-align:left; padding:8px; border-bottom:1px solid #eee; }
+      #table table td { line-height:1.4; }
       #table table th { background:#fafafa; }
       [data-theme="dark"] #table table th, [data-theme="dark"] #table table td { border-bottom:1px solid #1f2937; }
       [data-theme="dark"] #table table th { background:#0f172a; }
       .pagination { display:flex; gap:8px; align-items:center; }
       .pagination button { padding:6px 10px; }
+      /* Seragamkan ukuran tombol di tabel dan hentikan kolom aksi megar */
+      #table table th:last-child, #table table td:last-child { white-space: nowrap; width: 1%; }
+      #table button { height:32px; min-height:32px; padding:0 10px; box-sizing:border-box; display:flex; align-items:center; gap:6px; line-height:1; white-space:nowrap; }
       /* Ikon kalender kustom seperti di records */
       input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0 !important; filter: none !important; }
       .date-input-wrap { position: relative; display: inline-block; color:#111; }
@@ -42,6 +54,55 @@
       .tag { display:inline-flex; align-items:center; padding:2px 8px; border-radius:12px; background:#eef2ff; color:#111; font-size:12px; }
       .tag .remove { appearance:none; border:none; background:transparent; color:inherit; cursor:pointer; margin-left:6px; font-weight:bold; line-height:1; }
       [data-theme="dark"] .tag { background:#1f2937; color:#e5e7eb; }
+      /* Responsive: mobile-friendly */
+      @media (max-width: 768px){
+        .container { padding:0 12px; }
+        .toolbar { align-items:flex-start; flex-direction:column; }
+        /* Batasi lebar field agar tidak tampak terlalu lebar; center alignment */
+        .toolbar label, .toolbar .filter-group { width:100%; max-width:520px; align-self:center; }
+        .toolbar .date-input-wrap { width:100%; }
+        #table { overflow-x:auto; }
+        /* Neutralisasi aturan width per kolom agar tidak bentrok saat re-order dan lebih rapi */
+        #table table th, #table table td { width:auto !important; }
+        .pagination { flex-wrap:wrap; gap:6px; }
+        /* Actions di mobile: grid dua kolom dan center */
+        .toolbar .actions { margin-left:0; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; width:100%; align-items:start; }
+        .toolbar .actions button { width:100%; }
+        /* Jadikan Rows satu baris penuh di atas tombol agar rapi */
+        .toolbar .rows-group { grid-column:1 / -1; }
+      }
+    </style>
+    <!-- Tambahan style untuk perbaikan ikon tanggal & mobile sticky -->
+    <style>
+      /* Samakan tinggi kontrol untuk alignment dan ikon kalender center */
+      .toolbar input, .toolbar select, .toolbar button { height:36px; min-height:36px; }
+      /* Pastikan input tanggal penuh dan ikon di dalam kolom */
+      .date-input-wrap input[type="date"] { width:100%; box-sizing:border-box; height:36px; padding-right:26px; }
+      /* Sticky columns visual fix (hindari overlap saat scroll) */
+      .sticky-th, .sticky-cell { background:#fff !important; }
+      [data-theme="dark"] .sticky-th, [data-theme="dark"] .sticky-cell { background:#0f172a !important; }
+      .sticky-th { z-index:4 !important; box-shadow: 2px 0 0 #eee; }
+      .sticky-cell { z-index:2 !important; box-shadow: 2px 0 0 #eee; }
+      /* Chips gaya records */
+      .chips { display:flex; flex-wrap:wrap; gap:6px; }
+      .chip { display:inline-flex; align-items:center; gap:6px; background:#f0f0f0; border:1px solid #e0e0e0; border-radius:16px; padding:2px 8px; font-size:12px; white-space:nowrap; }
+      .chip .x { border:none; background:transparent; cursor:pointer; font-size:12px; color:#666; }
+      .chip .x:hover { color:#000; }
+      .toolbar .filter-group .chips-inline { display:flex; gap:6px; flex-wrap:wrap; max-width: calc(100% - 80px); }
+      .toolbar .filter-group .chips-inline .chip { background:#eee; border-color:#ddd; }
+      [data-theme="dark"] .sticky-th, [data-theme="dark"] .sticky-cell { box-shadow: 2px 0 0 #334155; }
+      @media (max-width: 768px){
+        /* Netralisasi lebar default agar reordering mobile nyaman */
+        #table table th, #table table td { width:auto !important; }
+        /* Buat ukuran tabel nyaman dibaca di mobile */
+        #table table { font-size:14px; }
+        #table table td, #table table th { padding:8px; }
+        /* Perkecil dan pusatkan kotak pencarian Kata Kunci & Forklift */
+        .toolbar .narrow-field { align-self:center; width: clamp(260px, 92vw, 520px); }
+        .toolbar .narrow-field input { width:100%; box-sizing:border-box; }
+        .toolbar .filter-group.narrow-field { max-width: clamp(260px, 92vw, 520px) !important; }
+        .toolbar .filter-group.narrow-field .tag-input { width:100%; }
+      }
     </style>
     <script src="/common.js"></script>
   </head>
@@ -50,18 +111,18 @@
     <div class="container">
       <h2>Arsip Jobs</h2>
       <div class="toolbar" id="filters">
-        <label>
+        <label class="narrow-field">
           Kata kunci
           <input type="text" id="q" placeholder="Cari job_no, forklift, deskripsi" />
         </label>
-        <!-- Forklift filter: input teks + dropdown suggest (single select), menyamakan mekanisme dengan records -->
-        <div class="filter-group" style="position:relative; min-width:260px; max-width:460px;">
-          <div class="label-row"><label>Forklift</label></div>
-          <div class="tag-input" id="fkTagWrap">
-            <input id="arch_forklift_input" placeholder="Ketik untuk cari forklift..." autocomplete="off" />
+        <!-- Forklift filter: samakan dengan records (chips + suggest, input di bawah chips) -->
+        <div class="filter-group narrow-field" style="position:relative;">
+          <div class="label-row">
+            <label>Forklift</label>
+            <div id="forklift_tags" class="chips chips-inline"></div>
           </div>
+          <input id="arch_forklift_input" placeholder="Ketik untuk cari forklift..." autocomplete="off" />
           <div id="archFkSuggest" class="suggest" style="display:none; content-visibility:auto; contain-intrinsic-size: 120px;"></div>
-          <input type="hidden" id="forklift_id" value="" />
         </div>
 
         <label>
@@ -80,16 +141,16 @@
             <option value="All" selected>All</option>
           </select>
           </label>
-        <label>
-          Rows
+        <div class="rows-group">
+          <span>Rows</span>
           <select id="rowsPerPage">
             <option value="25" selected>25</option>
             <option value="50">50</option>
             <option value="100">100</option>
             <option value="all">All</option>
           </select>
-        </label>
-        <div style="margin-left:auto; display:flex; gap:8px;">
+        </div>
+        <div class="actions">
           <button id="resetBtn">Reset</button>
           <button id="exportBtn" title="Export hasil saat ini ke CSV">Export CSV</button>
           <button id="exportExcel" title="Export hasil ke Excel">Export Excel</button>
@@ -189,13 +250,57 @@
         return [selCol, ...base, { key:'pekerjaan', label:'Pekerjaan' }, { key:'item_dipakai', label:'Item Dipakai' }, { key:'notes', label:'Catatan' }, actionCol];
       }
 
+      // Versi kolom khusus mobile (mengacu records.html): fokus kolom penting dan urutan yang nyaman
+      function columnsMobileForJenis(j){
+        const v = String(j||'').toLowerCase();
+        const selCol = { key:'__sel', label:'Sel', render:(row)=>{
+          const idStr = String(row.id);
+          const checked = selected.has(idStr) ? 'checked' : '';
+          return `<input type="checkbox" data-id="${idStr}" ${checked} />`;
+        }};
+        const tanggalCol = { key:'job_date', label:'Tanggal' };
+        const forkliftCol = { key:'forklift', label:'Forklift', render:(row)=>{
+          const main = String(row.forklift||'');
+          const owner = String(row.forklift_owner||'').trim();
+          const location = String(row.forklift_location||'').trim();
+          const serial = String(row.forklift_serial||'').trim();
+          const powertrain = String(row.forklift_powertrain||'').trim();
+          const details = [owner, location].filter(Boolean).join(' / ');
+          const extra = [serial, powertrain].filter(Boolean).join(' · ');
+          const sub = [details, extra].filter(Boolean).join(' — ');
+          return sub ? `<div>${main}<div class='subtext'>${sub}</div></div>` : main;
+        }};
+        const pekerjaanCol = { key:'pekerjaan', label:'Pekerjaan' };
+        const reportCol = { key:'job_no', label:'Report No' };
+        const nextPmCol = { key:'next_pm', label:'Next PM' };
+        const recCol = { key:'recommendation', label:'Recommendation' };
+        const itemsCol = { key:'item_dipakai', label:'Item Dipakai' };
+        const notesCol = { key:'notes', label:'Catatan' };
+        const actCol = { key:'__act', label:'Aksi', render: (row)=>{
+          return `<button class='btn-view' data-view='${row.id}' title='View' aria-label='View'>
+            <svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='vertical-align:middle;margin-right:6px'>
+              <path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'></path>
+              <circle cx='12' cy='12' r='3'></circle>
+            </svg>
+            View
+          </button>`;
+        }};
+        if (v==='pm') return [selCol, tanggalCol, forkliftCol, pekerjaanCol, reportCol, nextPmCol, recCol, notesCol, actCol];
+        if (v==='all') return [selCol, tanggalCol, forkliftCol, pekerjaanCol, reportCol, nextPmCol, recCol, itemsCol, notesCol, actCol];
+        // workshop
+        return [selCol, tanggalCol, forkliftCol, pekerjaanCol, reportCol, recCol, itemsCol, notesCol, actCol];
+      }
+
       function getFilters(){
+        const fkIdSet = new Set((selectedForklifts||[]).map(f=> f.id));
+        const singleFkId = (Array.isArray(selectedForklifts) && selectedForklifts.length===1) ? selectedForklifts[0].id : '';
         return {
           q: document.getElementById('q').value.trim(),
-          forklift_id: document.getElementById('forklift_id').value,
           start: document.getElementById('start').value,
           end: document.getElementById('end').value,
           jenis: document.getElementById('jenis').value,
+          fkIdSet,
+          singleFkId,
         };
       }
 
@@ -209,6 +314,18 @@
       let fkCache = [];
       function fkLabel(f){
         return [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - ');
+      }
+      function filterForkliftList(query){
+        const q = String(query||'').trim().toLowerCase();
+        if (!q) return fkCache;
+        try{
+          return (fkCache||[]).filter(f=>{
+            const fields = [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=> String(v||'').toLowerCase());
+            return fields.some(v=> v.includes(q));
+          });
+        }catch(e){
+          return (fkCache||[]);
+        }
       }
       async function populateForklifts(){
         try{
@@ -225,7 +342,7 @@
           const mappedJenis = jenisLower === 'pm' ? 'maintenance' : (jenisLower === 'workshop' ? 'workshop' : '');
           const paramsObj = {
             q: f.q,
-            forklift_id: f.forklift_id,
+            forklift_id: f.singleFkId,
             start: f.start,
             end: f.end,
             limit: String(limit),
@@ -236,14 +353,18 @@
           // Sorting berdasarkan tanggal
           const params = new URLSearchParams(paramsObj);
           const res = await api(`/api/archive/jobs?${params.toString()}`);
-          const rows = res.rows || [];
+          let rows = res.rows || [];
+          if (f.fkIdSet && f.fkIdSet.size>0){
+            rows = rows.filter(r=> f.fkIdSet.has(r.forklift_id));
+          }
           lastRows = rows;
           total = res.total || rows.length;
-          const cols = columnsForJenis(f.jenis);
-          simpleTable('table', cols, rows);
+          const isMobile = window.matchMedia('(max-width: 768px)').matches;
+          const renderCols = isMobile ? columnsMobileForJenis(f.jenis) : columnsForJenis(f.jenis);
+          simpleTable('table', renderCols, rows);
           // Header tanggal: klik untuk toggle newest/oldest
           try{
-            const dateIdx = cols.findIndex(c=> c.key==='job_date');
+            const dateIdx = renderCols.findIndex(c=> c.key==='job_date');
             const ths = Array.from(document.querySelectorAll('#table th'));
             const dateTh = dateIdx>=0 ? ths[dateIdx] : null;
             if (dateTh){
@@ -251,9 +372,34 @@
               dateTh.title = 'Klik untuk urutkan tanggal newest/oldest';
               dateTh.onclick = ()=>{ orderDir = (orderDir==='desc' ? 'asc' : 'desc'); offset = 0; fetchAndRender(); };
               // Tampilkan indikator arah
-              dateTh.textContent = cols[dateIdx].label + (orderDir==='desc' ? ' ▼' : ' ▲');
+              dateTh.textContent = renderCols[dateIdx].label + (orderDir==='desc' ? ' ▼' : ' ▲');
             }
           }catch{}
+          // Mobile: buat kolom kiri sticky (Sel, Tanggal, Forklift, Pekerjaan)
+          if (isMobile){
+            try{
+              const tbl = document.querySelector('#table table');
+              if (tbl){
+                const ths = Array.from(tbl.querySelectorAll('thead th'));
+                const stickyKeys = ['__sel','job_date','forklift','pekerjaan'];
+                let left = 0;
+                for (const k of stickyKeys){
+                  const idx = renderCols.findIndex(c=> c.key===k);
+                  if (idx<0) continue;
+                  const headerCell = ths[idx];
+                  const cells = Array.from(tbl.querySelectorAll(`tbody tr > :nth-child(${idx+1})`));
+                  const width = Math.ceil(headerCell.getBoundingClientRect().width) + 2;
+                  headerCell.style.minWidth = width + 'px';
+                  cells.forEach(td=> td.style.minWidth = width + 'px');
+                  headerCell.style.position = 'sticky';
+                  headerCell.style.left = left + 'px';
+                  headerCell.classList.add('sticky-th');
+                  cells.forEach(td=>{ td.style.position='sticky'; td.style.left= left + 'px'; td.classList.add('sticky-cell'); });
+                  left += width;
+                }
+              }
+            }catch(e){ /* noop */ }
+          }
           // Header "Sel": toggle pilih semua di halaman saat ini
           const selHead = document.querySelector('#table th:first-child');
           if (selHead){
@@ -294,10 +440,9 @@
       function bindEvents(){
         document.getElementById('resetBtn').onclick = () => {
           document.getElementById('q').value = '';
-          document.getElementById('forklift_id').value = '';
-          // Hapus tag forklift jika ada
-          try{ clearFkTag(); }catch{}
-          
+          // Bersihkan pilihan forklift (chips)
+          try{ selectedForklifts = []; renderFkTags(); }catch{}
+
           document.getElementById('start').value = '';
           document.getElementById('end').value = '';
           document.getElementById('jenis').value = 'All';
@@ -563,51 +708,21 @@
         modal.onclick = (ev)=>{ if (ev.target === modal) close(); };
       }
 
-      // Suggest forklift (single select)
+      // Suggest forklift (chips + multi-select) — samakan dengan records
       const fkInput = document.getElementById('arch_forklift_input');
+      const fkTags = document.getElementById('forklift_tags');
       const fkSuggest = document.getElementById('archFkSuggest');
-      const fkIdEl = document.getElementById('forklift_id');
-      const fkTagWrap = document.getElementById('fkTagWrap');
-      function clearFkTag(){
-        try{
-          (fkTagWrap && fkTagWrap.querySelectorAll('.tag') || []).forEach(t=> t.remove());
-        }catch{}
-        if (fkIdEl) fkIdEl.value = '';
-        // Tampilkan kembali input pencarian saat tidak ada tag
-        if (fkInput) fkInput.style.display = '';
-      }
-      function setFkTag(f){
-        if (!fkTagWrap || !fkInput) return;
-        clearFkTag();
-        if (fkIdEl) fkIdEl.value = String(f.id);
-        const tag = document.createElement('span');
-        tag.className = 'tag';
-        tag.textContent = fkLabel(f);
-        const x = document.createElement('button');
-        x.type = 'button';
-        x.className = 'remove';
-        x.textContent = '×';
-        x.title = 'Hapus forklift';
-        x.onclick = ()=>{ clearFkTag(); offset = 0; fetchAndRender(); };
-        tag.appendChild(x);
-        fkTagWrap.insertBefore(tag, fkInput);
-        fkInput.value = '';
-        // Sembunyikan input pencarian ketika ada tag terpilih
-        fkInput.style.display = 'none';
-        if (fkSuggest) fkSuggest.style.display = 'none';
-      }
-      function filterForkliftList(query){
-        const q = String(query||'').trim().toLowerCase();
-        if (!q) return fkCache;
-        return (fkCache||[]).filter(f=>{
-          const fields = [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=> String(v||'').toLowerCase());
-          return fields.some(v=> v.includes(q));
+      let selectedForklifts = [];
+      function renderFkTags(){
+        if (!fkTags) return;
+        fkTags.innerHTML = (selectedForklifts||[]).map(f=>`<span class="chip" data-id="${f.id}">${f.label} <button class="x" title="Hapus" data-rem="${f.id}">×</button></span>`).join('');
+        fkTags.querySelectorAll('button[data-rem]').forEach(b=>{
+          b.onclick = ()=>{ const id = +b.getAttribute('data-rem'); selectedForklifts = (selectedForklifts||[]).filter(x=>x.id!==id); renderFkTags(); offset=0; fetchAndRender(); };
         });
       }
-      function renderFkSuggest(){
+      function fetchAndRenderFk(){
         if (!fkInput || !fkSuggest) return;
         const list = filterForkliftList(fkInput.value);
-        if (fkIdEl) fkIdEl.value = ''; // reset id saat mengetik
         if (!Array.isArray(list) || list.length===0){ fkSuggest.style.display='none'; fkSuggest.innerHTML=''; return; }
         fkSuggest.innerHTML = list.map(f=>{
           const label = fkLabel(f);
@@ -622,21 +737,24 @@
           fkSuggest._dragGuardAttached = true;
         }
         fkSuggest.querySelectorAll('.item').forEach(it=>{
-          it.onclick = (ev)=>{
+          const chooseFk = (ev)=>{
             if (fkSuggest._isDragging && fkSuggest._isDragging()) { ev.preventDefault(); return; }
             const id = +it.getAttribute('data-id');
             const f = (fkCache||[]).find(x=>x.id===id); if (!f) return;
-            setFkTag(f);
-            fkSuggest.style.display='none';
-            offset = 0; fetchAndRender();
+            if (!selectedForklifts.some(x=>x.id===f.id)){
+              const label = fkLabel(f);
+              selectedForklifts.push({ id:f.id, label });
+              renderFkTags(); offset=0; fetchAndRender();
+            }
+            fkInput.value=''; fkSuggest.style.display='none'; fkInput.focus();
           };
+          it.onclick = chooseFk;
         });
       }
       if (fkInput){
-        const debouncedFk = (fn=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),200); }; })(renderFkSuggest);
+        const debouncedFk = (fn=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),200); }; })(fetchAndRenderFk);
         fkInput.addEventListener('input', debouncedFk);
-        fkInput.addEventListener('focus', ()=> renderFkSuggest());
-        fkInput.addEventListener('click', ()=> renderFkSuggest());
+        fkInput.addEventListener('focus', ()=> fetchAndRenderFk());
         fkInput.addEventListener('keydown', (e)=>{
           if (e.key==='Enter'){
             const first = fkSuggest && fkSuggest.querySelector('.item');

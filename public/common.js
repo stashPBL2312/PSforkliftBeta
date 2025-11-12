@@ -125,16 +125,43 @@ function injectResponsiveStyles(){
   /* Generic scroll wrapper for wide tables */
   .table-scroll { width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
 
-  /* Make top bar safe on small screens */
-  .topbar { width:100%; box-sizing:border-box; }
+  /* Topbar base */
+  .topbar { width:100%; box-sizing:border-box; position:sticky; top:0; z-index:1000; }
   .topbar a { white-space: nowrap; }
+  .topbar .brand { font-weight:700; }
+  .topbar .links { display:flex; gap:12px; align-items:center; }
+  .topbar .right { margin-left:auto; display:flex; align-items:center; gap:8px; }
+  .topbar .menu-btn { display:none; }
+
+  /* Mobile drawer: hidden by default on all viewports */
+  .mobile-drawer { position:fixed; inset:0; display:none; background:rgba(0,0,0,.45); z-index:1100; }
+  .mobile-menu-open .mobile-drawer { display:flex; }
+  .mobile-menu-open { overflow:hidden; }
 
   @media (max-width: 768px){
     .wrap { margin:12px auto; padding:0 12px; }
 
-    /* Topbar wraps rather than overflowing */
-    .topbar { flex-wrap: wrap; row-gap:8px; overflow-x:auto; }
-    .topbar .right { margin-left: 0 !important; width: 100%; justify-content: space-between; }
+    /* Compact topbar for mobile: use drawer */
+    .topbar { padding:8px 12px !important; display:flex !important; align-items:center !important; gap:8px; }
+    .topbar .menu-btn { display:inline-flex; align-items:center; justify-content:center; padding:6px 8px; border-radius:6px; background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.4); cursor:pointer; }
+    .topbar .links { display:none; }
+    /* Tampilkan tombol Tema dan Logout di pojok kanan atas pada mobile */
+    .topbar .right { display:flex; margin-left:auto; align-items:center; gap:8px; }
+    .topbar .right span { display:none; }
+    .topbar .right #themeToggle { padding:6px 8px; }
+    .topbar .right #logoutBtn { padding:6px 8px; }
+
+    /* Mobile drawer panel */
+    .mobile-drawer .panel { width:78%; max-width:300px; height:100%; background:#fff; color:#111827; box-shadow:0 10px 30px rgba(0,0,0,.35); padding:14px; display:flex; flex-direction:column; }
+    [data-theme="dark"] .mobile-drawer .panel { background:#0f172a; color:#e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.6); }
+    .mobile-drawer .panel .header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+    .mobile-drawer .panel .user { font-size:13px; opacity:0.9; }
+    .mobile-drawer .panel .close-btn { background:transparent; border:1px solid rgba(0,0,0,.2); border-radius:6px; padding:4px 8px; cursor:pointer; }
+    [data-theme="dark"] .mobile-drawer .panel .close-btn { border-color:#334155; color:#e5e7eb; }
+    .mobile-drawer nav a { display:block; padding:10px 8px; text-decoration:none; color:inherit; border-bottom:1px solid #e5e7eb; }
+    [data-theme="dark"] .mobile-drawer nav a { border-bottom-color:#1f2937; }
+    .mobile-drawer .actions { margin-top:auto; display:flex; gap:8px; }
+    .mobile-drawer .actions button { padding:6px 10px; }
 
     /* Forms and toolbars stack nicely on mobile */
     .rte-toolbar { flex-wrap: wrap; }
@@ -144,6 +171,9 @@ function injectResponsiveStyles(){
     .toolbar .toolbar-row .q-field,
     .toolbar .toolbar-row .tech-field { flex: 1 1 100%; min-width: 0; max-width: 100%; }
     .toolbar .toolbar-row .actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+    .toolbar input[type="text"], .toolbar input[type="search"], .toolbar select { padding:6px 8px; font-size:14px; }
+    .toolbar button { padding:6px 10px; }
+    h2 { font-size:20px; margin:10px 0; }
 
     /* Ensure data sections scroll horizontally if too many columns */
     #table, #pmTable { overflow-x: auto; }
@@ -152,12 +182,17 @@ function injectResponsiveStyles(){
     /* Jobs form: collapse to single column */
     .row { grid-template-columns: 1fr !important; }
     .input-suggest-wrap { width: 100%; }
-
-    /* Suggest dropdown more touch-friendly */
     .suggest { max-height: 50vh; -webkit-overflow-scrolling: touch; }
   }
 
-  /* Extra-narrow screens: metrics cards can be scrolled horizontally */
+  /* Extra-narrow screens */
+  @media (max-width: 400px){
+    .toolbar input[type="text"], .toolbar input[type="search"], .toolbar select { padding:5px 8px; font-size:13px; }
+    .toolbar button { padding:5px 8px; font-size:13px; }
+    h2 { font-size:18px; margin:8px 0; }
+  }
+
+  /* Metrics cards horizontal scroll on narrow widths */
   @media (max-width: 480px){
     .grid { grid-auto-flow: column; grid-auto-columns: 75%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   }
@@ -378,18 +413,41 @@ function nav(user){
   const label = user ? (user.name ? `${user.name} <${user.email}>` : user.email) : '';
   return `
   <div class="topbar" style="display:flex; gap:12px; align-items:center; padding:10px 16px; background:#0d47a1; color:white;">
-    <a href="/dashboard.html" style="color:#fff; text-decoration:none; font-weight:600;">Dashboard</a>
-    <a href="/forklift.html" style="color:#fff; text-decoration:none;">Forklifts</a>
-    <a href="/jobs.html" style="color:#fff; text-decoration:none;">Input Jobs</a>
-    <a href="/items.html" style="color:#fff; text-decoration:none;">Items</a>
-    <a href="/records.html" style="color:#fff; text-decoration:none;">Records</a>
-    <a href="/archive.html" style="color:#fff; text-decoration:none;">Arsip</a>
-    ${user && user.role==='admin' ? '<a href="/users.html" style="color:#fff; text-decoration:none;">Users</a>' : ''}
-    ${user && user.role==='admin' ? '<a href="/backups.html" style="color:#fff; text-decoration:none;">Backups</a>' : ''}
-    <div class="right" style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+    <button id="menuBtn" class="menu-btn" aria-label="Menu" title="Menu">☰</button>
+    <a href="/dashboard.html" class="brand" style="color:#fff; text-decoration:none; font-weight:600;">PSforklift</a>
+    <div class="links">
+      <a href="/dashboard.html" style="color:#fff; text-decoration:none;">Dashboard</a>
+      <a href="/forklift.html" style="color:#fff; text-decoration:none;">Forklifts</a>
+      <a href="/jobs.html" style="color:#fff; text-decoration:none;">Input Jobs</a>
+      <a href="/items.html" style="color:#fff; text-decoration:none;">Items</a>
+      <a href="/records.html" style="color:#fff; text-decoration:none;">Records</a>
+      <a href="/archive.html" style="color:#fff; text-decoration:none;">Arsip</a>
+      ${user && user.role==='admin' ? '<a href="/users.html" style="color:#fff; text-decoration:none;">Users</a>' : ''}
+      ${user && user.role==='admin' ? '<a href="/backups.html" style="color:#fff; text-decoration:none;">Backups</a>' : ''}
+    </div>
+    <div class="right">
       <button id="themeToggle" aria-label="Toggle theme" title="Toggle theme" style="padding:4px 8px; border-radius:6px; background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.5); cursor:pointer;"></button>
       <span>${label} (${user?user.role:''})</span>
       <button id="logoutBtn" style="margin-left:8px; padding:4px 8px;">Logout</button>
+    </div>
+  </div>
+  <div id="mobileMenuDrawer" class="mobile-drawer" aria-hidden="true" role="dialog" aria-label="Menu">
+    <div class="panel">
+      <div class="header">
+        <div class="user">${label} (${user?user.role:''})</div>
+        <button id="closeMenuBtn" class="close-btn" aria-label="Tutup">✕</button>
+      </div>
+      <nav>
+        <a href="/dashboard.html">Dashboard</a>
+        <a href="/forklift.html">Forklifts</a>
+        <a href="/jobs.html">Input Jobs</a>
+        <a href="/items.html">Items</a>
+        <a href="/records.html">Records</a>
+        <a href="/archive.html">Arsip</a>
+        ${user && user.role==='admin' ? '<a href="/users.html">Users</a>' : ''}
+        ${user && user.role==='admin' ? '<a href="/backups.html">Backups</a>' : ''}
+      </nav>
+      <!-- Actions (Tema & Logout) dihapus dari sidebar; hanya tersedia di pojok kanan atas -->
     </div>
   </div>`;
 }
@@ -415,16 +473,38 @@ async function ensureAuthedAndRenderNav(){
     tbtn.title = label;
     tbtn.onclick = toggleTheme;
   }
+  // Mobile drawer controls
+  const menuBtn = document.getElementById('menuBtn');
+  const closeBtn = document.getElementById('closeMenuBtn');
+  const drawer = document.getElementById('mobileMenuDrawer');
+  if (menuBtn && drawer){ menuBtn.onclick = ()=>{ document.body.classList.add('mobile-menu-open'); drawer.setAttribute('aria-hidden', 'false'); }; }
+  if (closeBtn && drawer){ closeBtn.onclick = ()=>{ document.body.classList.remove('mobile-menu-open'); drawer.setAttribute('aria-hidden', 'true'); }; }
+  document.addEventListener('keydown', (e)=>{ if (e.key==='Escape'){ document.body.classList.remove('mobile-menu-open'); drawer && drawer.setAttribute('aria-hidden','true'); } });
+  if (drawer){ drawer.addEventListener('click', (e)=>{ if (e.target===drawer){ document.body.classList.remove('mobile-menu-open'); drawer.setAttribute('aria-hidden','true'); } }); }
+  const logoutMobile = document.getElementById('logoutBtnMobile');
+  if (logoutMobile) logoutMobile.onclick = async ()=>{ await api('/api/logout', { method:'POST' }); location.href='/login.html'; };
+  const tbtnMobile = document.getElementById('themeToggleMobile');
+  if (tbtnMobile){ tbtnMobile.onclick = toggleTheme; }
   return m.user;
 }
 
 function simpleTable(containerId, columns, data){
   const container = document.getElementById(containerId);
   if (!container) return;
-  const thead = '<thead><tr>' + columns.map(c=>`<th>${c.label}</th>`).join('') + '</tr></thead>';
-  const tbody = '<tbody>' + data.map(row=>'<tr>' + columns.map(c=>{
+  const rows = Array.isArray(data) ? data : [];
+  // When empty, render compact empty state to avoid large blank areas (esp. on mobile)
+  if (rows.length === 0){
+    // Override any min-height applied by performance hints
+    try { container.style.minHeight = '0'; } catch(_){}
+    const headHtml = '<thead><tr>' + columns.map(c=>`<th${c.class?` class="${c.class}"`:''}>${c.label}</th>`).join('') + '</tr></thead>';
+    const emptyHtml = `<tbody><tr><td colspan="${columns.length}" style="padding:10px; text-align:center; color:#666; font-size:13px;">Tidak ada data untuk ditampilkan</td></tr></tbody>`;
+    container.innerHTML = `<div class="table-scroll"><table border="0" cellspacing="0" cellpadding="6" style="width:100%; border-collapse:collapse;">${headHtml}${emptyHtml}</table></div>`;
+    return;
+  }
+  const thead = '<thead><tr>' + columns.map(c=>`<th${c.class?` class="${c.class}"`:''}>${c.label}</th>`).join('') + '</tr></thead>';
+  const tbody = '<tbody>' + rows.map(row=>'<tr>' + columns.map(c=>{
     const val = (typeof c.render === 'function') ? c.render(row) : (row[c.key]??'');
-    return `<td>${val}</td>`;
+    return `<td${c.class?` class="${c.class}"`:''}>${val}</td>`;
   }).join('') + '</tr>').join('') + '</tbody>';
   container.innerHTML = `<div class="table-scroll"><table border="0" cellspacing="0" cellpadding="6" style="width:100%; border-collapse:collapse;">${thead}${tbody}</table></div>`;
 }

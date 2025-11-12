@@ -35,12 +35,20 @@
    </script>
   <style>
     body { font-family: system-ui, Arial, sans-serif; margin:0; }
+    /* Hindari clipping 1-2px di sisi kanan pada mobile akibat overflow hidden */
+    html, body { max-width:100%; }
     .wrap { max-width:1100px; margin:20px auto; padding:0 16px; }
     table { width:100%; border-collapse:collapse; }
     th, td { text-align:left; padding:8px; border-bottom:1px solid #eee; }
     th { background:#fafafa; }
     input, select, button { padding:6px 8px; }
-    .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+    .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:8px; max-width:100%; box-sizing:border-box; }
+    .toolbar > * { min-width:0; }
+    /* Samakan ukuran tombol di desktop agar rapi */
+    .toolbar button { height:36px; min-height:36px; width:168px; box-sizing:border-box; white-space:nowrap; }
+    .toolbar input#search, .toolbar select { height:36px; min-height:36px; box-sizing:border-box; }
+    /* Only table area may scroll horizontally when content is wider */
+    #table { overflow-x:auto; -webkit-overflow-scrolling:touch; }
     /* Dark mode: modal */
     [data-theme="dark"] #modal > div { background:#0f172a !important; color:#e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.6); }
     [data-theme="dark"] #modal h3 { color:#e5e7eb; }
@@ -50,6 +58,36 @@
     [data-theme="dark"] #modal select,
     [data-theme="dark"] #modal textarea { background:#0b1220; border-color:#334155; color:#e5e7eb; }
     [data-theme="dark"] input::placeholder, [data-theme="dark"] textarea::placeholder { color:#e5e7eb !important; opacity:1 !important; }
+    /* Responsive: mobile-friendly layout */
+    @media (max-width: 768px){
+      .wrap { margin:12px auto; padding:0 12px; }
+      /* Dua kolom horizontal; tombol mengisi kolom dan wrap bila perlu */
+      .toolbar { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); column-gap:10px; row-gap:8px; align-items:center; padding-right:0; }
+      .toolbar input#search { grid-column: 1 / -1; width: calc(100% - 6px); }
+      /* Rows: isi kolom kiri penuh, tanpa overflow */
+      #rowsPerPage { grid-column: 1; width: calc(100% - 6px); min-width:0; justify-self:stretch; }
+      .toolbar input#search, .toolbar select { width:100%; box-sizing:border-box; min-width:0; }
+      .toolbar button { width: calc(100% - 6px); height:36px; font-size:14px; justify-self:stretch; box-sizing:border-box; min-width:0; white-space:normal; overflow-wrap:anywhere; }
+      .toolbar input#search, .toolbar select { height:36px; font-size:14px; }
+      #rowsPerPage { max-width:100%; justify-self:stretch; }
+      #table { overflow-x:auto; }
+      /* Compact, consistent table sizing for easier reading */
+      #table table th, #table table td { padding:6px; font-size:13px; }
+      #pagination { display:flex; flex-wrap:wrap; gap:6px; }
+    }
+    @media (max-width: 480px){
+      /* Ponsel kecil: dua kolom, lebih kompak, tanpa clipping kanan */
+      .toolbar { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); column-gap:8px; row-gap:6px; align-items:center; padding-right:0; }
+      .toolbar input#search { grid-column: 1 / -1; width: calc(100% - 6px); }
+      #rowsPerPage { grid-column: 1; width: calc(100% - 6px); min-width:0; justify-self:stretch; }
+      .toolbar input#search, .toolbar select { width:100%; box-sizing:border-box; min-width:0; }
+      input, select, button { padding:8px 10px; }
+      .toolbar input#search, .toolbar select { height:34px; font-size:13px; }
+      .toolbar button { width: calc(100% - 6px); height:34px; font-size:13px; justify-self:stretch; box-sizing:border-box; min-width:0; white-space:normal; overflow-wrap:anywhere; }
+      #rowsPerPage { max-width:100%; justify-self:stretch; }
+      /* Table compact sizing on very small screens */
+      #table table th, #table table td { padding:6px; font-size:13px; }
+    }
   </style>
 </head>
 <body>
@@ -299,8 +337,33 @@ function sortRows(rows){
         };
       });
       const pages = Math.max(1, Math.ceil(filtered.length/rows));
-      document.getElementById('pagination').innerHTML = Array.from({length: pages}, (_,i)=>`<button data-p='${i+1}' ${i+1===page?'style="font-weight:700"':''}>${i+1}</button>`).join(' ');
-      document.querySelectorAll('#pagination button').forEach(b=>b.onclick = ()=>{ page = parseInt(b.getAttribute('data-p')); render();});
+      // Pagination: match style used in Arsip/Items (Prev/Next + numeric page)
+      const pag = document.getElementById('pagination');
+      pag.innerHTML = `
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <button id="prevBtn">Prev</button>
+          <span>Halaman</span>
+          <input id="pageInput" type="number" min="1" value="${page}" style="width:64px;" />
+          <span>/ ${pages}</span>
+          <button id="nextBtn">Next</button>
+        </div>`;
+      const prevBtn = document.getElementById('prevBtn');
+      const nextBtn = document.getElementById('nextBtn');
+      const pageInput = document.getElementById('pageInput');
+      if (prevBtn) prevBtn.disabled = page <= 1;
+      if (nextBtn) nextBtn.disabled = page >= pages;
+      if (prevBtn) prevBtn.onclick = ()=>{ if (page>1){ page = page-1; render(); } };
+      if (nextBtn) nextBtn.onclick = ()=>{ if (page<pages){ page = page+1; render(); } };
+      if (pageInput){
+        pageInput.onchange = ()=>{
+          let p = parseInt(pageInput.value, 10);
+          if (isNaN(p) || p<1) p = 1;
+          if (p>pages) p = pages;
+          page = p;
+          render();
+        };
+        pageInput.onkeydown = (e)=>{ if (e.key==='Enter'){ e.preventDefault(); pageInput.onchange(); } };
+      }
     }
 
     document.getElementById('search').oninput = debounce(render, 200);

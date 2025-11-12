@@ -37,6 +37,7 @@
     body { font-family: system-ui, Arial, sans-serif; margin:0; }
     .container { padding: 16px; }
     .table-scroll { overflow:auto; border:1px solid #ddd; border-radius:8px; }
+    .table-scroll { position: relative; }
     table { width:100%; border-collapse:collapse; }
     th, td { text-align:left; padding:8px; border-bottom:1px solid #eee; }
     th { background:#fafafa; cursor:pointer; user-select:none; }
@@ -49,8 +50,11 @@
     [data-theme="dark"] .week-date { color:#fde68a; }
     .upcoming-date { color:#16a34a; font-weight:600; }
     [data-theme="dark"] .upcoming-date { color:#86efac; }
-     .toolbar { display:flex; gap:8px; align-items:flex-end; margin-bottom:12px; flex-wrap:wrap; }
-    .toolbar label { display:flex; flex-direction:column; font-size:12px; gap:4px; }
+     .toolbar { display:flex; gap:6px; align-items:flex-end; margin-bottom:12px; flex-wrap:wrap; }
+    .toolbar label { display:flex; flex-direction:column; font-size:12px; gap:4px; margin:0; }
+    .toolbar label.date-field, .toolbar .date-field * { margin:0; padding:0; }
+    .toolbar .date-field { margin-bottom:0; }
+    .toolbar > * { margin:0; }
     .checks { display:flex; gap:8px; align-items:center; }
     /* Print styles for PDF export */
     @media print {
@@ -150,23 +154,43 @@
     .toolbar .field { display:flex; flex-direction:column; gap:4px; }
     .toolbar .toolbar-row .q-field { flex:1 1 260px; min-width:220px; }
     .toolbar .toolbar-row .tech-field { flex:1 1 260px; min-width:220px; }
+    /* Samakan lebar field tanggal dengan Forklift & Cari Record */
+    .toolbar .date-field { flex:1 1 260px; min-width:220px; max-width:460px; }
+    .toolbar .date-field .date-input-wrap { width:100%; display:block; }
+    .toolbar .date-field .date-input-wrap input[type="date"] { width:100%; box-sizing:border-box; height:36px; min-height:36px; line-height:36px; }
     .toolbar .filter-group .label-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
     .toolbar .filter-group .chips-inline { display:flex; gap:6px; flex-wrap:wrap; max-width: calc(100% - 80px); }
     .toolbar .filter-group .chips-inline .chip { background:#eee; border-color:#ddd; }
     .toolbar .filter-group .input-wrap { position:relative; }
-    .toolbar .toolbar-row .actions { display:flex; gap:8px; flex:1 1 100%; flex-wrap:wrap; }
+    .toolbar .toolbar-row .actions { display:flex; gap:8px; flex:1 1 100%; flex-wrap:wrap; align-items:flex-start; }
+    /* Samakan tinggi komponen aksi agar sejajar */
+    .toolbar .toolbar-row .actions button,
+    .toolbar .toolbar-row .actions select { height:36px; min-height:36px; }
+    .toolbar .toolbar-row .actions .rows-group { display:inline-flex; align-items:center; gap:8px; height:36px; }
+    .toolbar .toolbar-row .actions .rows-group select { width:96px; min-width:96px; height:36px; }
+    /* Kelompok Rows (label + dropdown) agar berdekatan */
+    .toolbar .toolbar-row .actions .rows-group { display:inline-flex; align-items:center; gap:8px; }
+    .toolbar .toolbar-row .actions .rows-group select { width:96px; min-width:96px; }
 
     /* Responsive */
     @media (max-width: 768px){
       .container { padding:0 12px; }
       /* Hindari child melar penuh agar ikon kalender berada dekat input */
-      .toolbar { flex-direction: column; align-items: flex-start; }
+      .toolbar { display:grid; grid-template-columns: minmax(0,1fr); row-gap:6px; align-items:start; padding-right:6px; }
+      .toolbar > * { width:100%; }
       /* Pastikan wrapper input tanggal tidak ikut melar pada mobile */
       .toolbar .date-input-wrap { align-self: flex-start; }
       .toolbar .toolbar-row { flex-wrap: wrap; }
-      .toolbar .filter-group, .toolbar .toolbar-row .q-field, .toolbar .toolbar-row .tech-field { min-width: 0; width: 100%; max-width: 100%; }
+      .toolbar .filter-group, .toolbar .toolbar-row .q-field, .toolbar .toolbar-row .tech-field, .toolbar .date-field { min-width: 0; width: 100%; max-width: 100%; }
+      /* Actions jadi grid 2 kolom agar rapi dan panjang seragam */
+      .toolbar .toolbar-row .actions { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap:8px; width:100%; align-items:start; }
+      .toolbar .toolbar-row .actions button { width:100%; height:36px; min-height:36px; }
+      /* Jadikan kelompok Rows satu baris penuh di atas pasangan tombol */
+      .toolbar .toolbar-row .actions .rows-group { grid-column: 1 / -1; }
+      .toolbar .toolbar-row .actions .rows-group select { width:96px; }
       #table { overflow-x:auto; }
-      /* Hilangkan min-width agar seragam dengan arsip */
+      /* Netralkan aturan width berbasis nth-child untuk mobile agar tidak bentrok saat re-order */
+      #table table th, #table table td { width: auto !important; }
       /* Kecilkan dropdown forklift di modal edit pada mobile */
       #edFkSuggest { max-height: 30vh !important; -webkit-overflow-scrolling: touch; }
     }
@@ -189,6 +213,12 @@
     /* Tag penanda baris arsip */
     .arsip-tag { display:inline-block; margin-left:6px; padding:2px 8px; border-radius:10px; font-size:11px; background:#eef2ff; color:#111; border:1px solid #dbeafe; }
     [data-theme="dark"] .arsip-tag { background:#1f2937; color:#e5e7eb; border-color:#374151; }
+    /* Sticky columns visual fix: solid background and divider to avoid text overlap */
+    .sticky-th, .sticky-cell { background:#fff !important; }
+    [data-theme="dark"] .sticky-th, [data-theme="dark"] .sticky-cell { background:#0f172a !important; }
+    .sticky-th { z-index:4 !important; box-shadow: 2px 0 0 #eee; }
+    .sticky-cell { z-index:2 !important; box-shadow: 2px 0 0 #eee; }
+    [data-theme="dark"] .sticky-th, [data-theme="dark"] .sticky-cell { box-shadow: 2px 0 0 #334155; }
   </style>
 </head>
 <body>
@@ -202,8 +232,14 @@
         <label><input type="checkbox" value="Lapangan" checked /> Lapangan</label>
         <label><input type="checkbox" value="Workshop" checked /> Workshop</label>
       </div>
-      <label>Range</label>
-      <div class="date-input-wrap"><input id="start" type="date" /></div> s/d <div class="date-input-wrap"><input id="end" type="date" /></div>
+      <label class="date-field">
+        Tanggal Mulai
+        <div class="date-input-wrap"><input id="start" type="date" /></div>
+      </label>
+      <label class="date-field">
+        Tanggal Akhir
+        <div class="date-input-wrap"><input id="end" type="date" /></div>
+      </label>
       <!-- Filter Forklift (multi-select chips + suggest) -->
       <div id="forkliftFilter" class="filter-group">
         <div class="label-row">
@@ -230,14 +266,17 @@
           <div id="techSuggest" class="suggest" style="display:none; content-visibility:auto; contain-intrinsic-size: 120px;"></div>
         </div>
         <div class="actions">
-          <label for="rowsPerPage">Rows</label>
-          <select id="rowsPerPage"><option>10</option><option>15</option><option>25</option></select>
-          <button id="apply">Reset</button>
+          <div class="rows-group">
+            <label for="rowsPerPage" style="margin:0;">Rows</label>
+            <select id="rowsPerPage"><option>10</option><option>15</option><option>25</option></select>
+          </div>
+          <!-- Urutan untuk pairing spesifik: Import Excel ↔ Reset, Export CSV ↔ Export Excel, Hapus Terpilih ↔ Export PDF -->
           <button id="importExcel">Import Excel</button>
-          <button id="exportExcel">Export Excel</button>
+          <button id="apply">Reset</button>
           <button id="exportCSV">Export CSV</button>
-          <button id="exportPDF">Export PDF</button>
+          <button id="exportExcel">Export Excel</button>
           <button id="bulkDeleteBtn">Hapus Terpilih</button>
+          <button id="exportPDF">Export PDF</button>
         </div>
       </div>
     </div>
@@ -707,6 +746,20 @@
       { key: 'items_used', label: 'Items Used' },
       { key: 'actions', label: 'Actions' },
     ];
+    // Khusus mobile: urutan kolom diubah menjadi Sel, Tanggal, Forklift, Pekerjaan, Report No, dst
+    const columnsMobile = [
+      { key: '__sel', label: '' },
+      { key: 'tanggal', label: 'Tanggal' },
+      { key: 'forklift', label: 'Forklift' },
+      { key: 'pekerjaan', label: 'Pekerjaan' },
+      { key: 'report_no', label: 'Report No' },
+      { key: 'teknisi', label: 'Teknisi' },
+      { key: 'next_pm', label: 'Next PM' },
+      { key: 'description', label: 'Description' },
+      { key: 'recommendation', label: 'Recommendation' },
+      { key: 'items_used', label: 'Items Used' },
+      { key: 'actions', label: 'Actions' },
+    ];
 
     // Forklift filter UI (multi-select chips + suggest)
     const fkInput = document.getElementById('forklift_input');
@@ -993,7 +1046,9 @@ function render(){
   const startIdx = (page-1)*rowsPerPage;
   const endIdx = startIdx + rowsPerPage;
   currentRows = data.slice(startIdx, endIdx).map(x=>Object.assign({}, x));
-  const header = '<thead><tr>' + columns.map(c=>{
+  const isMobile = window.matchMedia('(max-width: 768px)').matches;
+  const cols = isMobile ? columnsMobile : columns;
+  const header = '<thead><tr>' + cols.map(c=>{
     if (c.key==='__sel') return '<th class="sel-header" style="cursor:pointer" title="Pilih semua di halaman">Sel</th>';
     if (c.key==='actions') return '<th>Actions</th>';
     const arrow = sortKey===c.key ? (sortDir==='asc'?' ▲':' ▼') : '';
@@ -1048,19 +1103,23 @@ function render(){
     const sub = [details, extra].filter(Boolean).join(' — ');
     const forkliftCell = sub ? `<div>${forkliftText}<div class='subtext'>${sub}</div></div>` : forkliftText;
     const pekerjaanCell = row.__arsip ? `${row.pekerjaan||''} <span class="arsip-tag">${row.__arsip_tag||'Arsip'}</span>` : (row.pekerjaan||'');
-    const tds = [
-      `<td>${cb}</td>`,
-      `<td>${row.tanggal||''}</td>`,
-      `<td>${row.report_no||''}</td>`,
-      `<td>${forkliftCell}</td>`,
-      `<td>${pekerjaanCell}</td>`,
-      `<td>${row.teknisi||''}</td>`,
-      `<td>${nextPmCell}</td>`,
-      `<td>${row.description||''}</td>`,
-      `<td>${row.recommendation||''}</td>`,
-      `<td>${row.items_used||''}</td>`,
-      `<td>${actions}</td>`,
-    ].join('');
+    function tdFor(key){
+      switch(key){
+        case '__sel': return `<td>${cb}</td>`;
+        case 'tanggal': return `<td>${row.tanggal||''}</td>`;
+        case 'report_no': return `<td>${row.report_no||''}</td>`;
+        case 'forklift': return `<td>${forkliftCell}</td>`;
+        case 'pekerjaan': return `<td>${pekerjaanCell}</td>`;
+        case 'teknisi': return `<td>${row.teknisi||''}</td>`;
+        case 'next_pm': return `<td>${nextPmCell}</td>`;
+        case 'description': return `<td>${row.description||''}</td>`;
+        case 'recommendation': return `<td>${row.recommendation||''}</td>`;
+        case 'items_used': return `<td>${row.items_used||''}</td>`;
+        case 'actions': return `<td>${actions}</td>`;
+        default: return '<td></td>';
+      }
+    }
+    const tds = cols.map(c=> tdFor(c.key)).join('');
     return `<tr>${tds}</tr>`;
   }).join('') + '</tbody>';
 
@@ -1068,6 +1127,35 @@ function render(){
   if (tableEl) tableEl.innerHTML = `<div class="table-scroll"><table>${header}${body}</table></div>`;
   applyTablePerformanceHints('table');
   perfEnd && perfEnd('records.render', `n=${data?.length||0} pageRows=${currentRows.length}`);
+
+  // Mobile: buat kolom kiri sticky (Sel, Tanggal, Forklift, Pekerjaan) agar nyaman dibaca
+  if (isMobile){
+    try{
+      const tbl = document.querySelector('#table table');
+      if (tbl){
+        const ths = Array.from(tbl.querySelectorAll('thead th'));
+        const stickyKeys = ['__sel','tanggal','forklift','pekerjaan'];
+        let left = 0;
+        for (const k of stickyKeys){
+          let idx = -1;
+          // Sel header tidak punya data-key
+          if (k==='__sel') idx = ths.findIndex(th=> th.classList.contains('sel-header'));
+          else idx = ths.findIndex(th=> th.getAttribute('data-key')===k);
+          if (idx<0) continue;
+          const headerCell = ths[idx];
+          const cells = Array.from(tbl.querySelectorAll(`tbody tr > :nth-child(${idx+1})`));
+          const width = Math.ceil(headerCell.getBoundingClientRect().width) + 2; // tambah sedikit agar tidak saling menimpa
+          headerCell.style.minWidth = width + 'px';
+          cells.forEach(td=> td.style.minWidth = width + 'px');
+          headerCell.style.position = 'sticky';
+          headerCell.style.left = left + 'px';
+          headerCell.classList.add('sticky-th');
+          cells.forEach(td=>{ td.style.position='sticky'; td.style.left= left + 'px'; td.classList.add('sticky-cell'); });
+          left += width;
+        }
+      }
+    }catch(e){ /* noop */ }
+  }
 
   // Select-all per halaman saat klik header "Sel"
   const selHeader = document.querySelector('th.sel-header');

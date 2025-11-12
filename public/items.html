@@ -50,9 +50,36 @@
     [data-theme="dark"] #modal select,
     [data-theme="dark"] #modal textarea { background:#0b1220; border-color:#334155; color:#e5e7eb; }
     [data-theme="dark"] input::placeholder, [data-theme="dark"] textarea::placeholder { color:#e5e7eb !important; opacity:1 !important; }
+    /* Responsive: mobile-friendly layout */
+    @media (max-width: 768px){
+      .wrap { margin:12px auto; padding:0 12px; }
+      .toolbar { flex-wrap: wrap; gap:6px; }
+      /* Keep table scroll only */
+      #table { overflow-x:auto; }
+      th, td { padding:6px; }
+      #pagination { display:flex; flex-wrap:wrap; gap:6px; }
+    }
+    @media (max-width: 480px){
+      .toolbar { gap:6px; }
+      input, select, button { padding:8px 10px; }
+    }
+  </style>
+  <style>
+    /* Page-specific overrides: keep search input compact on mobile */
+    @media (max-width: 768px){
+      /* Mobile toolbar: grid 2 kolom simetris, tombol seragam */
+      .page-items .toolbar { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); column-gap:10px; row-gap:8px; align-items:stretch; }
+      .page-items .toolbar > * { min-width:0; }
+      .page-items .toolbar input#search, .page-items .toolbar select, .page-items .toolbar button { width:100%; box-sizing:border-box; height:36px; font-size:14px; }
+      .page-items .toolbar button { justify-self: stretch; }
+    }
+    @media (max-width: 480px){
+      .page-items .toolbar { column-gap:8px; row-gap:6px; }
+      .page-items .toolbar input#search, .page-items .toolbar select, .page-items .toolbar button { height:34px; font-size:13px; }
+    }
   </style>
 </head>
-<body>
+<body class="page-items">
   <div id="header"></div>
   <div class="wrap">
     <h2>Items</h2>

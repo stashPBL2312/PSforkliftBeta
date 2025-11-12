@@ -1,0 +1,19 @@
+id,email,password,role,name,deleted_at,created_at,updated_at
+1,admin@local,$2b$10$R6kAwv8qZHkirQ4mQHsN9epRBzRd0OIsLH6JZHbr9SWCcMFHlnJvK,admin,admin,,2025-10-08 12:30:04,2025-10-08 12:30:04
+6,guest@user.com,$2b$10$ac/98B6EjrngLU5kJzgZf.mAKpoNYZOSsXRm7A/1PnWfrY7paBAQS,teknisi,Guest,,2025-10-08 12:30:04,2025-10-08 12:30:04
+9,riswardi@forklift.com,$2b$10$WuGNAwCFJIe/6nyhnB7sjuzGgyxkK4h4LhYRaP.0cyj4CCnPm733u,supervisor,Riswardi,,2025-10-14 14:48:04,2025-10-14 14:48:04
+10,jerry@prioritassolusi.com,$2b$10$ggBQMSM4HCMIvOPdSK8iL.hwoP/5U0/29Zd/mIPPLU7Fe4/AlEjgu,supervisor,Jerry,,2025-10-28 15:55:18,2025-10-28 15:55:18
+11,manager@forklift.com,$2b$10$J2/p0.6WqDHFa4uKkbGwDOi1gMwc1EwaZWYd5UA7AxPzVCq.ka60u,supervisor,Anip,,2025-10-28 15:55:45,2025-10-28 15:55:45
+12,yudi@forklift.com,$2b$10$jhqZqoPonUa6lvaBFMyCvOmKL25BEmyfbNQmv05OjZcoZtUf3OZF2,teknisi,Yudi,,2025-10-28 15:56:24,2025-10-28 15:56:28
+13,kelvin@forklift.com,$2b$10$qSlygp/JSyonH.MDdiL9seKo8LhSYfCihMgXy5qmPHkuO5/MoNp4q,teknisi,Kelvin,,2025-10-28 15:57:35,2025-10-28 15:57:35
+14,dwi@forklift.com,$2b$10$7MZxp.bdARRgVU8tcnSD2.FPsz3paQ1u9ONE..H7gnaeC3RgcPWNW,teknisi,Dwi,,2025-10-28 15:58:00,2025-10-28 15:58:00
+15,riki@forklift.com,$2b$10$IPYsCtfe8RdzzMLlBlFeEuEzSef8ACftmqJ66ulOK.1VJSb5xEut6,teknisi,Riki,,2025-10-28 15:58:40,2025-10-28 15:58:40
+16,rahul@forklift.com,$2b$10$gU/XbHY5FaSyF9wnk78xHelDe6H5M/SWVnDd2.3/2MF3Uej8fTxTq,teknisi,Rahul,,2025-10-28 15:59:06,2025-10-28 15:59:06
+17,irfan@forklift.com,$2b$10$K.EkzKrs55hBHBUCcJe5ZuY2A0jF.yuMLYqzydbSE8LPSAfTr31S6,teknisi,Irfan,,2025-10-28 15:59:35,2025-10-28 15:59:35
+18,afrizal@forklift.com,$2b$10$B5YhcT4AtwrPFY3Eid19ZuexT/Ul28/BqVGm2W.6xMkhz/Wg0rSAm,teknisi,Afrizal,,2025-10-28 16:00:09,2025-10-28 16:00:09
+19,asep@forklift.com,$2b$10$Hjc.AdjTDst9oLF40sI8X.jrn9uHwW0kKz6GfSt2owdnewUU6k/n2,teknisi,Asep,,2025-10-28 16:00:39,2025-10-28 16:00:39
+20,liping@forklift.com,$2b$10$6zNfos08r7ZZKAb3SLg3vOYOXHdTd.mXNyFTUFdSH1fB2MorwHBxS,teknisi,Liping,,2025-10-28 16:01:01,2025-10-28 16:01:01
+21,toyib@forklift.com,$2b$10$x3lK0lYpiKyj9UjcNAKsd.11nA1ZEJkLxAID9yt6afRDYI4FrNZja,teknisi,Toyib,,2025-10-28 16:01:38,2025-10-28 16:01:38
+22,mesman@forklift.com,$2b$10$NFQ0pew4eJiY.9oWPLVj2O2fYSnnq7MYhUkBMhaEVCOb54aA58XRy,teknisi,Mesman,,2025-10-28 16:02:14,2025-10-28 16:02:14
+23,habib@forklift.com,$2b$10$zopizZIUdNp69/N400LrIONHSoffBUvxxqtGbBJG6JrsqRN6BBa7m,teknisi,Habib,,2025-10-28 16:02:38,2025-10-28 16:02:38
+24,epan2025@forklift.com,$2b$10$gpmYmMTzZlLO3Rg2CwV9IeTlMWZo0h4bd/e1BKsWQ9vmxgsf13EU2,teknisi,Epan,,2025-10-28 16:02:57,2025-10-28 16:02:57

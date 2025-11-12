@@ -935,6 +935,7 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
     if (q) {
       const likeNoSpace = `%${String(q).replace(/\s+/g, '')}%`;
       // Maintenance: gunakan pembandingan yang menghapus spasi agar pencarian tidak sensitif spasi
+      // Tambahkan fallback pencarian ke archive_jobs.forklift_eq_no/forklift_serial bila forklift_id null
       whMaint.push(`(
         LOWER(REPLACE(COALESCE(am.report_no, ""), ' ', '')) LIKE LOWER(?) OR
         LOWER(REPLACE(COALESCE(am.pekerjaan, ""), ' ', '')) LIKE LOWER(?) OR
@@ -948,10 +949,17 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
             LOWER(REPLACE(COALESCE(f.serial, ""), ' ', '')) LIKE LOWER(?) OR
             LOWER(REPLACE(COALESCE(f.location, ""), ' ', '')) LIKE LOWER(?)
           )
-        )
+        ) OR
+        LOWER(REPLACE(COALESCE((SELECT aj.forklift_eq_no FROM archive_jobs aj WHERE aj.id=am.id AND aj.job_source='maintenance'), ""), ' ', '')) LIKE LOWER(?) OR
+        LOWER(REPLACE(COALESCE((SELECT aj.forklift_serial FROM archive_jobs aj WHERE aj.id=am.id AND aj.job_source='maintenance'), ""), ' ', '')) LIKE LOWER(?)
       )`);
-      pMaint.push(likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace);
+      pMaint.push(
+        likeNoSpace, likeNoSpace, likeNoSpace,
+        likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace,
+        likeNoSpace, likeNoSpace
+      );
       // Workshop: report_no, pekerjaan, notes, item_dipakai, dan forklift fields — non-spasi sensitif
+      // Tambahkan fallback ke archive_jobs saat forklift_id null
       whWork.push(`(
         LOWER(REPLACE(COALESCE(aw.report_no, ""), ' ', '')) LIKE LOWER(?) OR
         LOWER(REPLACE(COALESCE(aw.pekerjaan, ""), ' ', '')) LIKE LOWER(?) OR
@@ -966,9 +974,15 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
             LOWER(REPLACE(COALESCE(f.serial, ""), ' ', '')) LIKE LOWER(?) OR
             LOWER(REPLACE(COALESCE(f.location, ""), ' ', '')) LIKE LOWER(?)
           )
-        )
+        ) OR
+        LOWER(REPLACE(COALESCE((SELECT aj.forklift_eq_no FROM archive_jobs aj WHERE aj.id=aw.id AND aj.job_source='workshop'), ""), ' ', '')) LIKE LOWER(?) OR
+        LOWER(REPLACE(COALESCE((SELECT aj.forklift_serial FROM archive_jobs aj WHERE aj.id=aw.id AND aj.job_source='workshop'), ""), ' ', '')) LIKE LOWER(?)
       )`);
-      pWork.push(likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace);
+      pWork.push(
+        likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace,
+        likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace, likeNoSpace,
+        likeNoSpace, likeNoSpace
+      );
     }
 
     const selMaint = `SELECT am.id AS id, 'maintenance' AS job_source, 'PM' AS jenis,
@@ -977,7 +991,16 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
       (am.forklift_id) AS forklift_id,
       COALESCE((SELECT owner FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift_owner,
       COALESCE((SELECT location FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift_location,
-      COALESCE((SELECT serial FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift_serial,
+      COALESCE(
+        (SELECT serial FROM forklifts f WHERE f.id=am.forklift_id),
+        (SELECT aj.forklift_serial FROM archive_jobs aj WHERE aj.id=am.id AND aj.job_source='maintenance'),
+        ''
+      ) AS forklift_serial,
+      COALESCE(
+        (SELECT eq_no FROM forklifts f WHERE f.id=am.forklift_id),
+        (SELECT aj.forklift_eq_no FROM archive_jobs aj WHERE aj.id=am.id AND aj.job_source='maintenance'),
+        ''
+      ) AS forklift_eq_no,
       COALESCE((SELECT powertrain FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift_powertrain,
       am.report_no AS job_no,
       am.recommendation AS recommendation,
@@ -996,7 +1019,16 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
       (aw.forklift_id) AS forklift_id,
       COALESCE((SELECT owner FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift_owner,
       COALESCE((SELECT location FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift_location,
-      COALESCE((SELECT serial FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift_serial,
+      COALESCE(
+        (SELECT serial FROM forklifts f WHERE f.id=aw.forklift_id),
+        (SELECT aj.forklift_serial FROM archive_jobs aj WHERE aj.id=aw.id AND aj.job_source='workshop'),
+        ''
+      ) AS forklift_serial,
+      COALESCE(
+        (SELECT eq_no FROM forklifts f WHERE f.id=aw.forklift_id),
+        (SELECT aj.forklift_eq_no FROM archive_jobs aj WHERE aj.id=aw.id AND aj.job_source='workshop'),
+        ''
+      ) AS forklift_eq_no,
       COALESCE((SELECT powertrain FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift_powertrain,
       aw.report_no AS job_no,
       NULL AS recommendation,
