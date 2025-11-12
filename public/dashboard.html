@@ -59,19 +59,10 @@
       #search { width:100%; }
       #rowsPerPage { justify-self: stretch; }
 
-      /* Sticky first three columns for PM table on mobile; lebih ramping supaya kolom ke-4 terlihat default */
-      #pmTable { --w0: 120px; --w1: 104px; --w2: 88px; }
+      /* PM table mobile: tanpa sticky kolom; tetap kompak dan bisa scroll horizontal */
       #pmTable .table-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
-      #pmTable table th.sticky-col, #pmTable table td.sticky-col { position: sticky; background:#fff; z-index: 2; }
-      [data-theme="dark"] #pmTable table th.sticky-col, [data-theme="dark"] #pmTable table td.sticky-col { background:#111827; }
-      #pmTable table th.col-0, #pmTable table td.col-0 { min-width: var(--w0); width: var(--w0); left: 0; }
-      #pmTable table th.col-1, #pmTable table td.col-1 { min-width: var(--w1); width: var(--w1); left: var(--w0); }
-      #pmTable table th.col-2, #pmTable table td.col-2 { min-width: var(--w2); width: var(--w2); left: calc(var(--w0) + var(--w1)); }
-      /* Smaller font/padding supaya muat lebih banyak konten */
       #pmTable table th, #pmTable table td { padding: 6px; font-size: 13px; }
-      /* Ensure later columns can extend beyond viewport while page itself stays fixed;
-         sisakan ruang awal untuk kolom ke-4 terlihat default */
-      #pmTable .table-scroll table { min-width: calc(var(--w0) + var(--w1) + var(--w2) + 300px); }
+      #pmTable .table-scroll table { min-width: 640px; }
     }
     @media (max-width: 480px){
       /* Extra small phones: tetap 2 kolom vertikal, tanpa scroll horizontal, semua kartu utuh */
@@ -82,8 +73,8 @@
       /* Toolbar extra small: kompak */
       .pm-toolbar select, .pm-toolbar input { height:34px; font-size:13px; width:100%; box-sizing:border-box; }
       #rowsPerPage { justify-self: stretch; }
-      /* Narrower sticky widths for small phones */
-      #pmTable { --w0: 114px; --w1: 100px; --w2: 84px; }
+      /* Extra small phones: tetap tanpa sticky; ukuran tabel disesuaikan */
+      #pmTable .table-scroll table { min-width: 560px; }
     }
   </style>
 </head>
@@ -260,14 +251,14 @@
       return 'upcoming';
     }
     const columns = [
-      { key:'forklift', label:'Forklift', class:'sticky-col col-0' },
-      { key:'jadwal_pm', label:'Jadwal PM', class:'sticky-col col-1', render: r => {
+      { key:'forklift', label:'Forklift' },
+      { key:'jadwal_pm', label:'Jadwal PM', render: r => {
           const st = (category==='all' ? classifyPM(r) : category);
           const cls = st==='late'? 'late-date' : (st==='week'? 'week-date' : 'upcoming-date');
           return `<span class="${cls}">${r.jadwal_pm||''}</span>`;
         }
       },
-      { key:'status', label:'Status', class:'sticky-col col-2', render: r => {
+      { key:'status', label:'Status', render: r => {
           const st = (category==='all' ? classifyPM(r) : category);
           const text = st==='late'? 'Terlambat' : (st==='week'? 'Minggu Ini' : 'Akan Datang');
           const scls = st==='late'? 'status-badge status-late' : (st==='week'? 'status-badge status-week' : 'status-badge status-upcoming');

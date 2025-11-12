@@ -977,9 +977,9 @@ async function load(){
       });
     }
 
-    // Integrasi hasil pencarian arsip langsung dari input Cari Record
-    // Hanya fetch arsip saat ada kata kunci (untuk menghindari beban besar bila kosong)
-    if (q){
+    // Integrasi hasil pencarian arsip dari arsip_jobs
+    // Fetch arsip saat ada kata kunci ATAU saat filter forklift aktif
+    if (q || (fkIdSet && fkIdSet.size>0)){
       const includeMaint = !Array.isArray(jenisVals) || jenisVals.length===0 || jenisVals.includes('PM') || jenisVals.includes('Lapangan');
       const includeWorkshop = !Array.isArray(jenisVals) || jenisVals.length===0 || jenisVals.includes('Workshop');
       const baseParams = new URLSearchParams();
@@ -987,6 +987,9 @@ async function load(){
       if (q) baseParams.set('q', q);
       if (start) baseParams.set('start', start);
       if (end) baseParams.set('end', end);
+      // Jika hanya satu forklift dipilih, kirim forklift_id agar query arsip lebih presisi
+      const singleFkId = (fkIdSet && fkIdSet.size===1) ? [...fkIdSet][0] : '';
+      if (singleFkId) baseParams.set('forklift_id', String(singleFkId));
       const archiveRows = [];
       const fetchArch = async (src)=>{
         const p = new URLSearchParams(baseParams);
@@ -1004,6 +1007,7 @@ async function load(){
               report_no: ar.job_no || '',
               forklift: forkliftLabel || (ar.forklift || ''),
               forklift_id: ar.forklift_id || null,
+              forklift_eq_no: ar.forklift_eq_no || '',
               pekerjaan: isMaint ? 'PM/Lapangan' : 'Workshop',
               teknisi: '',
               next_pm: ar.next_pm || '',
@@ -1024,9 +1028,22 @@ async function load(){
       };
       if (includeMaint) await fetchArch('maintenance');
       if (includeWorkshop) await fetchArch('workshop');
-      // Terapkan filter forklift pada hasil arsip jika ada
+      // Terapkan filter forklift pada hasil arsip jika ada.
+      // Selain mencocokkan forklift_id, fallback ke eq_no/serial bila forklift_id null.
       if (fkIdSet && fkIdSet.size>0){
-        archiveRows.splice(0, archiveRows.length, ...archiveRows.filter(r=> fkIdSet.has(r.forklift_id)));
+        const selIds = new Set(fkIdSet);
+        const fkEqNos = new Set(Array.from(selIds).map(id=>{
+          try { const f = (fkCache||[]).find(x=>x.id===id); return String(f?.eq_no||'').trim().toLowerCase(); } catch { return ''; }
+        }).filter(Boolean));
+        const fkSerials = new Set(Array.from(selIds).map(id=>{
+          try { const f = (fkCache||[]).find(x=>x.id===id); return String(f?.serial||'').trim().toLowerCase(); } catch { return ''; }
+        }).filter(Boolean));
+        archiveRows.splice(0, archiveRows.length, ...archiveRows.filter(r=>{
+          const idMatch = !!r.forklift_id && selIds.has(r.forklift_id);
+          const eqMatch = r.forklift_eq_no && fkEqNos.has(String(r.forklift_eq_no).trim().toLowerCase());
+          const serialMatch = r.forklift_serial && fkSerials.has(String(r.forklift_serial).trim().toLowerCase());
+          return idMatch || eqMatch || serialMatch;
+        }));
       }
       rows = rows.concat(archiveRows);
     }
@@ -1127,35 +1144,6 @@ function render(){
   if (tableEl) tableEl.innerHTML = `<div class="table-scroll"><table>${header}${body}</table></div>`;
   applyTablePerformanceHints('table');
   perfEnd && perfEnd('records.render', `n=${data?.length||0} pageRows=${currentRows.length}`);
-
-  // Mobile: buat kolom kiri sticky (Sel, Tanggal, Forklift, Pekerjaan) agar nyaman dibaca
-  if (isMobile){
-    try{
-      const tbl = document.querySelector('#table table');
-      if (tbl){
-        const ths = Array.from(tbl.querySelectorAll('thead th'));
-        const stickyKeys = ['__sel','tanggal','forklift','pekerjaan'];
-        let left = 0;
-        for (const k of stickyKeys){
-          let idx = -1;
-          // Sel header tidak punya data-key
-          if (k==='__sel') idx = ths.findIndex(th=> th.classList.contains('sel-header'));
-          else idx = ths.findIndex(th=> th.getAttribute('data-key')===k);
-          if (idx<0) continue;
-          const headerCell = ths[idx];
-          const cells = Array.from(tbl.querySelectorAll(`tbody tr > :nth-child(${idx+1})`));
-          const width = Math.ceil(headerCell.getBoundingClientRect().width) + 2; // tambah sedikit agar tidak saling menimpa
-          headerCell.style.minWidth = width + 'px';
-          cells.forEach(td=> td.style.minWidth = width + 'px');
-          headerCell.style.position = 'sticky';
-          headerCell.style.left = left + 'px';
-          headerCell.classList.add('sticky-th');
-          cells.forEach(td=>{ td.style.position='sticky'; td.style.left= left + 'px'; td.classList.add('sticky-cell'); });
-          left += width;
-        }
-      }
-    }catch(e){ /* noop */ }
-  }
 
   // Select-all per halaman saat klik header "Sel"
   const selHeader = document.querySelector('th.sel-header');

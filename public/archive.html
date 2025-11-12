@@ -375,31 +375,8 @@
               dateTh.textContent = renderCols[dateIdx].label + (orderDir==='desc' ? ' ▼' : ' ▲');
             }
           }catch{}
-          // Mobile: buat kolom kiri sticky (Sel, Tanggal, Forklift, Pekerjaan)
-          if (isMobile){
-            try{
-              const tbl = document.querySelector('#table table');
-              if (tbl){
-                const ths = Array.from(tbl.querySelectorAll('thead th'));
-                const stickyKeys = ['__sel','job_date','forklift','pekerjaan'];
-                let left = 0;
-                for (const k of stickyKeys){
-                  const idx = renderCols.findIndex(c=> c.key===k);
-                  if (idx<0) continue;
-                  const headerCell = ths[idx];
-                  const cells = Array.from(tbl.querySelectorAll(`tbody tr > :nth-child(${idx+1})`));
-                  const width = Math.ceil(headerCell.getBoundingClientRect().width) + 2;
-                  headerCell.style.minWidth = width + 'px';
-                  cells.forEach(td=> td.style.minWidth = width + 'px');
-                  headerCell.style.position = 'sticky';
-                  headerCell.style.left = left + 'px';
-                  headerCell.classList.add('sticky-th');
-                  cells.forEach(td=>{ td.style.position='sticky'; td.style.left= left + 'px'; td.classList.add('sticky-cell'); });
-                  left += width;
-                }
-              }
-            }catch(e){ /* noop */ }
-          }
+          
+          // (Sticky kolom dihapus sesuai permintaan; urutan kolom mobile tetap dikendalikan oleh columnsMobileForJenis)
           // Header "Sel": toggle pilih semua di halaman saat ini
           const selHead = document.querySelector('#table th:first-child');
           if (selHead){
