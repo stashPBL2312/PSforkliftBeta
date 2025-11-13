@@ -587,6 +587,20 @@
         let qty = 1;
         if (itemQtyEl){ qty = parseInt(itemQtyEl.value||'1',10); if (!qty || qty<1) qty = 1; }
         chosen.push({ rowId: rowSeq++, id: null, code: '', nama: name, qty, isNew: true });
+        (function(){
+          try{
+            const used = new Set();
+            for (const r of (Array.isArray(items)?items:[])){
+              const m = /^TMI-(\d+)$/i.exec(String(r.code||''));
+              if (m){ const n = parseInt(m[1],10); if (!isNaN(n)) used.add(n); }
+            }
+            let i = 1; while (used.has(i)) i++;
+            const code = `TMI-${i}`;
+            const newRow = { id: null, code, nama: name, status: 'available' };
+            items.push(newRow);
+            try { (function(r){ const vals=[r.code,r.nama,r.status]; r._q = vals.map(v=> String(v||'').toLowerCase()).join(' | '); })(newRow); } catch {}
+          } catch {}
+        })();
         renderChosen();
         if (itemInput) itemInput.value = '';
         if (itemAddPrompt) itemAddPrompt.style.display='none';
@@ -600,9 +614,47 @@
       catch { return items.filter(i=> Object.values(i).some(v=> String(v||'').toLowerCase().includes(s)) ); }
     }
 
+    function sortByItemCodeAsc(a, b){
+      const ac0 = String(a?.code||'').trim();
+      const bc0 = String(b?.code||'').trim();
+      if (!ac0 && !bc0) return 0;
+      if (!ac0) return 1;
+      if (!bc0) return -1;
+      const ac = ac0.toUpperCase();
+      const bc = bc0.toUpperCase();
+      const ma = ac.match(/^([A-Z]+)(\d+)/);
+      const mb = bc.match(/^([A-Z]+)(\d+)/);
+      if (ma && mb){
+        if (ma[1] !== mb[1]) return ma[1].localeCompare(mb[1]);
+        const na = parseInt(ma[2], 10);
+        const nb = parseInt(mb[2], 10);
+        if (isNaN(na) && isNaN(nb)) return ac.localeCompare(bc);
+        if (isNaN(na)) return 1;
+        if (isNaN(nb)) return -1;
+        return na - nb;
+      }
+      return ac.localeCompare(bc);
+    }
+
+    function sortItemsTmiFirst(a, b){
+      const ac = String(a?.code||'');
+      const bc = String(b?.code||'');
+      const ta = /^TMI-(\d+)$/i.exec(ac.trim());
+      const tb = /^TMI-(\d+)$/i.exec(bc.trim());
+      const aIs = !!ta; const bIs = !!tb;
+      if (aIs && !bIs) return -1;
+      if (!aIs && bIs) return 1;
+      if (aIs && bIs){
+        const na = parseInt(ta[1], 10); const nb = parseInt(tb[1], 10);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        return ac.localeCompare(bc);
+      }
+      return sortByItemCodeAsc(a, b);
+    }
+
     function renderItemSuggest(){
       if (!itemInput || !itemSuggest) return;
-      const list = filterItems(itemInput.value);
+      const list = (filterItems(itemInput.value)||[]).slice().sort(sortItemsTmiFirst);
       const q = (itemInput.value||'').trim();
       if (!Array.isArray(list) || list.length===0){
         // Sembunyikan dropdown dan tampilkan prompt klik di bawah input

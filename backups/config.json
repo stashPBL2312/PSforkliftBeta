@@ -1,5 +1,5 @@
 {
-  "enabled": true,
+  "enabled": false,
   "hour": 16,
   "minute": 0,
   "retentionDays": 30

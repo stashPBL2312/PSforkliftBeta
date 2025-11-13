@@ -582,16 +582,18 @@ function reportPrefixForPowertrain(powertrain){
 }
 // Generate next TMI code for ad-hoc items (e.g., TMI-1, TMI-2, ...)
 async function nextTmiCode(){
-  const rows = await all("SELECT code FROM items WHERE code LIKE 'TMI-%' ORDER BY id DESC LIMIT 200");
-  let max = 0;
-  for (const r of rows) {
+  const rows = await all("SELECT code FROM items WHERE code LIKE 'TMI-%' AND deleted_at IS NULL");
+  const used = new Set();
+  for (const r of rows){
     const m = /^TMI-(\d+)$/.exec(String(r.code||''));
-    if (m) {
+    if (m){
       const n = parseInt(m[1], 10);
-      if (!isNaN(n) && n > max) max = n;
+      if (!isNaN(n)) used.add(n);
     }
   }
-  return `TMI-${max+1}`;
+  let i = 1;
+  while (used.has(i)) i++;
+  return `TMI-${i}`;
 }
 // Endpoint untuk autofill report number di form Jobs
 app.get('/api/jobs/next-report', requireLogin, async (req, res) => {

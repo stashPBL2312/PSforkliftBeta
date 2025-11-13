@@ -338,7 +338,16 @@
             </div>
             <div id="ed_description_rich" class="rte" contenteditable="true"></div>
           </label>
-          <label>Recommendation <textarea id="ed_recommendation" rows="3"></textarea></label>
+          <label class="stack" style="grid-column: 1 / -1;">Recommendation
+            <div class="rte-toolbar">
+              <button type="button" data-target="ed_recommendation_rich" data-cmd="bold"><b>B</b></button>
+              <button type="button" data-target="ed_recommendation_rich" data-cmd="italic"><i>I</i></button>
+              <button type="button" data-target="ed_recommendation_rich" data-cmd="underline"><u>U</u></button>
+              <button type="button" data-target="ed_recommendation_rich" data-cmd="insertUnorderedList">• List</button>
+              <button type="button" data-target="ed_recommendation_rich" data-cmd="insertOrderedList">1. List</button>
+            </div>
+            <div id="ed_recommendation_rich" class="rte" contenteditable="true"></div>
+          </label>
           <div id="ed_itemsChoiceWrap" style="grid-column: 1 / -1; display:none;">
             <div style="font-size:12px; color:#666; margin-bottom:4px;">Item dipakai (pilih dari katalog)</div>
             <div style="display:flex; gap:8px; align-items:center;">
@@ -382,6 +391,7 @@
     const items = await api('/api/items');
     let edChosen = [];
     let edSelectedTech = [];
+    let edItemsMode = 'free';
     // State: pilihan forklift pada modal edit (single-select)
     let edForkliftId = null;
 
@@ -473,10 +483,50 @@
     const edItemSuggest = document.getElementById('edItemSuggest');
     const edItemQtyEl = document.getElementById('ed_itemQty');
 
+    function sortByItemCodeAsc(a, b){
+      const ac0 = String(a?.code||'').trim();
+      const bc0 = String(b?.code||'').trim();
+      if (!ac0 && !bc0) return 0;
+      if (!ac0) return 1;
+      if (!bc0) return -1;
+      const ac = ac0.toUpperCase();
+      const bc = bc0.toUpperCase();
+      const ma = ac.match(/^([A-Z]+)(\d+)/);
+      const mb = bc.match(/^([A-Z]+)(\d+)/);
+      if (ma && mb){
+        if (ma[1] !== mb[1]) return ma[1].localeCompare(mb[1]);
+        const na = parseInt(ma[2], 10);
+        const nb = parseInt(mb[2], 10);
+        if (isNaN(na) && isNaN(nb)) return ac.localeCompare(bc);
+        if (isNaN(na)) return 1;
+        if (isNaN(nb)) return -1;
+        return na - nb;
+      }
+      return ac.localeCompare(bc);
+    }
+
+    function sortItemsTmiFirst(a, b){
+      const ac = String(a?.code||'');
+      const bc = String(b?.code||'');
+      const ta = /^TMI-(\d+)$/i.exec(ac.trim());
+      const tb = /^TMI-(\d+)$/i.exec(bc.trim());
+      const aIs = !!ta; const bIs = !!tb;
+      if (aIs && !bIs) return -1;
+      if (!aIs && bIs) return 1;
+      if (aIs && bIs){
+        const na = parseInt(ta[1], 10); const nb = parseInt(tb[1], 10);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        return ac.localeCompare(bc);
+      }
+      return sortByItemCodeAsc(a, b);
+    }
+
     function renderEdItemSuggest(){
       if (!edItemInput || !edItemSuggest) return;
       const q = String(edItemInput.value||'').trim().toLowerCase();
-      const list = (Array.isArray(items)?items:[]).filter(i=> !q || `${i.code} ${i.nama}`.toLowerCase().includes(q));
+      const list = (Array.isArray(items)?items:[])
+        .filter(i=> !q || `${i.code} ${i.nama}`.toLowerCase().includes(q))
+        .sort(sortItemsTmiFirst);
       if (!list.length){ edItemSuggest.style.display='none'; edItemSuggest.innerHTML=''; return; }
       edItemSuggest.innerHTML = list.map(i=>{
         const unavailable = String(i.status||'').toLowerCase()==='unavailable';
@@ -508,23 +558,29 @@
       });
     }
 
+    (function ensureTmiTopOnFocus(){
+      const inp = document.getElementById('ed_itemSearch');
+      if (!inp) return;
+      inp.addEventListener('focus', ()=>{ try { renderEdItemSuggest(); } catch {} });
+    })();
+
     // Backward-compat wrapper to keep function name used elsewhere
     function edRenderItems(){ renderEdItemSuggest(); }
     function edRenderChosen(){
       const chosenEl = document.getElementById('ed_chosenItems'); if (!chosenEl) return;
-      chosenEl.innerHTML = (edChosen||[]).map(c=>`
+      chosenEl.innerHTML = (edChosen||[]).map((c,idx)=>`
         <div class="chosen-row">
-          <div style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;">${c.code} - ${c.nama}</div>
-          <input class="qty" type="number" min="1" value="${c.qty}" data-ed-qty="${c.id}" />
-          <button class="xbtn" aria-label="Hapus item" title="Hapus" data-ed-rem="${c.id}">&times;</button>
+          <div style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;">${c.code ? (c.code+' - '+c.nama) : (c.nama||'')}</div>
+          <input class="qty" type="number" min="1" value="${c.qty}" data-row="${idx}" />
+          <button class="xbtn" aria-label="Hapus item" title="Hapus" data-row="${idx}">&times;</button>
         </div>
       `).join('');
-      chosenEl.querySelectorAll('button[data-ed-rem]').forEach(b=> b.onclick = ()=>{ const id=+b.getAttribute('data-ed-rem'); edChosen = (edChosen||[]).filter(c=>c.id!==id); edRenderChosen(); });
-      chosenEl.querySelectorAll('input[data-ed-qty]').forEach(inp=>{
+      chosenEl.querySelectorAll('button[data-row]').forEach(b=> b.onclick = ()=>{ const rid=+b.getAttribute('data-row'); edChosen.splice(rid,1); edRenderChosen(); });
+      chosenEl.querySelectorAll('input[data-row]').forEach(inp=>{
         inp.oninput = ()=>{
-          const id = +inp.getAttribute('data-ed-qty');
+          const rid = +inp.getAttribute('data-row');
           let v = parseInt(inp.value||'1',10); if (!v || v<1) v = 1; inp.value = String(v);
-          const row = (edChosen||[]).find(x=>x.id===id); if (row) row.qty = v;
+          const row = (edChosen||[])[rid]; if (row) row.qty = v;
         };
       });
     }
@@ -534,8 +590,9 @@
       const choice = document.getElementById('ed_itemsChoiceWrap');
       const free = document.getElementById('ed_itemsFreeWrap');
       const nextPmWrap = document.getElementById('ed_next_pm_wrap');
-      if (choice) choice.style.display = (j==='Workshop') ? 'block' : 'none';
-      if (free) free.style.display = (j==='PM' || j==='Lapangan') ? 'block' : 'none';
+      const mode = edItemsMode || ((j==='Workshop') ? 'choice' : 'free');
+      if (choice) choice.style.display = (mode==='choice') ? 'block' : 'none';
+      if (free) free.style.display = (mode==='free') ? 'block' : 'none';
       if (nextPmWrap) nextPmWrap.style.display = (j==='PM') ? 'block' : 'none';
     }
     if (edJenisSel){ edJenisSel.addEventListener('change', ()=>{ edUpdateJenisUI(); }); }
@@ -1121,7 +1178,7 @@ function render(){
     const eqFromRow = String(row.forklift_eq_no||'').trim();
     const eqFromFk = fkObj && String(fkObj.eq_no||'').trim();
     const eqFromLabel = (()=>{ const m = String(row.forklift||'').match(/\(([^)]+)\)\s*$/); return m ? String(m[1]||'').trim() : ''; })();
-    const forkliftText = (eqFromRow || eqFromFk || eqFromLabel || '').trim();
+    let forkliftText = (eqFromRow || eqFromFk || eqFromLabel || '').trim();
     const brandType = (()=>{
       const src = fkObj || fkObjFallback;
       const bt = [src && src.brand, src && src.type].map(v=>String(v||'').trim()).filter(Boolean).join(' ').trim();
@@ -1131,6 +1188,7 @@ function render(){
     })();
     const owner = String(row.forklift_owner||((fkObj||fkObjFallback)&&((fkObj||fkObjFallback).owner))||'').trim();
     const floc = String(row.forklift_location||row.forklift_location_fk||((fkObj||fkObjFallback)&&((fkObj||fkObjFallback).location))||'').trim();
+    if (!forkliftText) forkliftText = floc;
     const serial = String(row.forklift_serial||((fkObj||fkObjFallback)&&((fkObj||fkObjFallback).serial))||'').trim();
     const powertrain = String(row.forklift_powertrain||((fkObj||fkObjFallback)&&((fkObj||fkObjFallback).powertrain))||'').trim();
     const details = [floc].filter(Boolean).join(' / ');
@@ -1258,36 +1316,57 @@ function openEditModal(item, readOnly=false){
   document.getElementById('ed_location').value = item.forklift_location || '';
   const descRichEl = document.getElementById('ed_description_rich');
   if (descRichEl) descRichEl.innerHTML = item.description || '';
-  document.getElementById('ed_recommendation').value = item.recommendation || '';
+  const recRichEl = document.getElementById('ed_recommendation_rich');
+  if (recRichEl) recRichEl.innerHTML = item.recommendation || '';
   const itemsRichEl = document.getElementById('ed_items_used_rich');
   if (itemsRichEl) itemsRichEl.innerHTML = item.items_used || '';
   const nextPmEl = document.getElementById('ed_next_pm');
   if (nextPmEl) nextPmEl.value = item.next_pm || '';
-  // Toggle UI by jenis + prefill chosen items jika PM/Workshop
-  edUpdateJenisUI();
+  edChosen = [];
   const jNow = document.getElementById('ed_pekerjaan').value;
-  if (jNow==='Workshop'){
-    edChosen = [];
-    const txt = String(item.items_used||'');
-    if (txt){
-      txt.split(',').forEach(part=>{
-        const m = /\s*([A-Za-z0-9_-]+)\b.*?\bx\s*(\d+)\s*$/i.exec(part);
-        if (m){
-          const code = m[1];
-          const qty = parseInt(m[2])||1;
-          const it = (items||[]).find(x=>x.code===code);
-          if (it){
-            const exist = edChosen.find(c=>c.id===it.id);
-            if (exist) exist.qty += qty; else edChosen.push({ id: it.id, code: it.code, nama: it.nama, qty });
-          }
+  const txtItems = String(item.items_used||'').trim();
+  if (txtItems){
+    txtItems.split(',').forEach(raw=>{
+      const part = String(raw||'').trim();
+      const qm = /\bx\s*(\d+)\s*$/i.exec(part);
+      const qty = qm ? (parseInt(qm[1],10)||1) : 1;
+      const textBase = part.replace(/\bx\s*\d+\s*$/i,'').trim();
+      if (!textBase) return;
+      const cm = /^([A-Za-z0-9_-]+)\s+(.+)$/.exec(textBase);
+      let code = '';
+      let name = '';
+      if (cm){
+        const candidate = cm[1];
+        const rest = cm[2];
+        const it = (items||[]).find(x=>String(x.code||'')===candidate);
+        if (it){
+          code = it.code; name = it.nama;
+          const exist = edChosen.find(c=>c.id===it.id);
+          if (exist) exist.qty += qty; else edChosen.push({ id: it.id, code, nama: name, qty });
+          return;
         }
-      });
-    }
-    edRenderChosen();
-    edRenderItems();
+        // candidate bukan code katalog → anggap seluruh text sebagai nama
+        code = '';
+        name = textBase;
+      } else {
+        // Tidak ada spasi: bisa nama tunggal atau code saja
+        const it = (items||[]).find(x=>String(x.code||'')===textBase);
+        if (it){
+          const exist = edChosen.find(c=>c.id===it.id);
+          if (exist) exist.qty += qty; else edChosen.push({ id: it.id, code: it.code, nama: it.nama, qty });
+          return;
+        }
+        code=''; name=textBase;
+      }
+      edChosen.push({ id: null, code, nama: name, qty });
+    });
   }
-  edTechInput.value = (edTechInput.value||'').trim();
-  edTechSuggest.style.display = (edTechInput.value) ? 'block' : 'none';
+  edItemsMode = 'choice';
+  edRenderChosen();
+  edRenderItems();
+  edUpdateJenisUI();
+  if (typeof edTechInput !== 'undefined' && edTechInput) { edTechInput.value = (edTechInput.value||'').trim(); }
+  if (typeof edTechSuggest !== 'undefined' && edTechSuggest) { edTechSuggest.style.display = (edTechInput && edTechInput.value) ? 'block' : 'none'; }
   // Prefill chips teknisi dari record agar tidak perlu pilih ulang
   try{
     const rawTech = String(item.teknisi||'');
@@ -1301,11 +1380,12 @@ function openEditModal(item, readOnly=false){
   }catch(_){}
   if (readOnly){
     // Matikan semua input & suggest di modal
-    ['ed_tanggal','ed_report_no','ed_pekerjaan','ed_location','ed_recommendation'].forEach(id=>{
+    ['ed_tanggal','ed_report_no','ed_pekerjaan','ed_location'].forEach(id=>{
       const el = document.getElementById(id);
       if (el){ el.disabled = true; el.readOnly = true; }
     });
     const descRich = document.getElementById('ed_description_rich'); if (descRich) descRich.setAttribute('contenteditable','false');
+    const recRich = document.getElementById('ed_recommendation_rich'); if (recRich) recRich.setAttribute('contenteditable','false');
     const itemsRich = document.getElementById('ed_items_used_rich'); if (itemsRich) itemsRich.setAttribute('contenteditable','false');
     if (typeof edFkInput !== 'undefined' && edFkInput) edFkInput.disabled = true;
     if (typeof edTechInput !== 'undefined' && edTechInput) edTechInput.disabled = true;
@@ -1320,12 +1400,12 @@ function openEditModal(item, readOnly=false){
     document.querySelectorAll('#ed_chosenItems .chosen-row input.qty').forEach(el=>{ el.disabled = true; el.readOnly = true; });
     document.querySelectorAll('#ed_chosenItems .chosen-row .xbtn').forEach(btn=>{ btn.style.display = 'none'; });
   } else {
-    // Pastikan semua input aktif di mode edit
-    ['ed_tanggal','ed_report_no','ed_pekerjaan','ed_location','ed_recommendation'].forEach(id=>{
+    ['ed_tanggal','ed_report_no','ed_pekerjaan','ed_location'].forEach(id=>{
       const el = document.getElementById(id);
       if (el){ el.disabled = false; el.readOnly = false; }
     });
     const descRich = document.getElementById('ed_description_rich'); if (descRich) descRich.setAttribute('contenteditable','true');
+    const recRich2 = document.getElementById('ed_recommendation_rich'); if (recRich2) recRich2.setAttribute('contenteditable','true');
     const itemsRich = document.getElementById('ed_items_used_rich'); if (itemsRich) itemsRich.setAttribute('contenteditable','true');
     if (typeof edFkInput !== 'undefined' && edFkInput) edFkInput.disabled = false;
     if (typeof edTechInput !== 'undefined' && edTechInput) edTechInput.disabled = false;
@@ -1364,8 +1444,10 @@ function openEditModal(item, readOnly=false){
         pekerjaan: document.getElementById('ed_pekerjaan').value,
         teknisi: teknisiList.join(', '),
         description: getRteValue('ed_description_rich'),
-        recommendation: document.getElementById('ed_recommendation').value,
-        items_used: ((()=>{ const j=document.getElementById('ed_pekerjaan').value; if (j==='Workshop') { return (edChosen||[]).map(c=>`${c.code} ${c.nama} x ${c.qty}`).join(', '); } return getRteValue('ed_items_used_rich'); })()),
+        recommendation: getRteValue('ed_recommendation_rich'),
+        items_used: (edItemsMode==='choice'
+          ? (edChosen||[]).map(c=> c && c.id ? `${c.code} ${c.nama} x ${c.qty}` : `${c.nama} x ${c.qty}`).join(', ')
+          : getRteValue('ed_items_used_rich')),
         location: document.getElementById('ed_location').value,
       };
       await api('/api/records/'+item.id, { method:'PUT', body: payload });
@@ -1379,7 +1461,7 @@ function openEditModal(item, readOnly=false){
           if (target && target.id){
             await api('/api/jobs/'+target.id, { method:'PUT', body: { jenis: target.jenis, forklift_id: target.forklift_id, tanggal: target.tanggal, teknisi: target.teknisi, report_no: target.report_no, description: target.description, recommendation: target.recommendation, items_used: target.items_used, next_pm: nextPmVal } });
           } else {
-            await api('/api/jobs', { method:'POST', body: { jenis: 'PM', forklift_id: parseInt(edForkliftId||0), tanggal: document.getElementById('ed_tanggal').value, teknisi: teknisiList.join(', '), report_no: document.getElementById('ed_report_no').value, description: getRteValue('ed_description_rich'), recommendation: document.getElementById('ed_recommendation').value, items_used: getRteValue('ed_items_used_rich'), next_pm: nextPmVal } });
+            await api('/api/jobs', { method:'POST', body: { jenis: 'PM', forklift_id: parseInt(edForkliftId||0), tanggal: document.getElementById('ed_tanggal').value, teknisi: teknisiList.join(', '), report_no: document.getElementById('ed_report_no').value, description: getRteValue('ed_description_rich'), recommendation: getRteValue('ed_recommendation_rich'), items_used: (edItemsMode==='choice' ? (edChosen||[]).map(c=> c && c.id ? `${c.code} ${c.nama} x ${c.qty}` : `${c.nama} x ${c.qty}`).join(', ') : getRteValue('ed_items_used_rich')), next_pm: nextPmVal } });
           }
         }catch(_){ /* ignore update next_pm errors */ }
       }

@@ -126,8 +126,7 @@
     ];
 
     let page = 1; let rows = 25;
-    // Sorting untuk kolom ID (code)
-    let sortDir = 'asc';
+    let sortMode = 'codeAsc';
     let currentRows = [];
 
     // helper untuk kapitalisasi status saat ditampilkan
@@ -183,6 +182,22 @@
         return na - nb;
       }
       return ac.localeCompare(bc);
+    }
+
+    function sortItemsTmiFirst(a, b){
+      const ac = String(a?.code||'');
+      const bc = String(b?.code||'');
+      const ta = /^TMI-(\d+)$/i.exec(ac.trim());
+      const tb = /^TMI-(\d+)$/i.exec(bc.trim());
+      const aIs = !!ta; const bIs = !!tb;
+      if (aIs && !bIs) return -1;
+      if (!aIs && bIs) return 1;
+      if (aIs && bIs){
+        const na = parseInt(ta[1], 10); const nb = parseInt(tb[1], 10);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        return ac.localeCompare(bc);
+      }
+      return sortByItemCodeAsc(a, b);
     }
 
     function formHtml(item={}){
@@ -276,16 +291,18 @@
     function render(){
        perfStart && perfStart('items.render');
        const q = document.getElementById('search').value;
-       const filtered = q ? fastFilter(data, q) : (data||[]);
-       const sorted = (filtered||[]).slice().sort((a,b)=> sortDir==='asc' ? sortByItemCodeAsc(a,b) : sortByItemCodeAsc(b,a));
+      const filtered = q ? fastFilter(data, q) : (data||[]);
+      const sorted = (filtered||[]).slice();
+      if (sortMode==='codeAsc') sorted.sort(sortItemsTmiFirst);
+      else if (sortMode==='codeDesc') sorted.sort((a,b)=> sortItemsTmiFirst(b,a));
        const start = (page-1)*rows; const end = start+rows;
        const rowsData = sorted.slice(start,end).map(x=>Object.assign({}, x));
        currentRows = rowsData;
        const header = '<thead><tr>' + columns.map(c=>{
          if (c.key==='__sel') return `<th class="sel-header" style="cursor:pointer" title="Pilih semua di halaman">Sel</th>`;
          if (c.key==='code'){
-           const arrow = sortDir==='asc' ? '▲' : '▼';
-           return `<th class="sort-code" style="cursor:pointer" title="Urutkan ID">${c.label} ${arrow}</th>`;
+           const arrow = sortMode==='codeAsc' ? '▲' : (sortMode==='codeDesc' ? '▼' : '');
+           return `<th class="sort-code" style="cursor:pointer" title="Urutkan ID">${c.label}${arrow? ' '+arrow : ''}</th>`;
          }
          return `<th>${c.label}</th>`;
        }).join('') + '</tr></thead>';
@@ -319,7 +336,7 @@
        document.getElementById('table').innerHTML = `<table>${header}${body}</table>`;
   applyTablePerformanceHints('table');
        const sortCodeHeader = document.querySelector('th.sort-code');
-       if (sortCodeHeader){ sortCodeHeader.onclick = ()=>{ sortDir = (sortDir==='asc' ? 'desc' : 'asc'); page=1; render(); }; }
+       if (sortCodeHeader){ sortCodeHeader.onclick = ()=>{ sortMode = (sortMode==='recent' ? 'codeAsc' : (sortMode==='codeAsc' ? 'codeDesc' : 'recent')); page=1; render(); }; }
   perfEnd && perfEnd('items.render', `q="${q}" n=${data?.length||0} filtered=${filtered.length} pageRows=${rowsData.length}`);
   const pages = Math.max(1, Math.ceil(sorted.length/rows));
        document.getElementById('pagination').innerHTML = `
