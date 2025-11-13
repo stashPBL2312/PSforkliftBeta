@@ -1000,12 +1000,11 @@ async function load(){
           for (const ar of arr){
             const isMaint = src==='maintenance';
             const tag = isMaint ? 'Arsip PM/Lapangan' : 'Arsip Workshop';
-            const forkliftLabel = [String(ar.forklift_eq_no||'').trim(), String(ar.forklift_serial||'').trim()].filter(Boolean).join(' / ');
             archiveRows.push({
               id: -(100000 + (parseInt(ar.id,10)||0)),
               tanggal: ar.job_date || '',
               report_no: ar.job_no || '',
-              forklift: forkliftLabel || (ar.forklift || ''),
+              forklift: (ar.forklift || ''),
               forklift_id: ar.forklift_id || null,
               forklift_eq_no: ar.forklift_eq_no || '',
               pekerjaan: isMaint ? 'PM/Lapangan' : 'Workshop',
@@ -1110,14 +1109,33 @@ function render(){
       }
     }
     const fkObj = fkCache.find && fkCache.find(x=>x.id===row.forklift_id);
-    const forkliftText = (row.forklift && String(row.forklift).trim()) ? row.forklift : (fkObj ? fkLabel(fkObj) : '');
-    const owner = String(row.forklift_owner||'').trim();
-    const floc = String(row.forklift_location_fk||'').trim();
-    const serial = String(row.forklift_serial||'').trim();
-    const powertrain = String(row.forklift_powertrain||'').trim();
-    const details = [owner, floc].filter(Boolean).join(' / ');
-    const extra = [serial, powertrain].filter(Boolean).join(' · ');
-    const sub = [details, extra].filter(Boolean).join(' — ');
+    const fkObjFallback = (()=>{
+      if (fkObj) return null;
+      const eq = String(row.forklift_eq_no||'').trim().toLowerCase();
+      const sn = String(row.forklift_serial||'').trim().toLowerCase();
+      const byEq = (eq && fkCache.find) ? fkCache.find(x=> String(x.eq_no||'').trim().toLowerCase()===eq) : null;
+      if (byEq) return byEq;
+      const bySn = (sn && fkCache.find) ? fkCache.find(x=> String(x.serial||'').trim().toLowerCase()===sn) : null;
+      return bySn || null;
+    })();
+    const eqFromRow = String(row.forklift_eq_no||'').trim();
+    const eqFromFk = fkObj && String(fkObj.eq_no||'').trim();
+    const eqFromLabel = (()=>{ const m = String(row.forklift||'').match(/\(([^)]+)\)\s*$/); return m ? String(m[1]||'').trim() : ''; })();
+    const forkliftText = (eqFromRow || eqFromFk || eqFromLabel || '').trim();
+    const brandType = (()=>{
+      const src = fkObj || fkObjFallback;
+      const bt = [src && src.brand, src && src.type].map(v=>String(v||'').trim()).filter(Boolean).join(' ').trim();
+      if (bt) return bt;
+      const f = String(row.forklift||'').trim();
+      return f ? f.replace(/\s*\([^)]*\)\s*$/, '').trim() : '';
+    })();
+    const owner = String(row.forklift_owner||((fkObj||fkObjFallback)&&((fkObj||fkObjFallback).owner))||'').trim();
+    const floc = String(row.forklift_location||row.forklift_location_fk||((fkObj||fkObjFallback)&&((fkObj||fkObjFallback).location))||'').trim();
+    const serial = String(row.forklift_serial||((fkObj||fkObjFallback)&&((fkObj||fkObjFallback).serial))||'').trim();
+    const powertrain = String(row.forklift_powertrain||((fkObj||fkObjFallback)&&((fkObj||fkObjFallback).powertrain))||'').trim();
+    const details = [floc].filter(Boolean).join(' / ');
+    const extra = [powertrain].filter(Boolean).join(' · ');
+    const sub = [brandType, details, extra].filter(Boolean).join(' — ');
     const forkliftCell = sub ? `<div>${forkliftText}<div class='subtext'>${sub}</div></div>` : forkliftText;
     const pekerjaanCell = row.__arsip ? `${row.pekerjaan||''} <span class="arsip-tag">${row.__arsip_tag||'Arsip'}</span>` : (row.pekerjaan||'');
     function tdFor(key){
@@ -1594,7 +1612,7 @@ function renderArchiveDetailHtml(d){
     ['Sumber', d.job_source],
     ['Jenis', ((String(d.jenis||'').toLowerCase()==='pm') || d.job_source === 'maintenance') ? 'PM/Lapangan' : (d.jenis || 'Workshop')],
     ['Tanggal', d.job_date],
-    ['Forklift', d.forklift || [d.forklift_eq_no, d.forklift_serial].filter(Boolean).join(' / ')],
+    ['Forklift', d.forklift || ''],
     ...(isPM ? [['Next PM', d.next_pm || '']] : []),
     ['Pekerjaan', d.pekerjaan || ''],
     ['Recommendation', d.recommendation || ''],

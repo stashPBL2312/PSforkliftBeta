@@ -202,15 +202,16 @@
           } },
           { key:'job_date', label:'Tanggal' },
           { key:'forklift', label:'Forklift', render:(row)=>{
-            const main = String(row.forklift||'');
-            const owner = String(row.forklift_owner||'').trim();
+            const main = String(row.forklift||'').trim();
+            const eq = String(row.forklift_eq_no||'').trim() || (main.match(/\(([^)]+)\)\s*$/)?.[1]||'').trim();
+            const brandType = main ? main.replace(/\s*\([^)]*\)\s*$/, '').trim() : '';
             const location = String(row.forklift_location||'').trim();
-            const serial = String(row.forklift_serial||'').trim();
             const powertrain = String(row.forklift_powertrain||'').trim();
-            const details = [owner, location].filter(Boolean).join(' / ');
-            const extra = [serial, powertrain].filter(Boolean).join(' · ');
-            const sub = [details, extra].filter(Boolean).join(' — ');
-            return sub ? `<div>${main}<div class='subtext'>${sub}</div></div>` : main;
+            const details = [location].filter(Boolean).join(' / ');
+            const extra = [powertrain].filter(Boolean).join(' · ');
+            const sub = [brandType, details, extra].filter(Boolean).join(' — ');
+            const top = eq || brandType || main;
+            return sub ? `<div>${top}<div class='subtext'>${sub}</div></div>` : top;
           } },
         ];
         const v = String(j||'').toLowerCase();
@@ -260,15 +261,16 @@
         }};
         const tanggalCol = { key:'job_date', label:'Tanggal' };
         const forkliftCol = { key:'forklift', label:'Forklift', render:(row)=>{
-          const main = String(row.forklift||'');
-          const owner = String(row.forklift_owner||'').trim();
+          const main = String(row.forklift||'').trim();
+          const eq = String(row.forklift_eq_no||'').trim() || (main.match(/\(([^)]+)\)\s*$/)?.[1]||'').trim();
+          const brandType = main ? main.replace(/\s*\([^)]*\)\s*$/, '').trim() : '';
           const location = String(row.forklift_location||'').trim();
-          const serial = String(row.forklift_serial||'').trim();
           const powertrain = String(row.forklift_powertrain||'').trim();
-          const details = [owner, location].filter(Boolean).join(' / ');
-          const extra = [serial, powertrain].filter(Boolean).join(' · ');
-          const sub = [details, extra].filter(Boolean).join(' — ');
-          return sub ? `<div>${main}<div class='subtext'>${sub}</div></div>` : main;
+          const details = [location].filter(Boolean).join(' / ');
+          const extra = [powertrain].filter(Boolean).join(' · ');
+          const sub = [brandType, details, extra].filter(Boolean).join(' — ');
+          const top = eq || brandType || main;
+          return sub ? `<div>${top}<div class='subtext'>${sub}</div></div>` : top;
         }};
         const pekerjaanCol = { key:'pekerjaan', label:'Pekerjaan' };
         const reportCol = { key:'job_no', label:'Report No' };
