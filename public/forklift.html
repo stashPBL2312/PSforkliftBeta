@@ -121,6 +121,10 @@
   <script>
   window.addEventListener('DOMContentLoaded', ()=>{ (async function(){
     const user = await ensureAuthedAndRenderNav(); if (!user) return;
+    if (user.role === 'teknisi'){
+      const hideIds = ['addBtn','bulkDeleteBtn','importExcel'];
+      hideIds.forEach(id=>{ const el=document.getElementById(id); if(el){ el.style.display='none'; el.disabled=true; } });
+    }
     let data = await api('/api/forklifts');
     function indexRows(rows){
       try{

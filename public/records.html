@@ -89,6 +89,8 @@
       white-space: normal;
       word-break: break-word;
     }
+    .parts-list{ margin:0; padding-left:18px; }
+    .parts-list li{ margin:0 0 4px; }
     
     /* Chips + Suggest untuk filter teknisi */
     .chips { display:flex; flex-wrap:wrap; gap:6px; }
@@ -266,10 +268,6 @@
           <div id="techSuggest" class="suggest" style="display:none; content-visibility:auto; contain-intrinsic-size: 120px;"></div>
         </div>
         <div class="actions">
-          <div class="rows-group">
-            <label for="rowsPerPage" style="margin:0;">Rows</label>
-            <select id="rowsPerPage"><option>10</option><option>15</option><option>25</option></select>
-          </div>
           <!-- Urutan untuk pairing spesifik: Import Excel ↔ Reset, Export CSV ↔ Export Excel, Hapus Terpilih ↔ Export PDF -->
           <button id="gotoJobs" type="button" style="background:#22c55e; color:#fff; border-color:#16a34a; font-weight:700; padding:8px 14px;">Buat Jobs</button>
           <button id="importExcel">Import Excel</button>
@@ -282,7 +280,15 @@
       </div>
     </div>
     <div id="table"></div>
-  <div id="pagination" style="margin-top:8px;"></div>
+    <div id="rowsControl" style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+      <label for="rowsPerPage" style="margin:0;">Rows</label>
+      <select id="rowsPerPage">
+        <option value="25" selected>25</option>
+        <option value="50">50</option>
+        <option value="All">All</option>
+      </select>
+    </div>
+    <div id="pagination" style="margin-top:8px;"></div>
 
     <!-- Modal Detail Arsip (view-only) -->
     <div id="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.3); align-items:center; justify-content:center;">
@@ -387,6 +393,9 @@
   window.addEventListener('DOMContentLoaded', ()=>{ (async function(){
     const user = await ensureAuthedAndRenderNav(); if (!user) return;
     const goJobs = document.getElementById('gotoJobs'); if (goJobs) goJobs.onclick = ()=>{ location.href = '/jobs.html'; };
+    if (user.role === 'teknisi'){
+      ['bulkDeleteBtn','importExcel'].forEach(id=>{ const el=document.getElementById(id); if(el){ el.style.display='none'; el.disabled=true; } });
+    }
     const forklifts = await api('/api/forklifts');
     const fkCache = Array.isArray(forklifts) ? forklifts : [];
     // Tambah: daftar items untuk chooser di modal edit
@@ -775,7 +784,7 @@
     // Global/state for records page
     let data = [];
     let page = 1;
-    let rowsPerPage = 10;
+    let rowsPerPage = 25;
     let sortKey = 'tanggal';
     let sortDir = 'desc';
     let selected = new Set();
@@ -792,6 +801,8 @@
     }
 
     // Columns for table and export (keep keys in sync with export handlers)
+    function escHtml(s){ return String(s||'').replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
+    function renderPartsCell(row){ const txt = String(row.items_used||'').trim(); if (!txt) return ''; const items = txt.split(',').map(x=> escHtml(String(x||'').trim())).filter(Boolean); return '<ul class="parts-list">'+ items.map(i=> '<li>'+ i +'</li>').join('') +'</ul>'; }
     const columns = [
       { key: '__sel', label: '' },
       { key: 'tanggal', label: 'Tanggal' },
@@ -802,7 +813,7 @@
       { key: 'next_pm', label: 'Next PM' },
       { key: 'description', label: 'Description' },
       { key: 'recommendation', label: 'Recommendation' },
-      { key: 'items_used', label: 'Items Used' },
+      { key: 'items_used', label: 'Parts', render: renderPartsCell },
       { key: 'actions', label: 'Actions' },
     ];
     // Khusus mobile: urutan kolom diubah menjadi Sel, Tanggal, Forklift, Pekerjaan, Report No, dst
@@ -816,7 +827,7 @@
       { key: 'next_pm', label: 'Next PM' },
       { key: 'description', label: 'Description' },
       { key: 'recommendation', label: 'Recommendation' },
-      { key: 'items_used', label: 'Items Used' },
+      { key: 'items_used', label: 'Parts', render: renderPartsCell },
       { key: 'actions', label: 'Actions' },
     ];
 
@@ -1118,8 +1129,9 @@ async function load(){
 
 function render(){
   perfStart && perfStart('records.render');
-  const startIdx = (page-1)*rowsPerPage;
-  const endIdx = startIdx + rowsPerPage;
+  const allMode = (rowsPerPage === 'All');
+  const startIdx = allMode ? 0 : (page-1)*rowsPerPage;
+  const endIdx = allMode ? data.length : (startIdx + rowsPerPage);
   currentRows = data.slice(startIdx, endIdx).map(x=>Object.assign({}, x));
   const isMobile = window.matchMedia('(max-width: 768px)').matches;
   const cols = isMobile ? columnsMobile : columns;
@@ -1209,7 +1221,7 @@ function render(){
         case 'next_pm': return `<td>${nextPmCell}</td>`;
         case 'description': return `<td>${row.description||''}</td>`;
         case 'recommendation': return `<td>${row.recommendation||''}</td>`;
-        case 'items_used': return `<td>${row.items_used||''}</td>`;
+        case 'items_used': return `<td>${renderPartsCell(row)}</td>`;
         case 'actions': return `<td>${actions}</td>`;
         default: return '<td></td>';
       }
@@ -1295,11 +1307,34 @@ function render(){
   }
 
   // Pagination
-  const pages = Math.max(1, Math.ceil(data.length / rowsPerPage));
+  const pages = allMode ? 1 : Math.max(1, Math.ceil(data.length / rowsPerPage));
   const pagEl = document.getElementById('pagination');
   if (pagEl){
-    pagEl.innerHTML = Array.from({length: pages}, (_,i)=>`<button data-p='${i+1}' ${i+1===page?"style=\"font-weight:700\"":''}>${i+1}</button>`).join(' ');
-    pagEl.querySelectorAll('button[data-p]').forEach(b=> b.onclick = ()=>{ page = parseInt(b.getAttribute('data-p')); render(); });
+    pagEl.innerHTML = `
+      <div style="display:flex; gap:8px; align-items:center; justify-content:center; flex-wrap:wrap;">
+        <button id="prevBtn">Prev</button>
+        <span>Halaman</span>
+        <input id="pageInput" type="number" min="1" value="${page}" style="width:64px;" />
+        <span>/ ${pages}</span>
+        <button id="nextBtn">Next</button>
+      </div>`;
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const pageInput = document.getElementById('pageInput');
+    if (prevBtn) prevBtn.disabled = page <= 1 || allMode;
+    if (nextBtn) nextBtn.disabled = page >= pages || allMode;
+    if (prevBtn) prevBtn.onclick = ()=>{ if (page>1){ page = page-1; render(); } };
+    if (nextBtn) nextBtn.onclick = ()=>{ if (page<pages){ page = page+1; render(); } };
+    if (pageInput){
+      pageInput.onchange = ()=>{
+        let p = parseInt(pageInput.value, 10);
+        if (isNaN(p) || p<1) p = 1;
+        if (p>pages) p = pages;
+        page = p;
+        render();
+      };
+      pageInput.onkeydown = (e)=>{ if (e.key==='Enter'){ e.preventDefault(); pageInput.onchange(); } };
+    }
   }
 }
 
@@ -1321,7 +1356,15 @@ function openEditModal(item, readOnly=false){
   const recRichEl = document.getElementById('ed_recommendation_rich');
   if (recRichEl) recRichEl.innerHTML = item.recommendation || '';
   const itemsRichEl = document.getElementById('ed_items_used_rich');
-  if (itemsRichEl) itemsRichEl.innerHTML = item.items_used || '';
+  if (itemsRichEl){
+    const raw = String(item.items_used||'').trim();
+    if (raw){
+      const bullets = raw.split(',').map(x=> `<li>${escHtml(String(x||'').trim())}</li>`).join('');
+      itemsRichEl.innerHTML = `<ul>${bullets}</ul>`;
+    } else {
+      itemsRichEl.innerHTML = '';
+    }
+  }
   const nextPmEl = document.getElementById('ed_next_pm');
   if (nextPmEl) nextPmEl.value = item.next_pm || '';
   edChosen = [];
@@ -1496,7 +1539,7 @@ if (endEl) endEl.onchange = load;
 
 document.querySelectorAll('#jenisChecks input[type=checkbox]').forEach(cb=> cb.onchange = load);
 const rppEl = document.getElementById('rowsPerPage');
-if (rppEl) { rppEl.value = String(rowsPerPage); rppEl.onchange = (e)=>{ rowsPerPage = parseInt(e.target.value)||10; page=1; render(); }; }
+if (rppEl) { rppEl.value = (rowsPerPage==='All'?'All':String(rowsPerPage)); rppEl.onchange = (e)=>{ const v = e.target.value; rowsPerPage = (v==='All'?'All':(parseInt(v,10)||25)); page=1; render(); }; }
 const applyBtn = document.getElementById('apply');
 if (applyBtn) applyBtn.onclick = ()=>{
   // Reset semua filter dan search ke default
@@ -1511,7 +1554,7 @@ if (applyBtn) applyBtn.onclick = ()=>{
   // Reset sort ke default
   sortKey = 'tanggal';
   sortDir = 'desc';
-  page = 1; rowsPerPage = 10; if (rppEl) rppEl.value = String(rowsPerPage);
+  page = 1; rowsPerPage = 25; if (rppEl) rppEl.value = '25';
   // Muat ulang data dengan parameter default
   load();
 };

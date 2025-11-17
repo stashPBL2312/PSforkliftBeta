@@ -111,6 +111,16 @@ function injectThemeStyles(){
   /* Iconic buttons */
   button.btn-ico { display:inline-flex; align-items:center; gap:6px; }
   button.btn-ico svg { width:16px; height:16px; display:inline-block; }
+
+  /* Zebra table shading (light) */
+  table tbody tr:nth-child(odd) td { background:#f1f5f9 !important; }
+  table tbody tr:nth-child(even) td { background:#ffffff !important; }
+  table tbody tr:hover td { background:#eef7ff !important; }
+
+  /* Zebra table shading (dark) */
+  [data-theme="dark"] table tbody tr:nth-child(odd) td { background:#0f172a !important; }
+  [data-theme="dark"] table tbody tr:nth-child(even) td { background:#0b1220 !important; }
+  [data-theme="dark"] table tbody tr:hover td { background:#1e293b !important; }
   `;
   const style = document.createElement('style');
   style.id = 'themeStyles';
@@ -132,6 +142,17 @@ function injectResponsiveStyles(){
   .topbar .links { display:flex; gap:12px; align-items:center; }
   .topbar .right { margin-left:auto; display:flex; align-items:center; gap:8px; }
   .topbar .menu-btn { display:none; }
+  .topbar .dropdown { position:relative; }
+  .topbar .dropdown .menu { display:none; position:absolute; top:100%; left:0; background:#fff; color:#111827; border:1px solid #e5e7eb; border-radius:6px; box-shadow:0 10px 24px rgba(0,0,0,.25); min-width:140px; z-index:1200; font-size:13px; padding:4px 6px; white-space:nowrap; max-width:calc(100vw - 24px); }
+  .topbar .right .dropdown .menu { left:auto; right:0; }
+  .topbar .dropdown.open .menu { display:block; }
+  .topbar .dropdown .menu a { display:flex; align-items:center; gap:6px; padding:6px 8px; text-decoration:none; color:inherit; border-bottom:1px solid #e5e7eb; }
+  .topbar .dropdown .menu a .ico svg { width:14px; height:14px; }
+  .topbar .dropdown .menu a:hover { background:#eef2ff; }
+  .topbar .dropdown .menu a:last-child { border-bottom:none; }
+  [data-theme="dark"] .topbar .dropdown .menu { background:#0f172a; color:#e5e7eb; border-color:#1f2937; box-shadow:0 10px 24px rgba(0,0,0,.6); }
+  [data-theme="dark"] .topbar .dropdown .menu a { border-bottom-color:#1f2937; }
+  [data-theme="dark"] .topbar .dropdown .menu a:hover { background:#1e293b; }
 
   /* Mobile drawer: hidden by default on all viewports */
   .mobile-drawer { position:fixed; inset:0; display:none; background:rgba(0,0,0,.45); z-index:1100; }
@@ -434,18 +455,12 @@ function nav(user){
     <button id="menuBtn" class="menu-btn" aria-label="Menu" title="Menu">☰</button>
     <a href="/dashboard.html" class="brand" style="color:#fff; text-decoration:none; font-weight:600;">PSforklift</a>
     <div class="links">
-      <a href="/dashboard.html" style="color:#fff; text-decoration:none;">Dashboard</a>
       <a href="/forklift.html" style="color:#fff; text-decoration:none;">Forklifts</a>
-      <a href="/items.html" style="color:#fff; text-decoration:none;">Items</a>
-      <a href="/records.html" style="color:#fff; text-decoration:none;">Records</a>
-      <a href="/archive.html" style="color:#fff; text-decoration:none;">Arsip</a>
-      ${user && user.role==='admin' ? '<a href="/users.html" style="color:#fff; text-decoration:none;">Users</a>' : ''}
-      ${user && user.role==='admin' ? '<a href="/backups.html" style="color:#fff; text-decoration:none;">Backups</a>' : ''}
+      <a href="/records.html" style="color:#fff; text-decoration:none;">Service Records</a>
+      <div id="resourcesDropdown" class="dropdown"><a href="javascript:void(0)" class="parent" style="color:#fff; text-decoration:none;">Resources</a><div class="menu">${'<a href="/items.html">Items</a>'}<a href="/archive.html">Arsip</a>${user && user.role==='admin' ? '<a href="/users.html">Users</a>' : ''}${user && user.role==='admin' ? '<a href="/backups.html">Backups</a>' : ''}</div></div>
     </div>
     <div class="right">
-      <button id="themeToggle" aria-label="Toggle theme" title="Toggle theme" style="padding:4px 8px; border-radius:6px; background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.5); cursor:pointer;"></button>
-      <span>${label} (${user?user.role:''})</span>
-      <button id="logoutBtn" style="margin-left:8px; padding:4px 8px;">Logout</button>
+      <div id="userDropdown" class="dropdown"><a href="javascript:void(0)" class="parent" style="color:#fff; text-decoration:none;">${label} (${user?user.role:''})</a><div class="menu"><a href="javascript:void(0)" id="themeToggleLink">Tema</a><a href="javascript:void(0)" id="logoutLink"><span class="ico">${svgIcon('logout')}</span>Logout</a></div></div>
     </div>
   </div>
   <div id="mobileMenuDrawer" class="mobile-drawer" aria-hidden="true" role="dialog" aria-label="Menu">
@@ -455,10 +470,9 @@ function nav(user){
         <button id="closeMenuBtn" class="close-btn" aria-label="Tutup">✕</button>
       </div>
       <nav>
-        <a href="/dashboard.html">Dashboard</a>
         <a href="/forklift.html">Forklifts</a>
         <a href="/items.html">Items</a>
-        <a href="/records.html">Records</a>
+        <a href="/records.html">Service Records</a>
         <a href="/archive.html">Arsip</a>
         ${user && user.role==='admin' ? '<a href="/users.html">Users</a>' : ''}
         ${user && user.role==='admin' ? '<a href="/backups.html">Backups</a>' : ''}
@@ -478,8 +492,18 @@ async function ensureAuthedAndRenderNav(){
   document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme') || currentTheme);
   const header = document.getElementById('header');
   if (header) header.innerHTML = nav(m.user);
-  const btn = document.getElementById('logoutBtn');
-  if (btn) btn.onclick = async ()=>{ await api('/api/logout', { method:'POST' }); location.href='/login.html'; };
+  const logoutLink = document.getElementById('logoutLink');
+  if (logoutLink) logoutLink.onclick = async ()=>{ await api('/api/logout', { method:'POST' }); location.href='/login.html'; };
+  const themeLink = document.getElementById('themeToggleLink');
+  if (themeLink){
+    const updateLabel = ()=>{ const theme = document.documentElement.getAttribute('data-theme') || getPreferredTheme(); themeLink.innerHTML = '<span class="ico">'+renderThemeIcon(theme)+'</span>' + (theme==='dark' ? 'Tema: Dark' : 'Tema: Light'); };
+    updateLabel();
+    themeLink.onclick = (e)=>{ e.preventDefault(); toggleTheme(); updateLabel(); /* keep bubble open */ };
+  }
+  const ud = document.getElementById('userDropdown');
+  if (ud){ const parent = ud.querySelector('.parent'); if (parent){ parent.onclick = (e)=>{ e.preventDefault(); e.stopPropagation(); ud.classList.toggle('open'); }; document.addEventListener('click', (ev)=>{ if (!ud.contains(ev.target)) ud.classList.remove('open'); }); } }
+  const resDD = document.getElementById('resourcesDropdown');
+  if (resDD){ const p = resDD.querySelector('.parent'); if (p){ p.onclick = (e)=>{ e.preventDefault(); e.stopPropagation(); resDD.classList.toggle('open'); }; document.addEventListener('click', (ev)=>{ if (!resDD.contains(ev.target)) resDD.classList.remove('open'); }); } }
   const tbtn = document.getElementById('themeToggle');
   if (tbtn){
     const theme = document.documentElement.getAttribute('data-theme') || getPreferredTheme();

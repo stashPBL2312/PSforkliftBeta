@@ -110,6 +110,9 @@
   <script>
   window.addEventListener('DOMContentLoaded', ()=>{ (async function(){
     const user = await ensureAuthedAndRenderNav(); if (!user) return;
+    if (user.role === 'teknisi'){
+      ['addBtn','bulkDeleteBtn','importExcel'].forEach(id=>{ const el=document.getElementById(id); if(el){ el.style.display='none'; el.disabled=true; } });
+    }
     let data = await api('/api/items');
     let selected = new Set();
     const canEdit = (user.role==='admin'||user.role==='supervisor');
