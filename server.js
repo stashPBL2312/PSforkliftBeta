@@ -617,12 +617,7 @@ app.post('/api/jobs', requireRole('admin','supervisor','teknisi'), async (req, r
   let { jenis, forklift_id, tanggal, teknisi, report_no, description, recommendation, items_used, next_pm, chosen_items } = req.body;
   try {
     if (!teknisi || !String(teknisi).trim()) return res.status(400).json({ error: 'Teknisi wajib diisi' });
-    // Validasi wajib item: untuk semua jenis pekerjaan, items_used harus terisi
-    if (['Workshop','PM','Lapangan'].includes(String(jenis||''))){
-      if (!items_used || !String(items_used).trim()){
-        return res.status(400).json({ error: 'Items wajib diisi' });
-      }
-    }
+    if (!items_used || !String(items_used).trim()) items_used = null;
 
     // Pastikan variabel terdeklarasi
     let fk = null;
@@ -674,12 +669,14 @@ app.post('/api/jobs', requireRole('admin','supervisor','teknisi'), async (req, r
       }
     }
 
+    if (!report_no || !String(report_no).trim()) {
+      return res.status(400).json({ error: 'Report number wajib diisi' });
+    }
+
     // Validasi unik report_no (tidak boleh sama pada Jobs yang aktif)
-    if (report_no) {
-      const dup = await get('SELECT id FROM jobs WHERE report_no=? AND deleted_at IS NULL', [report_no]);
-      if (dup) {
-        return res.status(400).json({ error: 'Report number sudah digunakan' });
-      }
+    const dup = await get('SELECT id FROM jobs WHERE report_no=? AND deleted_at IS NULL', [report_no]);
+    if (dup) {
+      return res.status(400).json({ error: 'Report number sudah digunakan' });
     }
 
       const r = await run("INSERT INTO jobs (jenis,forklift_id,tanggal,teknisi,report_no,description,recommendation,items_used,next_pm,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,datetime('now','+7 hours'),datetime('now','+7 hours'))", [jenis, forklift_id, tanggal, teknisi, report_no, description, recommendation, items_used, next_pm || null]);
@@ -704,11 +701,12 @@ app.put('/api/jobs/:id', requireRole('admin','supervisor'), async (req, res) => 
     const old = await get('SELECT report_no, forklift_id FROM jobs WHERE id=?', [req.params.id]);
 
     // Validasi unik report_no ketika diubah
-    if (report_no) {
-      const conflict = await get('SELECT id FROM jobs WHERE report_no=? AND id<>? AND deleted_at IS NULL', [report_no, req.params.id]);
-      if (conflict) {
-        return res.status(400).json({ error: 'Report number sudah digunakan' });
-      }
+    if (!report_no || !String(report_no).trim()) {
+      return res.status(400).json({ error: 'Report number wajib diisi' });
+    }
+    const conflict = await get('SELECT id FROM jobs WHERE report_no=? AND id<>? AND deleted_at IS NULL', [report_no, req.params.id]);
+    if (conflict) {
+      return res.status(400).json({ error: 'Report number sudah digunakan' });
     }
 
     await run("UPDATE jobs SET jenis=?, forklift_id=?, tanggal=?, teknisi=?, report_no=?, description=?, recommendation=?, items_used=?, next_pm=?, updated_at = datetime('now','+7 hours') WHERE id=?", [jenis,forklift_id,tanggal,teknisi,report_no,description,recommendation,items_used,next_pm || null, req.params.id]);
@@ -806,6 +804,7 @@ app.post('/api/records/import', requireRole('admin','supervisor'), async (req, r
         recommendation = String(recommendation||'').trim();
         items_used = String(items_used||'').trim();
 
+        if (!report_no){ errors.push({ index: i+2, error: 'Report number kosong' }); continue; }
         if (!fkStr){ errors.push({ index: i+2, error: 'Forklift kosong' }); continue; }
         const eq = parseEqNo(fkStr);
         let fk = await get('SELECT id, location, deleted_at FROM forklifts WHERE eq_no=?', [eq]);
@@ -823,10 +822,7 @@ app.post('/api/records/import', requireRole('admin','supervisor'), async (req, r
         }
 
         // Upsert berdasarkan (report_no, forklift_id)
-        let existing = null;
-        if (report_no) {
-          existing = await get('SELECT id FROM records WHERE report_no=? AND forklift_id=? AND deleted_at IS NULL', [report_no, fk.id]);
-        }
+        const existing = await get('SELECT id FROM records WHERE report_no=? AND forklift_id=? AND deleted_at IS NULL', [report_no, fk.id]);
 
         if (existing){
           await run("UPDATE records SET tanggal=?, report_no=?, forklift_id=?, pekerjaan=?, teknisi=?, description=?, recommendation=?, items_used=?, location=?, updated_at = datetime('now') WHERE id=?", [tanggal||null, report_no||null, fk.id, pekerjaan||null, teknisi||null, description||null, recommendation||null, items_used||null, loc||null, existing.id]);
@@ -850,6 +846,13 @@ app.post('/api/records/import', requireRole('admin','supervisor'), async (req, r
 app.post('/api/records', requireRole('admin','supervisor'), async (req, res) => {
   const { tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used } = req.body;
   try {
+    if (!report_no || !String(report_no).trim()) {
+      return res.status(400).json({ error: 'Report number wajib diisi' });
+    }
+    const dup = await get('SELECT id FROM records WHERE report_no=? AND deleted_at IS NULL', [report_no]);
+    if (dup) {
+      return res.status(400).json({ error: 'Report number sudah digunakan' });
+    }
     const fk = await get('SELECT location FROM forklifts WHERE id=?', [forklift_id]);
     const loc = fk ? fk.location : null;
     const r = await run('INSERT INTO records (tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, location) VALUES (?,?,?,?,?,?,?,?,?)', [tanggal, report_no, forklift_id, pekerjaan, teknisi, description, recommendation, items_used, loc || null]);
@@ -870,6 +873,13 @@ app.put('/api/records/:id', requireLogin, async (req, res) => {
       const meName = String(user.name||'').toLowerCase();
       const assigned = low.includes(meEmail) || (!!meName && low.includes(meName));
       if (!assigned) return res.status(403).json({ error: 'Tidak boleh edit' });
+    }
+    if (!report_no || !String(report_no).trim()) {
+      return res.status(400).json({ error: 'Report number wajib diisi' });
+    }
+    const conflict = await get('SELECT id FROM records WHERE report_no=? AND id<>? AND deleted_at IS NULL', [report_no, req.params.id]);
+    if (conflict) {
+      return res.status(400).json({ error: 'Report number sudah digunakan' });
     }
     // Update lokasi: izinkan rename manual jika dikirimkan; jika tidak dan forklift_id berubah, snapshot ulang dari forklifts; selain itu pertahankan
     const oldRec = await get('SELECT forklift_id, location FROM records WHERE id=?', [req.params.id]);
@@ -1318,6 +1328,7 @@ app.delete('/api/records/:id/hard', requireRole('admin','supervisor'), async (re
 const BACKUP_BASE_DIR = path.join(__dirname, 'backups');
 let backupConfig = { enabled: true, hour: 16, minute: 0, retentionDays: 30 };
 let scheduleTimer = null;
+const importJobs = new Map();
 
 // Cloudflare R2 (S3-compatible) setup
 const { S3Client, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
@@ -2074,6 +2085,111 @@ app.post('/api/backup/import', requireRole('admin'), async (req, res) => {
     await run('ROLLBACK');
     res.status(500).json({ error: 'Import failed' });
   }
+});
+
+app.post('/api/backup/import-start', requireRole('admin'), async (req, res) => {
+  try{
+    const { name, strategy } = req.body || {};
+    const strat = (strategy || 'upsert').toLowerCase();
+    if (!name || typeof name !== 'string') return res.status(400).json({ error: 'name required' });
+    if (!['upsert','replace'].includes(strat)) return res.status(400).json({ error: 'strategy must be upsert or replace' });
+    const id = Math.random().toString(36).slice(2) + Date.now();
+    const job = { id, name, strat, status: 'running', message: 'Mulai', tableIndex: 0, totalTables: 0, currentTable: '', processedRows: 0, tableRows: 0, imported: [], errors: 0, startedAt: Date.now() };
+    importJobs.set(id, job);
+    (async function(){
+      try{
+        const dirPath = path.join(BACKUP_BASE_DIR, name);
+        await run('BEGIN');
+        const allowedTables = new Set(['users','forklifts','items','jobs','records','archive_jobs','archive_workshop_jobs','archive_maintenance_jobs']);
+        const preferredOrder = ['users','forklifts','items','jobs','records','archive_workshop_jobs','archive_maintenance_jobs','archive_jobs'];
+        function conflictTargetFor(table, cols, row){
+          const hasId = cols.includes('id') && row['id'] && String(row['id']).trim() !== '';
+          if (hasId) return 'id';
+          const lc = table.toLowerCase();
+          if (lc === 'forklifts'){
+            if (cols.includes('eq_no') && row['eq_no'] && String(row['eq_no']).trim() !== '') return 'eq_no';
+            if (cols.includes('serial') && row['serial'] && String(row['serial']).trim() !== '') return 'serial';
+          } else if (lc === 'items'){
+            if (cols.includes('code') && row['code'] && String(row['code']).trim() !== '') return 'code';
+          } else if (lc === 'users'){
+            if (cols.includes('email') && row['email'] && String(row['email']).trim() !== '') return 'email';
+          }
+          return null;
+        }
+        function buildUpsertSQL(table, cols, conflict){
+          const placeholders = cols.map(()=>'?').join(',');
+          if (!conflict){
+            return { sql: `INSERT OR IGNORE INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`, type:'insert_ignore' };
+          }
+          const updates = cols.filter(c => c !== conflict && c !== 'id').map(c => `${c}=excluded.${c}`);
+          if (!updates.length) return { sql: `INSERT INTO ${table} (${cols.join(',')}) VALUES (${placeholders}) ON CONFLICT(${conflict}) DO NOTHING`, type:'upsert_nop' };
+          return { sql: `INSERT INTO ${table} (${cols.join(',')}) VALUES (${placeholders}) ON CONFLICT(${conflict}) DO UPDATE SET ${updates.join(',')}`, type:'upsert' };
+        }
+        if (!fs.existsSync(dirPath)) throw new Error('Backup directory not found');
+        let files = fs.readdirSync(dirPath).filter(f => f.toLowerCase().endsWith('.csv'));
+        files = files.filter(f => allowedTables.has(f.replace(/\.csv$/i,'')));
+        files.sort((a,b)=>{
+          const ta = a.replace(/\.csv$/i,'');
+          const tb = b.replace(/\.csv$/i,'');
+          const ai = preferredOrder.indexOf(ta);
+          const bi = preferredOrder.indexOf(tb);
+          const av = ai === -1 ? 999 : ai;
+          const bv = bi === -1 ? 999 : bi;
+          if (av !== bv) return av - bv;
+          return a.localeCompare(b);
+        });
+        job.totalTables = files.length;
+        if (strat === 'replace'){
+          for (const file of files){
+            const table = file.replace(/\.csv$/i,'');
+            job.currentTable = table;
+            job.message = 'Menghapus ' + table;
+            await run(`DELETE FROM ${table}`);
+          }
+        }
+        for (let idx=0; idx<files.length; idx++){
+          const file = files[idx];
+          const table = file.replace(/\.csv$/i,'');
+          job.tableIndex = idx+1;
+          job.currentTable = table;
+          job.message = 'Memuat ' + table;
+          const csvText = fs.readFileSync(path.join(dirPath,file),'utf-8');
+          const { header, rows } = parseCSV(csvText);
+          job.tableRows = rows.length;
+          job.processedRows = 0;
+          if (!header.length){ job.imported.push({ table, rows: 0 }); continue; }
+          const cols = header;
+          let count = 0;
+          for (const r of rows){
+            const values = cols.map(c => r[c] === '' ? null : r[c]);
+            const conflict = conflictTargetFor(table, cols, r);
+            const { sql } = buildUpsertSQL(table, cols, conflict);
+            try { await run(sql, values); count++; } catch(_){ job.errors++; }
+            job.processedRows = count;
+            job.message = 'Mengimpor ' + table + ' ' + count + '/' + rows.length;
+          }
+          job.imported.push({ table, rows: count });
+        }
+        await run('COMMIT');
+        job.status = 'done';
+        job.message = 'Selesai';
+      }catch(e){
+        try{ await run('ROLLBACK'); }catch(_){ }
+        const j = importJobs.get(id); if (j){ j.status = 'error'; j.message = e && e.message ? e.message : 'Import failed'; }
+      }
+    })();
+    res.json({ ok: true, id });
+  }catch(e){ res.status(500).json({ error: 'Failed to start job' }); }
+});
+
+app.get('/api/backup/import-status', requireRole('admin'), async (req, res) => {
+  try{
+    const id = String(req.query.id||'').trim();
+    if (!id) return res.status(400).json({ error: 'id required' });
+    const job = importJobs.get(id);
+    if (!job) return res.status(404).json({ error: 'not found' });
+    res.json({ id: job.id, status: job.status, message: job.message, tableIndex: job.tableIndex, totalTables: job.totalTables, currentTable: job.currentTable, processedRows: job.processedRows, tableRows: job.tableRows, imported: job.imported, errors: job.errors });
+  }catch(e){ res.status(500).json({ error: 'status failed' }); }
 });
 
 // Initialize schedule from config

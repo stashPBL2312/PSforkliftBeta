@@ -271,6 +271,7 @@
             <select id="rowsPerPage"><option>10</option><option>15</option><option>25</option></select>
           </div>
           <!-- Urutan untuk pairing spesifik: Import Excel ↔ Reset, Export CSV ↔ Export Excel, Hapus Terpilih ↔ Export PDF -->
+          <button id="gotoJobs" type="button" style="background:#22c55e; color:#fff; border-color:#16a34a; font-weight:700; padding:8px 14px;">Buat Jobs</button>
           <button id="importExcel">Import Excel</button>
           <button id="apply">Reset</button>
           <button id="exportCSV">Export CSV</button>
@@ -385,6 +386,7 @@
   <script>
   window.addEventListener('DOMContentLoaded', ()=>{ (async function(){
     const user = await ensureAuthedAndRenderNav(); if (!user) return;
+    const goJobs = document.getElementById('gotoJobs'); if (goJobs) goJobs.onclick = ()=>{ location.href = '/jobs.html'; };
     const forklifts = await api('/api/forklifts');
     const fkCache = Array.isArray(forklifts) ? forklifts : [];
     // Tambah: daftar items untuk chooser di modal edit
@@ -1429,6 +1431,11 @@ function openEditModal(item, readOnly=false){
         alert('Teknisi harus diisi');
         return;
       }
+      const rn = String(document.getElementById('ed_report_no').value||'').trim();
+      if (!rn){
+        alert('Report number harus diisi');
+        return;
+      }
       // Validasi forklift
       const fValid = fkCache.find(x=>x.id===edForkliftId);
       if (!fValid){
@@ -1459,7 +1466,12 @@ function openEditModal(item, readOnly=false){
           const jobs = await api('/api/jobs');
           const target = (Array.isArray(jobs)?jobs:[]).find(j=> String(j.jenis||'').toUpperCase()==='PM' && String(j.forklift_id)==String(edForkliftId) && String(j.report_no||'')===String(document.getElementById('ed_report_no').value||''));
           if (target && target.id){
-            await api('/api/jobs/'+target.id, { method:'PUT', body: { jenis: target.jenis, forklift_id: target.forklift_id, tanggal: target.tanggal, teknisi: target.teknisi, report_no: target.report_no, description: target.description, recommendation: target.recommendation, items_used: target.items_used, next_pm: nextPmVal } });
+            const newDesc = getRteValue('ed_description_rich');
+            const newRec = getRteValue('ed_recommendation_rich');
+            const newItems = (edItemsMode==='choice'
+              ? (edChosen||[]).map(c=> c && c.id ? `${c.code} ${c.nama} x ${c.qty}` : `${c.nama} x ${c.qty}`).join(', ')
+              : getRteValue('ed_items_used_rich'));
+            await api('/api/jobs/'+target.id, { method:'PUT', body: { jenis: jenisNow, forklift_id: parseInt(edForkliftId||0), tanggal: document.getElementById('ed_tanggal').value, teknisi: teknisiList.join(', '), report_no: document.getElementById('ed_report_no').value, description: newDesc, recommendation: newRec, items_used: newItems, next_pm: nextPmVal } });
           } else {
             await api('/api/jobs', { method:'POST', body: { jenis: 'PM', forklift_id: parseInt(edForkliftId||0), tanggal: document.getElementById('ed_tanggal').value, teknisi: teknisiList.join(', '), report_no: document.getElementById('ed_report_no').value, description: getRteValue('ed_description_rich'), recommendation: getRteValue('ed_recommendation_rich'), items_used: (edItemsMode==='choice' ? (edChosen||[]).map(c=> c && c.id ? `${c.code} ${c.nama} x ${c.qty}` : `${c.nama} x ${c.qty}`).join(', ') : getRteValue('ed_items_used_rich')), next_pm: nextPmVal } });
           }

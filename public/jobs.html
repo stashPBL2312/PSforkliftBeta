@@ -212,6 +212,9 @@
   <div id="header"></div>
   <div class="wrap">
     <h2>Input Jobs</h2>
+    <div class="toolbar" style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:10px;">
+      <button id="backToRecords" type="button">Kembali ke Records</button>
+    </div>
     <div class="card">
       <div class="row">
         <div id="jenisWrap">
@@ -317,6 +320,7 @@
   <script>
   window.addEventListener('DOMContentLoaded', ()=>{ (async function(){
     const user = await ensureAuthedAndRenderNav(); if (!user) return;
+    const backBtn = document.getElementById('backToRecords'); if (backBtn) backBtn.onclick = ()=>{ location.href = '/records.html'; };
     const forklifts = await api('/api/forklifts');
     const items = await api('/api/items');
     // Indexing untuk pencarian cepat (_q) tanpa mengubah perilaku
@@ -713,9 +717,16 @@
       itemInput.addEventListener('click', ()=> renderItemSuggest());
       itemInput.addEventListener('keydown', (e)=>{
         if (e.key==='Enter'){
-          if (itemAddPrompt && itemAddPrompt.style.display!=='none'){ addNewItemFromPrompt(); e.preventDefault(); return; }
-          const first = itemSuggest && itemSuggest.querySelector('.item[data-unavail="0"]');
-          if (first){ first.click(); e.preventDefault(); }
+          const name = String(itemInput && itemInput.value || '').trim();
+          if (!name){ e.preventDefault(); return; }
+          const exact = (Array.isArray(items)?items:[]).find(x=> String(x.nama||'').trim().toLowerCase() === name.toLowerCase());
+          if (exact && String(exact.status||'').toLowerCase() !== 'unavailable'){
+            let qty = 1; if (itemQtyEl){ qty = parseInt(itemQtyEl.value||'1',10); if (!qty || qty<1) qty = 1; }
+            const exist = chosen.find(c=>c.id===exact.id);
+            if (exist) { exist.qty += qty; } else { chosen.push({ rowId: rowSeq++, id: exact.id, code: exact.code, nama: exact.nama, qty }); }
+            renderChosen(); itemInput.value=''; if (itemSuggest) itemSuggest.style.display='none'; e.preventDefault(); return;
+          }
+          addNewItemFromPrompt(); e.preventDefault(); return;
         }
         if (e.key==='Escape'){ if (itemSuggest) itemSuggest.style.display='none'; }
       });
@@ -890,24 +901,19 @@
       } catch (e) { /* ignore */ }
     }
 
-    document.getElementById('saveBtn').onclick = async ()=>{
-      const jenis = getJenis();
-      if (!jenis){ alert('Silakan pilih Jenis Pekerjaan terlebih dahulu.'); return; }
-      const tanggal = document.getElementById('tanggal').value;
-      if (!tanggal){ alert('Tanggal wajib diisi.'); document.getElementById('tanggal').focus(); return; }
-      if (!jobForkliftId){ alert('Forklift wajib dipilih dari daftar.'); document.getElementById('fk_input').focus(); return; }
-      // Validasi: item katalog wajib dipilih minimal 1 untuk semua jenis pekerjaan
-      const needsItems = (jenis==='Workshop' || jenis==='PM' || jenis==='Lapangan');
-      if (needsItems && (!Array.isArray(chosen) || chosen.length===0)){
-        alert('Item wajib dipilih (minimal 1). Silakan pilih dari katalog.');
-        try { if (itemInput) { itemInput.focus(); renderItemSuggest(); } } catch {}
-        return;
-      }
-      const forklift_id = parseInt(jobForkliftId||0);
-      const teknisi = selectedTech.map(o=>o.value).join(', ');
-      const report_no = document.getElementById('report_no').value;
-      const description = getRteValue('description');
-      const recommendation = getRteValue('recommendation');
+      document.getElementById('saveBtn').onclick = async ()=>{
+        const jenis = getJenis();
+        if (!jenis){ alert('Silakan pilih Jenis Pekerjaan terlebih dahulu.'); return; }
+        const tanggal = document.getElementById('tanggal').value;
+        if (!tanggal){ alert('Tanggal wajib diisi.'); document.getElementById('tanggal').focus(); return; }
+        if (!jobForkliftId){ alert('Forklift wajib dipilih dari daftar.'); document.getElementById('fk_input').focus(); return; }
+        const forklift_id = parseInt(jobForkliftId||0);
+        const teknisi = selectedTech.map(o=>o.value).join(', ');
+        let report_no = String(document.getElementById('report_no').value||'').trim();
+        if (!report_no && jenis==='Workshop'){ try { await autofillReport(); report_no = String(document.getElementById('report_no').value||'').trim(); } catch {} }
+        if (!report_no){ alert('Report No wajib diisi'); document.getElementById('report_no').focus(); return; }
+        const description = getRteValue('description');
+        const recommendation = getRteValue('recommendation');
       let items_used = '';
       let next_pm = null;
       if (jenis==='Workshop') {

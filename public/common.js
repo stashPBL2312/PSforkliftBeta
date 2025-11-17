@@ -436,7 +436,6 @@ function nav(user){
     <div class="links">
       <a href="/dashboard.html" style="color:#fff; text-decoration:none;">Dashboard</a>
       <a href="/forklift.html" style="color:#fff; text-decoration:none;">Forklifts</a>
-      <a href="/jobs.html" style="color:#fff; text-decoration:none;">Input Jobs</a>
       <a href="/items.html" style="color:#fff; text-decoration:none;">Items</a>
       <a href="/records.html" style="color:#fff; text-decoration:none;">Records</a>
       <a href="/archive.html" style="color:#fff; text-decoration:none;">Arsip</a>
@@ -458,7 +457,6 @@ function nav(user){
       <nav>
         <a href="/dashboard.html">Dashboard</a>
         <a href="/forklift.html">Forklifts</a>
-        <a href="/jobs.html">Input Jobs</a>
         <a href="/items.html">Items</a>
         <a href="/records.html">Records</a>
         <a href="/archive.html">Arsip</a>

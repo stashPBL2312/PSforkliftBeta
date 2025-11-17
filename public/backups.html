@@ -78,6 +78,12 @@
     /* Dark mode overrides for label and checkbox text */
     [data-theme="dark"] label { color:#e5e7eb !important; }
     [data-theme="dark"] .checkbox-row span { color:#e5e7eb !important; }
+    #progressOverlay{ position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:9999; }
+    #progressOverlay > div{ background:#fff; border-radius:8px; padding:16px; width:420px; box-shadow:0 10px 24px rgba(0,0,0,.3); }
+    [data-theme="dark"] #progressOverlay > div{ background:#0f172a; color:#e5e7eb; }
+    .bar{ height:10px; background:#e5e7eb; border-radius:999px; overflow:hidden; }
+    .bar > span{ display:block; height:100%; width:0; background:#1e88e5; transition:width .2s ease; }
+    .prog-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:10px; }
   </style>
 </head>
 <body>
@@ -151,6 +157,16 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div id="progressOverlay">
+    <div>
+      <h2 style="margin:0 0 8px; font-size:18px;">Import Sedang Berjalan</h2>
+      <div id="progMsg" class="muted">Menyiapkan…</div>
+      <div class="prog-row"><div class="bar" style="flex:1"><span id="progBar"></span></div><div id="progPct" style="min-width:52px; text-align:right;">0%</div></div>
+      <div class="prog-row"><div id="progTable" class="pill">–</div><div id="progCount" class="muted" style="text-align:right;">0/0</div></div>
+      <div class="toolbar" style="justify-content:flex-end; margin-top:12px;"><button id="btnCloseProg" type="button" style="background:#6b7280;">Tutup</button></div>
     </div>
   </div>
 
@@ -295,11 +311,44 @@
 
         async function importBackup(name, strategy){
           try{
-            await api('/api/backup/import', { method:'POST', body:{ name, strategy } });
-            alert('Impor berhasil: '+name+' ('+strategy+')');
-          }catch(e){
-            alert('Impor gagal: '+(e && e.error ? e.error : 'error'));
-          }
+            const r = await api('/api/backup/import-start', { method:'POST', body:{ name, strategy } });
+            const id = r && r.id;
+            if (!id){ showToast('Gagal memulai import', 'error'); return; }
+            const overlay = document.getElementById('progressOverlay');
+            const bar = document.getElementById('progBar');
+            const pct = document.getElementById('progPct');
+            const msg = document.getElementById('progMsg');
+            const tbl = document.getElementById('progTable');
+            const cnt = document.getElementById('progCount');
+            overlay.style.display='flex';
+            let timer = null; let done=false;
+            const update = async ()=>{
+              try{
+                const s = await api('/api/backup/import-status?id='+encodeURIComponent(id));
+                msg.textContent = s.message || '';
+                tbl.textContent = s.currentTable || '–';
+                const total = Number(s.totalTables||0);
+                const ti = Number(s.tableIndex||0);
+                const rows = Number(s.tableRows||0);
+                const proc = Number(s.processedRows||0);
+                cnt.textContent = (rows?proc:0)+'/'+rows;
+                let p = 0;
+                if (total>0){
+                  const base = Math.max(0, ti-1)/total;
+                  const frac = rows>0 ? (proc/rows)/total : 0;
+                  p = Math.min(1, base + frac);
+                }
+                const val = Math.round(p*100);
+                bar.style.width = val+'%';
+                pct.textContent = val+'%';
+                if (s.status==='done'){ done=true; clearInterval(timer); overlay.style.display='none'; showToast('Import selesai: '+name+' ('+strategy+')','success'); await loadHistory(); }
+                if (s.status==='error'){ done=true; clearInterval(timer); overlay.style.display='none'; showToast('Import gagal: '+(s.message||'error'),'error'); }
+              }catch(_){ }
+            };
+            timer = setInterval(update, 500);
+            update();
+            document.getElementById('btnCloseProg').onclick = function(){ if (done) overlay.style.display='none'; };
+          }catch(e){ showToast('Gagal memulai import: '+(e && e.error ? e.error : 'error'),'error'); }
         }
 
         async function deleteBackup(name){
