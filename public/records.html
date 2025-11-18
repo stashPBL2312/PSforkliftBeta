@@ -317,6 +317,7 @@
           </div>
         </div>
       </div>
+      <span id="archiveStatus" class="label-muted" style="display:none;"></span>
     </div>
     <div id="table"></div>
     <div id="footerBar" class="footer-bar" style="margin-top:8px;">
@@ -833,6 +834,33 @@
     let sortDir = 'desc';
     let selected = new Set();
     let currentRows = [];
+    let archiveCache = { rows: [], loaded: false, loading: false };
+
+    function setArchiveStatus(t){ const el = document.getElementById('archiveStatus'); if (el){ el.textContent = t||''; el.style.display = t ? '' : 'none'; } }
+    function mapArchiveRow(ar, src){ const isMaint = src==='maintenance'; const tag = isMaint ? 'Arsip PM/Lapangan' : 'Arsip Workshop'; return {
+      id: -(100000 + (parseInt(ar.id,10)||0)),
+      tanggal: ar.job_date || '',
+      report_no: ar.job_no || '',
+      forklift: (ar.forklift || ''),
+      forklift_id: ar.forklift_id || null,
+      forklift_eq_no: ar.forklift_eq_no || '',
+      pekerjaan: isMaint ? 'PM/Lapangan' : 'Workshop',
+      teknisi: '',
+      next_pm: ar.next_pm || '',
+      description: ar.description || '',
+      recommendation: isMaint ? (ar.recommendation || '') : '',
+      items_used: '',
+      __arsip: true,
+      __arsip_source: src,
+      __arsip_id: ar.id,
+      __arsip_tag: tag,
+      forklift_owner: '',
+      forklift_location_fk: '',
+      forklift_serial: ar.forklift_serial || '',
+      forklift_powertrain: '',
+    }; }
+    function filterArchiveRows(rows, filters){ const { jenisVals, fkIdSet, q, start, end } = filters; let out = rows; if (Array.isArray(jenisVals) && jenisVals.length && jenisVals.length<3){ const set = new Set(jenisVals.map(x=>String(x).toLowerCase())); out = out.filter(r=> set.has(String(r.pekerjaan||'').toLowerCase())); } if (fkIdSet && fkIdSet.size>0){ const selIds = new Set(fkIdSet); const fkEqNos = new Set(Array.from(selIds).map(id=>{ try { const f = (fkCache||[]).find(x=>x.id===id); return String(f?.eq_no||'').trim().toLowerCase(); } catch { return ''; } }).filter(Boolean)); const fkSerials = new Set(Array.from(selIds).map(id=>{ try { const f = (fkCache||[]).find(x=>x.id===id); return String(f?.serial||'').trim().toLowerCase(); } catch { return ''; } }).filter(Boolean)); out = out.filter(r=>{ const idMatch = !!r.forklift_id && selIds.has(r.forklift_id); const eqMatch = r.forklift_eq_no && fkEqNos.has(String(r.forklift_eq_no).trim().toLowerCase()); const serialMatch = r.forklift_serial && fkSerials.has(String(r.forklift_serial).trim().toLowerCase()); return idMatch || eqMatch || serialMatch; }); } if (q){ const qq = String(q).toLowerCase(); out = out.filter(r=> String(r.report_no||'').toLowerCase().includes(qq) || String(r.forklift||'').toLowerCase().includes(qq) || String(r.description||'').toLowerCase().includes(qq) || String(r.recommendation||'').toLowerCase().includes(qq)); } if (start){ out = out.filter(r=> String(r.tanggal||'') >= String(start)); } if (end){ out = out.filter(r=> String(r.tanggal||'') <= String(end)); } return out; }
+    async function ensureArchiveLoaded(){ if (archiveCache.loaded || archiveCache.loading) return; archiveCache.loading = true; setArchiveStatus('Memuat arsip...'); const all = []; const fetchSrc = async (src)=>{ let offset=0; const limit=1000; let total=0; for(;;){ const qs = new URLSearchParams(); qs.set('job_source', src); qs.set('limit', String(limit)); qs.set('offset', String(offset)); try{ const resp = await api('/api/archive/jobs?' + qs.toString()); const arr = Array.isArray(resp?.rows) ? resp.rows : (Array.isArray(resp) ? resp : []); for (const ar of arr) all.push(mapArchiveRow(ar, src)); if (Array.isArray(resp?.rows) && typeof resp?.total==='number') total = resp.total; if (arr.length < limit) break; offset += limit; if (total && offset>=total) break; }catch(e){ console.warn('Gagal fetch arsip', src, e); break; } } }; await Promise.all([fetchSrc('maintenance'), fetchSrc('workshop')]); archiveCache.rows = all; archiveCache.loaded = true; archiveCache.loading = false; setArchiveStatus(''); try{ const filters = getFilters(); const rowsActive = data.filter(r=> !r.__arsip); const merged = rowsActive.concat(filterArchiveRows(archiveCache.rows, filters)); data = sortRows(merged); indexRows(data); render(); }catch{} }
 
     // Indexing ringan untuk pencarian/penyaringan cepat (internal)
     function indexRows(rows){
@@ -1091,89 +1119,16 @@ async function load(){
       });
     }
 
-    // Integrasi hasil arsip dari arsip_jobs (selalu fetch agar tampil default)
-    {
-      const includeMaint = !Array.isArray(jenisVals) || jenisVals.length===0 || jenisVals.includes('PM') || jenisVals.includes('Lapangan');
-      const includeWorkshop = !Array.isArray(jenisVals) || jenisVals.length===0 || jenisVals.includes('Workshop');
-      const baseParams = new URLSearchParams();
-      if (q) baseParams.set('q', q);
-      if (start) baseParams.set('start', start);
-      if (end) baseParams.set('end', end);
-      // Jika hanya satu forklift dipilih, kirim forklift_id agar query arsip lebih presisi
-      const singleFkId = (fkIdSet && fkIdSet.size===1) ? [...fkIdSet][0] : '';
-      if (singleFkId) baseParams.set('forklift_id', String(singleFkId));
-      const archiveRows = [];
-      const fetchArch = async (src)=>{
-        const p = new URLSearchParams(baseParams);
-        p.set('job_source', src);
-        let limit = 500; let offset = 0; let total = 0; let done = false;
-        try{
-          while(!done){
-            const qp = new URLSearchParams(p);
-            qp.set('limit', String(limit));
-            qp.set('offset', String(offset));
-            const resp = await api('/api/archive/jobs?' + qp.toString());
-            const arr = Array.isArray(resp?.rows) ? resp.rows : (Array.isArray(resp) ? resp : []);
-            if (Array.isArray(resp?.rows) && typeof resp?.total === 'number') total = resp.total;
-            for (const ar of arr){
-              const isMaint = src==='maintenance';
-              const tag = isMaint ? 'Arsip PM/Lapangan' : 'Arsip Workshop';
-              archiveRows.push({
-                id: -(100000 + (parseInt(ar.id,10)||0)),
-                tanggal: ar.job_date || '',
-                report_no: ar.job_no || '',
-                forklift: (ar.forklift || ''),
-                forklift_id: ar.forklift_id || null,
-                forklift_eq_no: ar.forklift_eq_no || '',
-                pekerjaan: isMaint ? 'PM/Lapangan' : 'Workshop',
-                teknisi: '',
-                next_pm: ar.next_pm || '',
-                description: ar.description || '',
-                recommendation: isMaint ? (ar.recommendation || '') : '',
-                items_used: '',
-                __arsip: true,
-                __arsip_source: src,
-                __arsip_id: ar.id,
-                __arsip_tag: tag,
-                forklift_owner: '',
-                forklift_location_fk: '',
-                forklift_serial: ar.forklift_serial || '',
-                forklift_powertrain: '',
-              });
-            }
-            if (arr.length < limit) done = true; else { offset += limit; if (total && offset >= total) done = true; }
-          }
-        }catch(e){ console.warn('Gagal fetch arsip', src, e); }
-      };
-      if (includeMaint) await fetchArch('maintenance');
-      if (includeWorkshop) await fetchArch('workshop');
-      // Terapkan filter forklift pada hasil arsip jika ada.
-      // Selain mencocokkan forklift_id, fallback ke eq_no/serial bila forklift_id null.
-      if (fkIdSet && fkIdSet.size>0){
-        const selIds = new Set(fkIdSet);
-        const fkEqNos = new Set(Array.from(selIds).map(id=>{
-          try { const f = (fkCache||[]).find(x=>x.id===id); return String(f?.eq_no||'').trim().toLowerCase(); } catch { return ''; }
-        }).filter(Boolean));
-        const fkSerials = new Set(Array.from(selIds).map(id=>{
-          try { const f = (fkCache||[]).find(x=>x.id===id); return String(f?.serial||'').trim().toLowerCase(); } catch { return ''; }
-        }).filter(Boolean));
-        archiveRows.splice(0, archiveRows.length, ...archiveRows.filter(r=>{
-          const idMatch = !!r.forklift_id && selIds.has(r.forklift_id);
-          const eqMatch = r.forklift_eq_no && fkEqNos.has(String(r.forklift_eq_no).trim().toLowerCase());
-          const serialMatch = r.forklift_serial && fkSerials.has(String(r.forklift_serial).trim().toLowerCase());
-          return idMatch || eqMatch || serialMatch;
-        }));
-      }
-      rows = rows.concat(archiveRows);
-    }
+    if (archiveCache.loaded){ rows = rows.concat(filterArchiveRows(archiveCache.rows, { q, start, end, jenisVals, fkIdSet })); }
     // Apply sorting
     data = sortRows(rows);
     indexRows(data);
     page = 1;
     render();
+    ensureArchiveLoaded();
   } catch(e){
     console.error('Load records error:', e);
-    alert(e && e.error ? e.error : 'Gagal memuat data');
+    setArchiveStatus(e && e.error ? String(e.error) : 'Gagal memuat data');
   }
 }
 
@@ -1845,5 +1800,5 @@ renderFkTags();
 await load();
 })(); });
   </script>
-</body>
-</html>
+  </body>
+  </html>
