@@ -70,20 +70,20 @@
       width: 26%;
       white-space: normal;
     }
-    #table table th:nth-child(7), #table table td:nth-child(7) { /* Next PM */
+    #table table th:nth-child(6), #table table td:nth-child(6) { /* Next PM */
       width: 1%;
       min-width: 0;
       white-space: nowrap;
     }
-    #table table th:nth-child(8), #table table td:nth-child(8) { /* Description */
+    #table table th:nth-child(7), #table table td:nth-child(7) { /* Description */
       width: 26%;
       white-space: normal;
     }
-    #table table th:nth-child(9), #table table td:nth-child(9) { /* Recommendation */
+    #table table th:nth-child(8), #table table td:nth-child(8) { /* Recommendation */
       width: 26%;
       white-space: normal;
     }
-    #table table th:nth-child(10), #table table td:nth-child(10) { /* Items Used */
+    #table table th:nth-child(9), #table table td:nth-child(9) { /* Items Used */
       width: 20%;
       min-width: 180px;
       white-space: normal;
@@ -209,9 +209,12 @@
     #table td:last-child button + button { margin-top: 6px; }
     #table button { height: 32px; min-height: 32px; padding: 0 10px; box-sizing: border-box; display:flex; align-items:center; gap:6px; line-height:1; white-space: nowrap; }
     #table button.btn-ico svg { width:16px; height:16px; display:block; }
+    #table td:last-child .action-btn { width:100%; }
     /* Subteks pada kolom Forklift */
     .subtext { color:#666; font-size:12px; }
     [data-theme="dark"] .subtext { color:#fff; }
+    .tech-subtext { color:#444; font-size:14px; font-weight:600; line-height:1.25; }
+    [data-theme="dark"] .tech-subtext { color:#fff; }
     /* Tag penanda baris arsip */
     .arsip-tag { display:inline-block; margin-left:6px; padding:2px 8px; border-radius:10px; font-size:11px; background:#eef2ff; color:#111; border:1px solid #dbeafe; }
     [data-theme="dark"] .arsip-tag { background:#1f2937; color:#e5e7eb; border-color:#374151; }
@@ -221,74 +224,115 @@
     .sticky-th { z-index:4 !important; box-shadow: 2px 0 0 #eee; }
     .sticky-cell { z-index:2 !important; box-shadow: 2px 0 0 #eee; }
     [data-theme="dark"] .sticky-th, [data-theme="dark"] .sticky-cell { box-shadow: 2px 0 0 #334155; }
+    #table table th:nth-child(2), #table table td:nth-child(2) { /* Tanggal */
+      width: 9%;
+      min-width: 140px;
+      white-space: normal;
+    }
+    .dd { position:relative; display:inline-block; }
+    .dd .dd-btn { height:36px; min-height:36px; padding:8px 12px; border:1px solid #ddd; background:#f7f7f7; border-radius:6px; cursor:pointer; }
+    .dd .dd-btn:hover { background:#eee; }
+    .dd .dd-menu { display:none; position:absolute; z-index:1000; top:calc(100% + 6px); left:0; min-width:280px; max-width:480px; background:#fff; border:1px solid #e0e0e0; border-radius:6px; padding:10px; box-shadow:0 10px 30px rgba(0,0,0,.12); }
+    .dd.open .dd-menu { display:block; }
+    [data-theme="dark"] .dd .dd-btn { background:#1f2937; border-color:#334155; color:#e5e7eb; }
+    [data-theme="dark"] .dd .dd-btn:hover { background:#334155; }
+    [data-theme="dark"] .dd .dd-menu { background:#0f172a; border-color:#334155; color:#e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.6); }
+    .btn{ padding:8px 12px; background:#1e88e5; color:#fff; border:0; border-radius:6px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+    .btn .ico svg{ width:16px; height:16px; display:block; }
+    .btn-green{ background:#16a34a; }
+    .btn-blue{ background:#0ea5e9; }
+    .btn-red{ background:#b91c1c; }
+    .btn-gray{ background:#374151; }
+    .btn:disabled{ opacity:.6; cursor:not-allowed; }
+    [data-theme="dark"] .btn { color:#fff; }
+    [data-theme="dark"] .btn-green{ background:#16a34a; }
+    [data-theme="dark"] .btn-blue{ background:#0ea5e9; }
+    [data-theme="dark"] .btn-red{ background:#b91c1c; }
+    .label-muted { font-size:12px; color:#666; }
+    [data-theme="dark"] .label-muted { color:#fff; }
+    .action-btn{ height:24px; min-height:24px; padding:0 6px; border-radius:6px; font-size:12px; color:#fff; border:0; width:auto; display:inline-flex; align-items:center; justify-content:center; }
+    .footer-bar{ display:grid; grid-template-columns: 1fr auto; align-items:center; gap:8px; }
+    .footer-bar .result-info{ justify-self:start; font-size:12px; color:#666; }
+    [data-theme="dark"] .footer-bar .result-info{ color:#e5e7eb; }
+    .pager-bar{ display:flex; align-items:center; gap:16px; justify-content:center; }
   </style>
 </head>
 <body>
   <div id="header"></div>
   <div class="container">
     <h2>Service Records</h2>
-    <div class="toolbar">
-      <label>Jenis</label>
-      <div class="checks" id="jenisChecks">
-        <label><input type="checkbox" value="PM" checked /> PM</label>
-        <label><input type="checkbox" value="Lapangan" checked /> Lapangan</label>
-        <label><input type="checkbox" value="Workshop" checked /> Workshop</label>
-      </div>
-      <label class="date-field">
-        Tanggal Mulai
-        <div class="date-input-wrap"><input id="start" type="date" /></div>
-      </label>
-      <label class="date-field">
-        Tanggal Akhir
-        <div class="date-input-wrap"><input id="end" type="date" /></div>
-      </label>
-      <!-- Filter Forklift (multi-select chips + suggest) -->
-      <div id="forkliftFilter" class="filter-group">
-        <div class="label-row">
-          <label>Forklift</label>
-          <div id="forklift_tags" class="chips chips-inline"></div>
-        </div>
-        <input id="forklift_input" placeholder="Ketik untuk cari forklift..." autocomplete="off" />
-        <div id="fkSuggest" class="suggest" style="display:none; content-visibility:auto; contain-intrinsic-size: 120px;"></div>
-      </div>
+    <div class="toolbar" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <button id="gotoJobs" type="button" class="btn btn-green">Buat Jobs</button>
+      <input id="q" placeholder="Cari Record" style="width:360px; max-width:40vw; min-width:220px; flex:0 0 auto;" />
 
-      <div class="toolbar-row">
-        <div class="field q-field">
-          <label for="q">Cari Record</label>
-          <input id="q" placeholder="Cari" />
-        </div>
-
-        <!-- Filter Teknisi (multi-select chips) - chips ditaruh di samping label agar input tidak terdorong -->
-        <div id="teknisiFilter" class="filter-group field tech-field">
-          <div class="label-row">
-            <label>Teknisi</label>
-            <div id="teknisi_tags" class="chips chips-inline"></div>
+      <div class="dd" id="filterDd">
+        <button type="button" class="dd-btn">Filter</button>
+        <div class="dd-menu">
+          <div id="forkliftFilter" class="filter-group" style="margin-bottom:8px;">
+            <div class="label-row">
+              <div class="label-muted">Forklift</div>
+              <div id="forklift_tags" class="chips chips-inline"></div>
+            </div>
+            <input id="forklift_input" placeholder="Ketik untuk cari forklift..." autocomplete="off" />
+            <div id="fkSuggest" class="suggest" style="display:none; content-visibility:auto; contain-intrinsic-size: 120px;"></div>
           </div>
-          <input id="teknisi_input" placeholder="Ketik untuk cari teknisi..." autocomplete="off" />
-          <div id="techSuggest" class="suggest" style="display:none; content-visibility:auto; contain-intrinsic-size: 120px;"></div>
+          <div id="teknisiFilter" class="filter-group field tech-field" style="margin-bottom:8px;">
+            <div class="label-row">
+              <div class="label-muted">Teknisi</div>
+              <div id="teknisi_tags" class="chips chips-inline"></div>
+            </div>
+            <input id="teknisi_input" placeholder="Ketik untuk cari teknisi..." autocomplete="off" />
+            <div id="techSuggest" class="suggest" style="display:none; content-visibility:auto; contain-intrinsic-size: 120px;"></div>
+          </div>
+          <div id="jenisFilter" class="filter-group" style="margin-bottom:8px;">
+            <div class="label-row">
+              <div class="label-muted">Jenis Pekerjaan</div>
+            </div>
+            <div class="checks" id="jenisChecks" style="display:flex; gap:12px; align-items:center;">
+              <label><input type="checkbox" value="PM" checked /> PM</label>
+              <label><input type="checkbox" value="Lapangan" checked /> Lapangan</label>
+              <label><input type="checkbox" value="Workshop" checked /> Workshop</label>
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-bottom:8px;">
+            <label class="date-field">Tanggal Mulai<div class="date-input-wrap"><input id="start" type="date" /></div></label>
+            <label class="date-field">Tanggal Akhir<div class="date-input-wrap"><input id="end" type="date" /></div></label>
+          </div>
+          
+          <div style="display:flex; gap:8px; justify-content:flex-end;">
+            <button id="apply">Reset</button>
+          </div>
         </div>
-        <div class="actions">
-          <!-- Urutan untuk pairing spesifik: Import Excel ↔ Reset, Export CSV ↔ Export Excel, Hapus Terpilih ↔ Export PDF -->
-          <button id="gotoJobs" type="button" style="background:#22c55e; color:#fff; border-color:#16a34a; font-weight:700; padding:8px 14px;">Buat Jobs</button>
-          <button id="importExcel">Import Excel</button>
-          <button id="apply">Reset</button>
-          <button id="exportCSV">Export CSV</button>
-          <button id="exportExcel">Export Excel</button>
-          <button id="bulkDeleteBtn">Hapus Terpilih</button>
-          <button id="exportPDF">Export PDF</button>
+      </div>
+
+      <div class="dd" id="actionsDd" style="display:none;">
+        <button type="button" class="dd-btn">Tindakkan</button>
+        <div class="dd-menu">
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+            <button id="importExcel" class="btn btn-green"><span class="ico"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 12h6"/><path d="M9 16h6"/></svg></span>Import Excel</button>
+            <button id="exportCSV" class="btn"><span class="ico"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h8"/></svg></span>Export CSV</button>
+            <button id="exportExcel" class="btn"><span class="ico"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h8"/></svg></span>Export Excel</button>
+            <button id="exportPDF" class="btn"><span class="ico"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="14" height="16" rx="2"/><path d="M17 8h4v12H7"/></svg></span>Export PDF</button>
+            <button id="bulkDeleteBtn" class="btn btn-red"><span class="ico"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg></span>Hapus Terpilih</button>
+          </div>
         </div>
       </div>
     </div>
     <div id="table"></div>
-    <div id="rowsControl" style="display:flex; align-items:center; gap:8px; margin-top:8px;">
-      <label for="rowsPerPage" style="margin:0;">Rows</label>
-      <select id="rowsPerPage">
-        <option value="25" selected>25</option>
-        <option value="50">50</option>
-        <option value="All">All</option>
-      </select>
+    <div id="footerBar" class="footer-bar" style="margin-top:8px;">
+      <div id="resultInfo" class="resultInfo result-info"></div>
+      <div id="pagerBar" class="pager-bar">
+        <div id="rowsControl" class="rows-control" style="display:flex; align-items:center; gap:8px;">
+          <label for="rowsPerPage" style="margin:0;">Rows</label>
+          <select id="rowsPerPage">
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="All">All</option>
+          </select>
+        </div>
+        <div id="pagination"></div>
+      </div>
     </div>
-    <div id="pagination" style="margin-top:8px;"></div>
 
     <!-- Modal Detail Arsip (view-only) -->
     <div id="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.3); align-items:center; justify-content:center;">
@@ -802,33 +846,33 @@
 
     // Columns for table and export (keep keys in sync with export handlers)
     function escHtml(s){ return String(s||'').replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
-    function renderPartsCell(row){ const txt = String(row.items_used||'').trim(); if (!txt) return ''; const items = txt.split(',').map(x=> escHtml(String(x||'').trim())).filter(Boolean); return '<ul class="parts-list">'+ items.map(i=> '<li>'+ i +'</li>').join('') +'</ul>'; }
+    function formatTanggalDisplay(str){ const s = String(str||'').trim(); if(!s) return ''; const d = new Date(s); if(!Number.isNaN(d.getTime())){ const day = String(d.getDate()).padStart(2,'0'); const month = d.toLocaleString('id-ID',{ month:'short' }); const year = d.getFullYear(); return `${day} ${month} ${year}`; } return s; }
+    function normalizeParts(raw){ const s = String(raw||'').trim(); if(!s) return []; const looksHtml = /<\s*(ul|ol|li)\b/i.test(s); if(looksHtml){ const t = s.replace(/<br\s*\/?\s*>/gi,'\n'); const cleaned = t.replace(/<(?!\/?(ul|ol|li)\b)[^>]*>/gi,'').replace(/<\/?(ul|ol)\b[^>]*>/gi,'').replace(/<li[^>]*>/gi,'\n').replace(/<\/li>/gi,'\n').replace(/\r?\n+/g,'\n'); return cleaned.split('\n').map(x=>x.trim()).filter(Boolean); } else { return s.split(/\r?\n|,/).map(x=>x.trim()).filter(Boolean); } }
+    function renderPartsCell(row){ const items = normalizeParts(row.items_used); if(items.length===0) return ''; return '<ul class="parts-list">'+ items.map(i=> '<li>'+ escHtml(i) +'</li>').join('') +'</ul>'; }
     const columns = [
       { key: '__sel', label: '' },
       { key: 'tanggal', label: 'Tanggal' },
       { key: 'report_no', label: 'Report No' },
       { key: 'forklift', label: 'Forklift' },
-      { key: 'pekerjaan', label: 'Pekerjaan' },
-      { key: 'teknisi', label: 'Teknisi' },
+      { key: 'pekerjaan', label: 'Jenis' },
       { key: 'next_pm', label: 'Next PM' },
-      { key: 'description', label: 'Description' },
+      { key: 'description', label: 'Pekerjaan' },
       { key: 'recommendation', label: 'Recommendation' },
       { key: 'items_used', label: 'Parts', render: renderPartsCell },
-      { key: 'actions', label: 'Actions' },
+      { key: 'actions', label: '' },
     ];
     // Khusus mobile: urutan kolom diubah menjadi Sel, Tanggal, Forklift, Pekerjaan, Report No, dst
     const columnsMobile = [
       { key: '__sel', label: '' },
       { key: 'tanggal', label: 'Tanggal' },
       { key: 'forklift', label: 'Forklift' },
-      { key: 'pekerjaan', label: 'Pekerjaan' },
+      { key: 'pekerjaan', label: 'Jenis' },
       { key: 'report_no', label: 'Report No' },
-      { key: 'teknisi', label: 'Teknisi' },
       { key: 'next_pm', label: 'Next PM' },
-      { key: 'description', label: 'Description' },
+      { key: 'description', label: 'Pekerjaan' },
       { key: 'recommendation', label: 'Recommendation' },
       { key: 'items_used', label: 'Parts', render: renderPartsCell },
-      { key: 'actions', label: 'Actions' },
+      { key: 'actions', label: '' },
     ];
 
     // Forklift filter UI (multi-select chips + suggest)
@@ -1047,13 +1091,11 @@ async function load(){
       });
     }
 
-    // Integrasi hasil pencarian arsip dari arsip_jobs
-    // Fetch arsip saat ada kata kunci ATAU saat filter forklift aktif
-    if (q || (fkIdSet && fkIdSet.size>0)){
+    // Integrasi hasil arsip dari arsip_jobs (selalu fetch agar tampil default)
+    {
       const includeMaint = !Array.isArray(jenisVals) || jenisVals.length===0 || jenisVals.includes('PM') || jenisVals.includes('Lapangan');
       const includeWorkshop = !Array.isArray(jenisVals) || jenisVals.length===0 || jenisVals.includes('Workshop');
       const baseParams = new URLSearchParams();
-      baseParams.set('limit','50'); baseParams.set('offset','0');
       if (q) baseParams.set('q', q);
       if (start) baseParams.set('start', start);
       if (end) baseParams.set('end', end);
@@ -1064,34 +1106,42 @@ async function load(){
       const fetchArch = async (src)=>{
         const p = new URLSearchParams(baseParams);
         p.set('job_source', src);
+        let limit = 500; let offset = 0; let total = 0; let done = false;
         try{
-          const resp = await api('/api/archive/jobs?' + p.toString());
-          const arr = Array.isArray(resp?.rows) ? resp.rows : (Array.isArray(resp) ? resp : []);
-          for (const ar of arr){
-            const isMaint = src==='maintenance';
-            const tag = isMaint ? 'Arsip PM/Lapangan' : 'Arsip Workshop';
-            archiveRows.push({
-              id: -(100000 + (parseInt(ar.id,10)||0)),
-              tanggal: ar.job_date || '',
-              report_no: ar.job_no || '',
-              forklift: (ar.forklift || ''),
-              forklift_id: ar.forklift_id || null,
-              forklift_eq_no: ar.forklift_eq_no || '',
-              pekerjaan: isMaint ? 'PM/Lapangan' : 'Workshop',
-              teknisi: '',
-              next_pm: ar.next_pm || '',
-              description: ar.description || '',
-              recommendation: isMaint ? (ar.recommendation || '') : '',
-              items_used: '',
-              __arsip: true,
-              __arsip_source: src,
-              __arsip_id: ar.id,
-              __arsip_tag: tag,
-              forklift_owner: '',
-              forklift_location_fk: '',
-              forklift_serial: ar.forklift_serial || '',
-              forklift_powertrain: '',
-            });
+          while(!done){
+            const qp = new URLSearchParams(p);
+            qp.set('limit', String(limit));
+            qp.set('offset', String(offset));
+            const resp = await api('/api/archive/jobs?' + qp.toString());
+            const arr = Array.isArray(resp?.rows) ? resp.rows : (Array.isArray(resp) ? resp : []);
+            if (Array.isArray(resp?.rows) && typeof resp?.total === 'number') total = resp.total;
+            for (const ar of arr){
+              const isMaint = src==='maintenance';
+              const tag = isMaint ? 'Arsip PM/Lapangan' : 'Arsip Workshop';
+              archiveRows.push({
+                id: -(100000 + (parseInt(ar.id,10)||0)),
+                tanggal: ar.job_date || '',
+                report_no: ar.job_no || '',
+                forklift: (ar.forklift || ''),
+                forklift_id: ar.forklift_id || null,
+                forklift_eq_no: ar.forklift_eq_no || '',
+                pekerjaan: isMaint ? 'PM/Lapangan' : 'Workshop',
+                teknisi: '',
+                next_pm: ar.next_pm || '',
+                description: ar.description || '',
+                recommendation: isMaint ? (ar.recommendation || '') : '',
+                items_used: '',
+                __arsip: true,
+                __arsip_source: src,
+                __arsip_id: ar.id,
+                __arsip_tag: tag,
+                forklift_owner: '',
+                forklift_location_fk: '',
+                forklift_serial: ar.forklift_serial || '',
+                forklift_powertrain: '',
+              });
+            }
+            if (arr.length < limit) done = true; else { offset += limit; if (total && offset >= total) done = true; }
           }
         }catch(e){ console.warn('Gagal fetch arsip', src, e); }
       };
@@ -1137,7 +1187,7 @@ function render(){
   const cols = isMobile ? columnsMobile : columns;
   const header = '<thead><tr>' + cols.map(c=>{
     if (c.key==='__sel') return '<th class="sel-header" style="cursor:pointer" title="Pilih semua di halaman">Sel</th>';
-    if (c.key==='actions') return '<th>Actions</th>';
+    if (c.key==='actions') return '<th></th>';
     const arrow = sortKey===c.key ? (sortDir==='asc'?' ▲':' ▼') : '';
     return `<th data-key="${c.key}">${c.label}${arrow}</th>`;
   }).join('') + '</tr></thead>';
@@ -1147,18 +1197,18 @@ function render(){
     let actions;
     if (row.__arsip){
       const src = row.__arsip_source || 'maintenance';
-      actions = `<button data-arch="${row.__arsip_id}" data-src="${src}">View</button>`;
+      actions = `<button class="action-btn" style="background:#0ea5e9;" data-arch="${row.__arsip_id}" data-src="${src}">View</button>`;
     } else {
       if (user.role==='admin'||user.role==='supervisor') {
-        actions = `<button data-edit="${row.id}">Edit</button> <button data-del="${row.id}">Hapus</button>`;
+        actions = `<button class="action-btn" style="background:#0ea5e9;" data-edit="${row.id}">Edit</button> <button class="action-btn" style="background:#b91c1c;" data-del="${row.id}">Hapus</button>`;
       } else if (user.role==='teknisi') {
         const t = String(row.teknisi||'').toLowerCase();
         const email = String(user.email||'').toLowerCase();
         const name = String(user.name||'').toLowerCase();
         const assigned = t.includes(email) || (!!name && t.includes(name));
-        actions = assigned ? `<button data-edit="${row.id}">Edit</button> <button data-del="${row.id}">Hapus</button>` : `<button data-detail="${row.id}">Detail</button>`;
+        actions = assigned ? `<button class="action-btn" style="background:#0ea5e9;" data-edit="${row.id}">Edit</button> <button class="action-btn" style="background:#b91c1c;" data-del="${row.id}">Hapus</button>` : `<button class="action-btn" style="background:#0ea5e9;" data-detail="${row.id}">Detail</button>`;
       } else {
-        actions = `<button data-detail="${row.id}">Detail</button>`;
+        actions = `<button class="action-btn" style="background:#0ea5e9;" data-detail="${row.id}">Detail</button>`;
       }
     }
     // Highlight Next PM yang terlambat (sebelum hari ini)
@@ -1213,11 +1263,10 @@ function render(){
     function tdFor(key){
       switch(key){
         case '__sel': return `<td>${cb}</td>`;
-        case 'tanggal': return `<td>${row.tanggal||''}</td>`;
+        case 'tanggal': { const t = formatTanggalDisplay(row.tanggal); const tech = String(row.teknisi||'').trim(); const cell = tech ? `<div>${t}<div class='tech-subtext'>${escHtml(tech)}</div></div>` : t; return `<td>${cell}</td>`; }
         case 'report_no': return `<td>${row.report_no||''}</td>`;
         case 'forklift': return `<td>${forkliftCell}</td>`;
         case 'pekerjaan': return `<td>${pekerjaanCell}</td>`;
-        case 'teknisi': return `<td>${row.teknisi||''}</td>`;
         case 'next_pm': return `<td>${nextPmCell}</td>`;
         case 'description': return `<td>${row.description||''}</td>`;
         case 'recommendation': return `<td>${row.recommendation||''}</td>`;
@@ -1263,6 +1312,7 @@ function render(){
         if (!cb) return;
         const id = +cb.getAttribute('data-id');
         if (cb.checked) selected.add(id); else selected.delete(id);
+        updateActionsVisibility();
       });
       tableContainer.dataset.cbDelegated = '1';
     }
@@ -1306,6 +1356,7 @@ function render(){
     }
   }
 
+  updateActionsVisibility();
   // Pagination
   const pages = allMode ? 1 : Math.max(1, Math.ceil(data.length / rowsPerPage));
   const pagEl = document.getElementById('pagination');
@@ -1336,6 +1387,8 @@ function render(){
       pageInput.onkeydown = (e)=>{ if (e.key==='Enter'){ e.preventDefault(); pageInput.onchange(); } };
     }
   }
+  const infoEl = document.getElementById('resultInfo');
+  if (infoEl){ infoEl.textContent = `Menampilkan ${currentRows.length} dari ${data.length} hasil`; }
 }
 
 function openEditModal(item, readOnly=false){
@@ -1357,13 +1410,8 @@ function openEditModal(item, readOnly=false){
   if (recRichEl) recRichEl.innerHTML = item.recommendation || '';
   const itemsRichEl = document.getElementById('ed_items_used_rich');
   if (itemsRichEl){
-    const raw = String(item.items_used||'').trim();
-    if (raw){
-      const bullets = raw.split(',').map(x=> `<li>${escHtml(String(x||'').trim())}</li>`).join('');
-      itemsRichEl.innerHTML = `<ul>${bullets}</ul>`;
-    } else {
-      itemsRichEl.innerHTML = '';
-    }
+    const arr = normalizeParts(item.items_used);
+    itemsRichEl.innerHTML = arr.length ? `<ul>${arr.map(x=> `<li>${escHtml(x)}</li>`).join('')}</ul>` : '';
   }
   const nextPmEl = document.getElementById('ed_next_pm');
   if (nextPmEl) nextPmEl.value = item.next_pm || '';
@@ -1537,11 +1585,11 @@ if (startEl) startEl.onchange = load;
 const endEl = document.getElementById('end');
 if (endEl) endEl.onchange = load;
 
-document.querySelectorAll('#jenisChecks input[type=checkbox]').forEach(cb=> cb.onchange = load);
-const rppEl = document.getElementById('rowsPerPage');
-if (rppEl) { rppEl.value = (rowsPerPage==='All'?'All':String(rowsPerPage)); rppEl.onchange = (e)=>{ const v = e.target.value; rowsPerPage = (v==='All'?'All':(parseInt(v,10)||25)); page=1; render(); }; }
-const applyBtn = document.getElementById('apply');
-if (applyBtn) applyBtn.onclick = ()=>{
+  document.querySelectorAll('#jenisChecks input[type=checkbox]').forEach(cb=> cb.onchange = load);
+  const rppEl = document.getElementById('rowsPerPage');
+  if (rppEl) { rppEl.value = (rowsPerPage==='All'?'All':String(rowsPerPage)); rppEl.onchange = (e)=>{ const v = e.target.value; rowsPerPage = (v==='All'?'All':(parseInt(v,10)||25)); page=1; render(); }; }
+  const applyBtn = document.getElementById('apply');
+  if (applyBtn) applyBtn.onclick = ()=>{
   // Reset semua filter dan search ke default
   document.querySelectorAll('#jenisChecks input[type=checkbox]').forEach(cb=> cb.checked = true);
   const startEl = document.getElementById('start'); if (startEl) startEl.value = '';
@@ -1558,6 +1606,22 @@ if (applyBtn) applyBtn.onclick = ()=>{
   // Muat ulang data dengan parameter default
   load();
 };
+
+function setupDropdown(dd){
+  if (!dd) return;
+  const btn = dd.querySelector('.dd-btn');
+  const menu = dd.querySelector('.dd-menu');
+  if (!btn || !menu) return;
+  btn.onclick = (e)=>{ e.preventDefault(); e.stopPropagation(); dd.classList.toggle('open'); };
+  document.addEventListener('click', (ev)=>{ if (!dd.contains(ev.target)) dd.classList.remove('open'); });
+}
+setupDropdown(document.getElementById('filterDd'));
+setupDropdown(document.getElementById('actionsDd'));
+
+function updateActionsVisibility(){ const dd = document.getElementById('actionsDd'); if (dd){ dd.style.display = (selected && selected.size>0) ? 'inline-block' : 'none'; if (!(selected && selected.size>0)) dd.classList.remove('open'); } }
+updateActionsVisibility();
+
+// Sorting via header klik tetap aktif; kontrol sort radio dihapus untuk memperkecil bubble
 
 function downloadBlob(filename, blob){
   const link = document.createElement('a');

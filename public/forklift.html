@@ -45,10 +45,36 @@
     .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:8px; max-width:100%; box-sizing:border-box; }
     .toolbar > * { min-width:0; }
     /* Samakan ukuran tombol di desktop agar rapi */
-    .toolbar button { height:36px; min-height:36px; width:168px; box-sizing:border-box; white-space:nowrap; }
+    .toolbar button { height:36px; min-height:36px; box-sizing:border-box; white-space:nowrap; }
+    .toolbar .btn, .toolbar .dd .dd-btn { width:auto; }
     .toolbar input#search, .toolbar select { height:36px; min-height:36px; box-sizing:border-box; }
     /* Only table area may scroll horizontally when content is wider */
     #table { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+    /* Dropdown (actions parent) */
+    .dd { position:relative; display:inline-block; }
+    .dd .dd-btn { height:36px; min-height:36px; padding:8px 12px; border:1px solid #ddd; background:#f7f7f7; border-radius:6px; cursor:pointer; font-size:13px; }
+    .dd .dd-btn:hover { background:#eee; }
+    .dd .dd-menu { display:none; position:absolute; z-index:1000; top:calc(100% + 6px); left:0; min-width:280px; max-width:480px; background:#fff; border:1px solid #e0e0e0; border-radius:6px; padding:10px; box-shadow:0 10px 30px rgba(0,0,0,.12); }
+    .dd.open .dd-menu { display:block; }
+    [data-theme="dark"] .dd .dd-btn { background:#1f2937; border-color:#334155; color:#e5e7eb; }
+    [data-theme="dark"] .dd .dd-btn:hover { background:#334155; }
+    [data-theme="dark"] .dd .dd-menu { background:#0f172a; border-color:#334155; color:#e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.6); }
+    /* Oval buttons inside dropdown */
+    .btn{ padding:8px 12px; background:#1e88e5; color:#fff; border:0; border-radius:6px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+    .btn-green{ background:#16a34a; }
+    .btn-blue{ background:#0ea5e9; }
+    .btn-red{ background:#b91c1c; }
+    .btn-gray{ background:#374151; }
+    .btn:disabled{ opacity:.6; cursor:not-allowed; }
+    [data-theme="dark"] .btn { color:#fff; }
+    [data-theme="dark"] .btn-green{ background:#16a34a; }
+    [data-theme="dark"] .btn-blue{ background:#0ea5e9; }
+    [data-theme="dark"] .btn-red{ background:#b91c1c; }
+    /* Footer bar: info left, rows+pagination center */
+    .footer-bar{ display:grid; grid-template-columns: 1fr auto; align-items:center; gap:8px; }
+    .footer-bar .result-info{ justify-self:start; font-size:12px; color:#666; }
+    [data-theme="dark"] .footer-bar .result-info{ color:#e5e7eb; }
+    .pager-bar{ display:flex; align-items:center; gap:16px; justify-content:center; }
     /* Dark mode: modal */
     [data-theme="dark"] #modal > div { background:#0f172a !important; color:#e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.6); }
     [data-theme="dark"] #modal h3 { color:#e5e7eb; }
@@ -73,8 +99,8 @@
       #table { overflow-x:auto; }
       /* Compact, consistent table sizing for easier reading */
       #table table th, #table table td { padding:6px; font-size:13px; }
-      #pagination { display:flex; flex-wrap:wrap; gap:6px; }
-    }
+    #pagination { display:flex; flex-wrap:wrap; gap:6px; }
+  }
     @media (max-width: 480px){
       /* Ponsel kecil: dua kolom, lebih kompak, tanpa clipping kanan */
       .toolbar { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); column-gap:8px; row-gap:6px; align-items:center; padding-right:0; }
@@ -96,15 +122,30 @@
     <h2>Forklifts</h2>
     <div class="toolbar">
       <input id="search" placeholder="Cari..." />
-      <select id="rowsPerPage"><option>25</option><option>50</option><option>100</option><option value="all">all</option></select>
-      <button id="addBtn">Tambah</button>
-      <button id="bulkDeleteBtn">Hapus Terpilih</button>
-      <button id="importExcel">Import Excel</button>
-      <button id="exportExcel">Export Excel</button>
-      <button id="exportPDF">Export PDF</button>
+      <button id="addBtn" class="btn btn-green">Tambah</button>
+      <div class="dd" id="actionsDd" style="display:none;">
+        <button type="button" class="dd-btn">Tindakkan</button>
+        <div class="dd-menu">
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+            <button id="importExcel" class="btn btn-green">Import Excel</button>
+            <button id="exportExcel" class="btn">Export Excel</button>
+            <button id="exportPDF" class="btn">Export PDF</button>
+            <button id="bulkDeleteBtn" class="btn btn-red">Hapus Terpilih</button>
+          </div>
+        </div>
+      </div>
     </div>
     <div id="table"></div>
-    <div id="pagination" style="margin-top:8px;"></div>
+    <div id="footerBar" class="footer-bar" style="margin-top:8px;">
+      <div id="resultInfo" class="result-info"></div>
+      <div id="pagerBar" class="pager-bar">
+        <div id="rowsControl" class="rows-control" style="display:flex; align-items:center; gap:8px;">
+          <label for="rowsPerPage" style="margin:0;">Rows</label>
+          <select id="rowsPerPage"><option>25</option><option>50</option><option>100</option><option value="All">All</option></select>
+        </div>
+        <div id="pagination"></div>
+      </div>
+    </div>
   </div>
 
   <div id="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.3); align-items:center; justify-content:center;">
@@ -295,6 +336,8 @@ function sortRows(rows){
             if (!cb) return;
             const id = +cb.getAttribute('data-id');
             if (cb.checked) selected.add(id); else selected.delete(id);
+            const dd = document.getElementById('actionsDd');
+            if (dd){ dd.style.display = (selected && selected.size>0) ? '' : 'none'; }
           });
           tableContainer.dataset.cbDelegated = '1';
         }
@@ -373,7 +416,7 @@ function sortRows(rows){
     document.getElementById('search').oninput = debounce(render, 200);
     document.getElementById('rowsPerPage').onchange = (e)=>{
       const val = String(e.target.value);
-      rows = (val === 'all') ? Number.MAX_SAFE_INTEGER : parseInt(val);
+      rows = (val === 'All') ? Number.MAX_SAFE_INTEGER : parseInt(val);
       page = 1;
       render();
     };
@@ -601,6 +644,16 @@ function sortRows(rows){
         }
       };
     }
+
+    function setupDropdown(dd){
+      if(!dd) return;
+      const btn = dd.querySelector('.dd-btn');
+      const menu = dd.querySelector('.dd-menu');
+      if(!btn||!menu) return;
+      btn.onclick = (ev)=>{ ev.stopPropagation(); dd.classList.toggle('open'); };
+      document.addEventListener('click',(ev)=>{ if(!dd.contains(ev.target)) dd.classList.remove('open'); });
+    }
+    setupDropdown(document.getElementById('actionsDd'));
 
     // Hapus event listener yang memanggil load() karena fungsi load tidak ada di forklift.html
     // (tidak ada perubahan lain)
