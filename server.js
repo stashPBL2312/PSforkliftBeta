@@ -1496,8 +1496,8 @@ async function listR2Backups(){
   } while (token);
   const list = [];
   for (const [name, agg] of aggregates.entries()){
-    const d = parseDirDate(name);
-    const createdAt = d ? d.toISOString() : (agg.lastModified ? agg.lastModified.toISOString() : new Date().toISOString());
+    const m = /^backup_(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})/.exec(name || '');
+    const createdAt = m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}` : (agg.lastModified ? agg.lastModified.toISOString() : new Date().toISOString());
     list.push({ name, createdAt, fileCount: agg.fileCount, sizeBytes: agg.sizeBytes });
   }
   list.sort((a,b)=> a.name < b.name ? 1 : -1);
@@ -2098,7 +2098,6 @@ app.post('/api/backup/import-start', requireRole('admin'), async (req, res) => {
     importJobs.set(id, job);
     (async function(){
       try{
-        const dirPath = path.join(BACKUP_BASE_DIR, name);
         await run('BEGIN');
         const allowedTables = new Set(['users','forklifts','items','jobs','records','archive_jobs','archive_workshop_jobs','archive_maintenance_jobs']);
         const preferredOrder = ['users','forklifts','items','jobs','records','archive_workshop_jobs','archive_maintenance_jobs','archive_jobs'];
@@ -2125,50 +2124,113 @@ app.post('/api/backup/import-start', requireRole('admin'), async (req, res) => {
           if (!updates.length) return { sql: `INSERT INTO ${table} (${cols.join(',')}) VALUES (${placeholders}) ON CONFLICT(${conflict}) DO NOTHING`, type:'upsert_nop' };
           return { sql: `INSERT INTO ${table} (${cols.join(',')}) VALUES (${placeholders}) ON CONFLICT(${conflict}) DO UPDATE SET ${updates.join(',')}`, type:'upsert' };
         }
-        if (!fs.existsSync(dirPath)) throw new Error('Backup directory not found');
-        let files = fs.readdirSync(dirPath).filter(f => f.toLowerCase().endsWith('.csv'));
-        files = files.filter(f => allowedTables.has(f.replace(/\.csv$/i,'')));
-        files.sort((a,b)=>{
-          const ta = a.replace(/\.csv$/i,'');
-          const tb = b.replace(/\.csv$/i,'');
-          const ai = preferredOrder.indexOf(ta);
-          const bi = preferredOrder.indexOf(tb);
-          const av = ai === -1 ? 999 : ai;
-          const bv = bi === -1 ? 999 : bi;
-          if (av !== bv) return av - bv;
-          return a.localeCompare(b);
-        });
-        job.totalTables = files.length;
-        if (strat === 'replace'){
-          for (const file of files){
-            const table = file.replace(/\.csv$/i,'');
+        if (R2_ENABLED && R2_ONLY){
+          const prefix = (r2PrefixBase.endsWith('/') ? r2PrefixBase : r2PrefixBase + '/') + name + '/';
+          let token = undefined;
+          const objKeys = [];
+          do {
+            const out = await r2Client.send(new ListObjectsV2Command({
+              Bucket: r2Bucket,
+              Prefix: prefix,
+              ContinuationToken: token,
+            }));
+            (out.Contents || []).forEach(o=>{ if (o.Key && o.Key.toLowerCase().endsWith('.csv')) objKeys.push(o.Key); });
+            token = out.IsTruncated ? out.NextContinuationToken : undefined;
+          } while (token);
+          const entries = objKeys
+            .map(key => {
+              const file = key.replace(prefix, '');
+              const table = file.replace(/\.csv$/i,'');
+              return { key, file, table };
+            })
+            .filter(ent => allowedTables.has(ent.table));
+          entries.sort((a,b)=>{
+            const ai = preferredOrder.indexOf(a.table);
+            const bi = preferredOrder.indexOf(b.table);
+            const av = ai === -1 ? 999 : ai;
+            const bv = bi === -1 ? 999 : bi;
+            if (av !== bv) return av - bv;
+            return a.file.localeCompare(b.file);
+          });
+          job.totalTables = entries.length;
+          if (strat === 'replace'){
+            for (const ent of entries){
+              const table = ent.table;
+              job.currentTable = table;
+              job.message = 'Menghapus ' + table;
+              await run(`DELETE FROM ${table}`);
+            }
+          }
+          for (let idx=0; idx<entries.length; idx++){
+            const ent = entries[idx];
+            const table = ent.table;
+            job.tableIndex = idx+1;
             job.currentTable = table;
-            job.message = 'Menghapus ' + table;
-            await run(`DELETE FROM ${table}`);
+            job.message = 'Memuat ' + table;
+            const csvText = await getR2ObjectText(ent.key);
+            const { header, rows } = parseCSV(csvText);
+            job.tableRows = rows.length;
+            job.processedRows = 0;
+            if (!header.length){ job.imported.push({ table, rows: 0 }); continue; }
+            const cols = header;
+            let count = 0;
+            for (const r of rows){
+              const values = cols.map(c => r[c] === '' ? null : r[c]);
+              const conflict = conflictTargetFor(table, cols, r);
+              const { sql } = buildUpsertSQL(table, cols, conflict);
+              try { await run(sql, values); count++; } catch(_){ job.errors++; }
+              job.processedRows = count;
+              job.message = 'Mengimpor ' + table + ' ' + count + '/' + rows.length;
+            }
+            job.imported.push({ table, rows: count });
           }
-        }
-        for (let idx=0; idx<files.length; idx++){
-          const file = files[idx];
-          const table = file.replace(/\.csv$/i,'');
-          job.tableIndex = idx+1;
-          job.currentTable = table;
-          job.message = 'Memuat ' + table;
-          const csvText = fs.readFileSync(path.join(dirPath,file),'utf-8');
-          const { header, rows } = parseCSV(csvText);
-          job.tableRows = rows.length;
-          job.processedRows = 0;
-          if (!header.length){ job.imported.push({ table, rows: 0 }); continue; }
-          const cols = header;
-          let count = 0;
-          for (const r of rows){
-            const values = cols.map(c => r[c] === '' ? null : r[c]);
-            const conflict = conflictTargetFor(table, cols, r);
-            const { sql } = buildUpsertSQL(table, cols, conflict);
-            try { await run(sql, values); count++; } catch(_){ job.errors++; }
-            job.processedRows = count;
-            job.message = 'Mengimpor ' + table + ' ' + count + '/' + rows.length;
+        } else {
+          const dirPath = path.join(BACKUP_BASE_DIR, name);
+          if (!fs.existsSync(dirPath)) throw new Error('Backup directory not found');
+          let files = fs.readdirSync(dirPath).filter(f => f.toLowerCase().endsWith('.csv'));
+          files = files.filter(f => allowedTables.has(f.replace(/\.csv$/i,'')));
+          files.sort((a,b)=>{
+            const ta = a.replace(/\.csv$/i,'');
+            const tb = b.replace(/\.csv$/i,'');
+            const ai = preferredOrder.indexOf(ta);
+            const bi = preferredOrder.indexOf(tb);
+            const av = ai === -1 ? 999 : ai;
+            const bv = bi === -1 ? 999 : bi;
+            if (av !== bv) return av - bv;
+            return a.localeCompare(b);
+          });
+          job.totalTables = files.length;
+          if (strat === 'replace'){
+            for (const file of files){
+              const table = file.replace(/\.csv$/i,'');
+              job.currentTable = table;
+              job.message = 'Menghapus ' + table;
+              await run(`DELETE FROM ${table}`);
+            }
           }
-          job.imported.push({ table, rows: count });
+          for (let idx=0; idx<files.length; idx++){
+            const file = files[idx];
+            const table = file.replace(/\.csv$/i,'');
+            job.tableIndex = idx+1;
+            job.currentTable = table;
+            job.message = 'Memuat ' + table;
+            const csvText = fs.readFileSync(path.join(dirPath,file),'utf-8');
+            const { header, rows } = parseCSV(csvText);
+            job.tableRows = rows.length;
+            job.processedRows = 0;
+            if (!header.length){ job.imported.push({ table, rows: 0 }); continue; }
+            const cols = header;
+            let count = 0;
+            for (const r of rows){
+              const values = cols.map(c => r[c] === '' ? null : r[c]);
+              const conflict = conflictTargetFor(table, cols, r);
+              const { sql } = buildUpsertSQL(table, cols, conflict);
+              try { await run(sql, values); count++; } catch(_){ job.errors++; }
+              job.processedRows = count;
+              job.message = 'Mengimpor ' + table + ' ' + count + '/' + rows.length;
+            }
+            job.imported.push({ table, rows: count });
+          }
         }
         await run('COMMIT');
         job.status = 'done';
