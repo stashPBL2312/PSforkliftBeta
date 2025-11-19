@@ -75,7 +75,24 @@
     .footer-bar{ display:grid; grid-template-columns: 1fr auto; align-items:center; gap:8px; }
     .footer-bar .result-info{ justify-self:start; font-size:12px; color:#666; }
     [data-theme="dark"] .footer-bar .result-info{ color:#e5e7eb; }
-    .pager-bar{ display:flex; align-items:center; gap:16px; justify-content:center; }
+    .pager-bar{ display:flex; align-items:center; gap:12px; justify-content:center; flex-wrap:wrap; }
+    #pagination button { height:32px; }
+    #pageInput { height:28px; width:40px; min-width:40px; text-align:center; padding:4px 8px; box-sizing:border-box; font-size:13px; }
+    .rows-dd{ position:relative; }
+    .rows-dd .rows-btn{ height:32px; min-height:32px; padding:6px 10px; border:1px solid #2b3544; background:#0f172a; color:#e5e7eb; border-radius:6px; cursor:pointer; font-size:13px; display:inline-flex; align-items:center; gap:10px; }
+    .rows-dd .rows-btn:hover{ background:#eee; }
+    .rows-dd .rows-btn .caret{ display:inline-block; font-size:12px; line-height:1; transform-origin:center; transition:transform .15s ease; }
+    .rows-dd .rows-menu{ display:none; position:absolute; z-index:1000; bottom:calc(100% + 6px); left:0; min-width:90px; background:#fff; border:1px solid #e0e0e0; border-radius:6px; padding:6px; box-shadow:0 10px 24px rgba(0,0,0,.12); }
+    .rows-dd.open .rows-menu{ display:block; }
+    .rows-dd .rows-menu .item{ padding:6px 10px; cursor:pointer; border-bottom:1px solid #f5f5f5; }
+    .rows-dd .rows-menu .item:last-child{ border-bottom:0; }
+    .rows-dd .rows-menu .item:hover{ background:#f6f9ff; }
+    [data-theme="dark"] .rows-dd .rows-btn{ background:#0f172a; border-color:#334155; color:#e5e7eb; }
+    [data-theme="dark"] .rows-dd .rows-btn:hover{ background:#1f2436; }
+    [data-theme="dark"] .rows-dd .rows-menu{ background:#0f172a; border-color:#334155; color:#e5e7eb; box-shadow:0 10px 24px rgba(0,0,0,.6); }
+    [data-theme="dark"] .rows-dd .rows-menu .item{ border-bottom:1px solid #1f2937; }
+    [data-theme="dark"] .rows-dd .rows-menu .item:hover{ background:#1f2937; }
+    .rows-dd.open .rows-btn .caret{ transform: rotate(180deg); }
     /* Dark mode: modal */
     [data-theme="dark"] #modal > div { background:#0f172a !important; color:#e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.6); }
     [data-theme="dark"] #modal h3 { color:#e5e7eb; }
@@ -88,31 +105,35 @@
     /* Responsive: mobile-friendly layout */
     @media (max-width: 768px){
       .wrap { margin:12px auto; padding:0 12px; }
-      /* Dua kolom horizontal; tombol mengisi kolom dan wrap bila perlu */
-      .toolbar { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); column-gap:10px; row-gap:8px; align-items:center; padding-right:0; }
-      .toolbar input#search { grid-column: 1 / -1; width: calc(100% - 6px); }
-      /* Rows: isi kolom kiri penuh, tanpa overflow */
-      #rowsPerPage { grid-column: 1; width: calc(100% - 6px); min-width:0; justify-self:stretch; }
-      .toolbar input#search, .toolbar select { width:100%; box-sizing:border-box; min-width:0; }
-      .toolbar button { width: calc(100% - 6px); height:36px; font-size:14px; justify-self:stretch; box-sizing:border-box; min-width:0; white-space:normal; overflow-wrap:anywhere; }
-      .toolbar input#search, .toolbar select { height:36px; font-size:14px; }
-      #rowsPerPage { max-width:100%; justify-self:stretch; }
+      /* Toolbar: stack rapi, ukuran konsisten */
+      .toolbar { display:grid; grid-template-columns: 1fr; row-gap:8px; align-items:center; padding-right:0; }
+      .toolbar input#search { grid-column: 1; width: 100%; }
+      .toolbar input#search, .toolbar select { width:100%; box-sizing:border-box; min-width:0; height:32px; font-size:13px; }
+      .toolbar button { width: 100%; height:32px; font-size:13px; justify-self:stretch; box-sizing:border-box; min-width:0; white-space:normal; overflow-wrap:anywhere; }
+      .toolbar .btn { padding:6px 10px; }
+      /* Footer: satu kolom, pager rapih kiri */
+      .footer-bar { grid-template-columns: 1fr; row-gap:8px; }
+      .pager-bar { justify-content:flex-start; gap:8px; }
+      .rows-control { display:flex; align-items:center; gap:6px; }
+      .rows-dd .rows-btn { height:30px; min-height:30px; }
+      #pagination { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+      #pagination button { height:30px; }
+      #pageInput { height:30px; width:48px; min-width:48px; text-align:center; }
       #table { overflow-x:auto; }
       /* Compact, consistent table sizing for easier reading */
       #table table th, #table table td { padding:6px; font-size:13px; }
-    #pagination { display:flex; flex-wrap:wrap; gap:6px; }
-  }
+    }
     @media (max-width: 480px){
-      /* Ponsel kecil: dua kolom, lebih kompak, tanpa clipping kanan */
-      .toolbar { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); column-gap:8px; row-gap:6px; align-items:center; padding-right:0; }
-      .toolbar input#search { grid-column: 1 / -1; width: calc(100% - 6px); }
-      #rowsPerPage { grid-column: 1; width: calc(100% - 6px); min-width:0; justify-self:stretch; }
-      .toolbar input#search, .toolbar select { width:100%; box-sizing:border-box; min-width:0; }
+      /* Ponsel kecil: lebih kompak */
+      .toolbar { grid-template-columns: 1fr; row-gap:6px; }
       input, select, button { padding:8px 10px; }
-      .toolbar input#search, .toolbar select { height:34px; font-size:13px; }
-      .toolbar button { width: calc(100% - 6px); height:34px; font-size:13px; justify-self:stretch; box-sizing:border-box; min-width:0; white-space:normal; overflow-wrap:anywhere; }
-      #rowsPerPage { max-width:100%; justify-self:stretch; }
-      /* Table compact sizing on very small screens */
+      .toolbar input#search, .toolbar select { height:28px; font-size:13px; }
+      .toolbar button { width:100%; height:28px; font-size:13px; }
+      .toolbar .btn { padding:5px 8px; }
+      .footer-bar { row-gap:6px; }
+      .pager-bar { gap:6px; }
+      .rows-dd .rows-btn, #pagination button, #pageInput { height:28px; }
+      #pageInput { width:36px; min-width:36px; padding:3px 6px; }
       #table table th, #table table td { padding:6px; font-size:13px; }
     }
   </style>
@@ -141,8 +162,15 @@
       <div id="resultInfo" class="result-info"></div>
       <div id="pagerBar" class="pager-bar">
         <div id="rowsControl" class="rows-control" style="display:flex; align-items:center; gap:8px;">
-          <label for="rowsPerPage" style="margin:0;">Rows</label>
-          <select id="rowsPerPage"><option>25</option><option>50</option><option>100</option><option value="All">All</option></select>
+          <label style="margin:0;">Rows</label>
+          <div class="rows-dd" id="rowsDd">
+            <button type="button" class="rows-btn" id="rowsBtn"><span id="rowsLabel"></span><span class="caret">▾</span></button>
+            <div class="rows-menu" id="rowsMenu">
+              <div class="item" data-val="25">25</div>
+              <div class="item" data-val="50">50</div>
+              <div class="item" data-val="All">All</div>
+            </div>
+          </div>
         </div>
         <div id="pagination"></div>
       </div>
@@ -400,7 +428,7 @@ function sortRows(rows){
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <button id="prevBtn">Prev</button>
           <span>Halaman</span>
-          <input id="pageInput" type="number" min="1" value="${page}" style="width:64px;" />
+          <input id="pageInput" type="number" min="1" value="${page}" />
           <span>/ ${pages}</span>
           <button id="nextBtn">Next</button>
         </div>`;
@@ -424,12 +452,24 @@ function sortRows(rows){
     }
 
     document.getElementById('search').oninput = debounce(render, 200);
-    document.getElementById('rowsPerPage').onchange = (e)=>{
-      const val = String(e.target.value);
-      rows = (val === 'All') ? Number.MAX_SAFE_INTEGER : parseInt(val);
-      page = 1;
-      render();
-    };
+    const rowsDd = document.getElementById('rowsDd');
+    const rowsBtn = document.getElementById('rowsBtn');
+    const rowsLabel = document.getElementById('rowsLabel');
+    const rowsMenu = document.getElementById('rowsMenu');
+    if (rowsLabel){ rowsLabel.textContent = (rows===Number.MAX_SAFE_INTEGER)?'All':String(rows); }
+    if (rowsBtn && rowsMenu){
+      rowsBtn.onclick = ()=>{ rowsDd.classList.toggle('open'); };
+      rowsMenu.addEventListener('click', (e)=>{
+        const it = e.target.closest('.item[data-val]'); if (!it) return;
+        const val = String(it.getAttribute('data-val'));
+        rows = (val==='All') ? Number.MAX_SAFE_INTEGER : parseInt(val,10);
+        rowsLabel.textContent = (val==='All') ? 'All' : String(rows);
+        page = 1; rowsDd.classList.remove('open'); render();
+      });
+      document.addEventListener('click', (e)=>{
+        if (!rowsDd.contains(e.target)) rowsDd.classList.remove('open');
+      });
+    }
     document.getElementById('addBtn').onclick = ()=> openModal('Tambah Forklift', {});
     document.getElementById('bulkDeleteBtn').onclick = async ()=>{
       if (!(user.role==='admin'||user.role==='supervisor')) return alert('Tidak punya akses');
