@@ -833,6 +833,7 @@
     let sortKey = 'tanggal';
     let sortDir = 'desc';
     let selected = new Set();
+    let selectedArchive = new Set();
     let currentRows = [];
     let archiveCache = { rows: [], loaded: false, loading: false };
 
@@ -847,9 +848,9 @@
       pekerjaan: isMaint ? 'PM/Lapangan' : 'Workshop',
       teknisi: '',
       next_pm: ar.next_pm || '',
-      description: ar.description || '',
-      recommendation: isMaint ? (ar.recommendation || '') : '',
-      items_used: '',
+      description: (ar.pekerjaan || ar.description || ''),
+      recommendation: (ar.recommendation || ''),
+      items_used: (ar.item_dipakai || ''),
       __arsip: true,
       __arsip_source: src,
       __arsip_id: ar.id,
@@ -859,7 +860,7 @@
       forklift_serial: ar.forklift_serial || '',
       forklift_powertrain: '',
     }; }
-    function filterArchiveRows(rows, filters){ const { jenisVals, fkIdSet, q, start, end } = filters; let out = rows; if (Array.isArray(jenisVals) && jenisVals.length && jenisVals.length<3){ const set = new Set(jenisVals.map(x=>String(x).toLowerCase())); out = out.filter(r=> set.has(String(r.pekerjaan||'').toLowerCase())); } if (fkIdSet && fkIdSet.size>0){ const selIds = new Set(fkIdSet); const fkEqNos = new Set(Array.from(selIds).map(id=>{ try { const f = (fkCache||[]).find(x=>x.id===id); return String(f?.eq_no||'').trim().toLowerCase(); } catch { return ''; } }).filter(Boolean)); const fkSerials = new Set(Array.from(selIds).map(id=>{ try { const f = (fkCache||[]).find(x=>x.id===id); return String(f?.serial||'').trim().toLowerCase(); } catch { return ''; } }).filter(Boolean)); out = out.filter(r=>{ const idMatch = !!r.forklift_id && selIds.has(r.forklift_id); const eqMatch = r.forklift_eq_no && fkEqNos.has(String(r.forklift_eq_no).trim().toLowerCase()); const serialMatch = r.forklift_serial && fkSerials.has(String(r.forklift_serial).trim().toLowerCase()); return idMatch || eqMatch || serialMatch; }); } if (q){ const qq = String(q).toLowerCase(); out = out.filter(r=> String(r.report_no||'').toLowerCase().includes(qq) || String(r.forklift||'').toLowerCase().includes(qq) || String(r.description||'').toLowerCase().includes(qq) || String(r.recommendation||'').toLowerCase().includes(qq)); } if (start){ out = out.filter(r=> String(r.tanggal||'') >= String(start)); } if (end){ out = out.filter(r=> String(r.tanggal||'') <= String(end)); } return out; }
+    function filterArchiveRows(rows, filters){ const { jenisVals, fkIdSet, q, start, end } = filters; let out = rows; if (Array.isArray(jenisVals) && jenisVals.length && jenisVals.length<3){ const set = new Set(jenisVals.map(x=>String(x).toLowerCase())); out = out.filter(r=> set.has(String(r.pekerjaan||'').toLowerCase())); } if (fkIdSet && fkIdSet.size>0){ const selIds = new Set(fkIdSet); const fkEqNos = new Set(Array.from(selIds).map(id=>{ try { const f = (fkCache||[]).find(x=>x.id===id); return String((f?.eq_alias||f?.eq_no)||'').trim().toLowerCase(); } catch { return ''; } }).filter(Boolean)); const fkSerials = new Set(Array.from(selIds).map(id=>{ try { const f = (fkCache||[]).find(x=>x.id===id); return String(f?.serial||'').trim().toLowerCase(); } catch { return ''; } }).filter(Boolean)); out = out.filter(r=>{ const idMatch = !!r.forklift_id && selIds.has(r.forklift_id); const eqMatch = r.forklift_eq_no && fkEqNos.has(String(r.forklift_eq_no).trim().toLowerCase()); const serialMatch = r.forklift_serial && fkSerials.has(String(r.forklift_serial).trim().toLowerCase()); return idMatch || eqMatch || serialMatch; }); } if (q){ out = out.filter(r=> rowMatchesQuery(r, q)); } if (start){ out = out.filter(r=> String(r.tanggal||'') >= String(start)); } if (end){ out = out.filter(r=> String(r.tanggal||'') <= String(end)); } return out; }
     async function ensureArchiveLoaded(){ if (archiveCache.loaded || archiveCache.loading) return; archiveCache.loading = true; setArchiveStatus('Memuat arsip...'); const all = []; const fetchSrc = async (src)=>{ let offset=0; const limit=1000; let total=0; for(;;){ const qs = new URLSearchParams(); qs.set('job_source', src); qs.set('limit', String(limit)); qs.set('offset', String(offset)); try{ const resp = await api('/api/archive/jobs?' + qs.toString()); const arr = Array.isArray(resp?.rows) ? resp.rows : (Array.isArray(resp) ? resp : []); for (const ar of arr) all.push(mapArchiveRow(ar, src)); if (Array.isArray(resp?.rows) && typeof resp?.total==='number') total = resp.total; if (arr.length < limit) break; offset += limit; if (total && offset>=total) break; }catch(e){ console.warn('Gagal fetch arsip', src, e); break; } } }; await Promise.all([fetchSrc('maintenance'), fetchSrc('workshop')]); archiveCache.rows = all; archiveCache.loaded = true; archiveCache.loading = false; setArchiveStatus(''); try{ const filters = getFilters(); const rowsActive = data.filter(r=> !r.__arsip); const merged = rowsActive.concat(filterArchiveRows(archiveCache.rows, filters)); data = sortRows(merged); indexRows(data); render(); }catch{} }
 
     // Indexing ringan untuk pencarian/penyaringan cepat (internal)
@@ -877,6 +878,10 @@
     function formatTanggalDisplay(str){ const s = String(str||'').trim(); if(!s) return ''; const d = new Date(s); if(!Number.isNaN(d.getTime())){ const day = String(d.getDate()).padStart(2,'0'); const month = d.toLocaleString('id-ID',{ month:'short' }); const year = d.getFullYear(); return `${day} ${month} ${year}`; } return s; }
     function normalizeParts(raw){ const s = String(raw||'').trim(); if(!s) return []; const looksHtml = /<\s*(ul|ol|li)\b/i.test(s); if(looksHtml){ const t = s.replace(/<br\s*\/?\s*>/gi,'\n'); const cleaned = t.replace(/<(?!\/?(ul|ol|li)\b)[^>]*>/gi,'').replace(/<\/?(ul|ol)\b[^>]*>/gi,'').replace(/<li[^>]*>/gi,'\n').replace(/<\/li>/gi,'\n').replace(/\r?\n+/g,'\n'); return cleaned.split('\n').map(x=>x.trim()).filter(Boolean); } else { return s.split(/\r?\n|,/).map(x=>x.trim()).filter(Boolean); } }
     function renderPartsCell(row){ const items = normalizeParts(row.items_used); if(items.length===0) return ''; return '<ul class="parts-list">'+ items.map(i=> '<li>'+ escHtml(i) +'</li>').join('') +'</ul>'; }
+    function normalizeNoSpace(str){ return String(str||'').toLowerCase().replace(/[\s-]+/g,''); }
+    function makeTokens(q){ const base = String(q||'').trim().toLowerCase(); const bySpace = base.split(/\s+/).filter(Boolean); const byGroup = (base.match(/[a-z]+|\d+/g) || []); const set = new Set([...bySpace, ...byGroup]); return Array.from(set); }
+    function extractEqNo(label){ const m = /\(([^)]+)\)\s*$/.exec(String(label||'')); return m ? m[1] : ''; }
+    function rowMatchesQuery(row, q){ const tokens = makeTokens(q); if (!tokens.length) return true; const fields = []; try{ fields.push(String(row.forklift||'')); fields.push(String(row.forklift_owner||'')); fields.push(String(row.forklift_location||row.forklift_location_fk||'')); fields.push(String(row.forklift_serial||'')); fields.push(String(row.forklift_powertrain||'')); fields.push(String(row.report_no||'')); fields.push(String(row.pekerjaan||'')); fields.push(String(row.teknisi||'')); fields.push(String(row.description||'')); fields.push(String(row.recommendation||'')); fields.push(String(row.items_used||'')); fields.push(String(row.forklift_eq_no||'')); fields.push(extractEqNo(row.forklift||'')); }catch{} const normFields = fields.map(s=> ({ plain: String(s||'').toLowerCase(), norm: normalizeNoSpace(s) })); return tokens.every(tok => { const p = tok.toLowerCase(); const n = normalizeNoSpace(tok); return normFields.some(f => f.plain.includes(p) || (n && f.norm.includes(n))); }); }
     const columns = [
       { key: '__sel', label: '' },
       { key: 'tanggal', label: 'Tanggal' },
@@ -917,21 +922,16 @@
       });
     }
 
-    function filterForkliftList(query){
-      const q = String(query||'').trim().toLowerCase();
-      if (!q) return fkCache;
-      return fkCache.filter(f=>{
-        const fields = [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=> String(v||'').toLowerCase());
-        return fields.some(v=> v.includes(q));
-      });
-    }
+    function matchesForklift(f, q){ const tokens = makeTokens(q); if (!tokens.length) return true; const fields = [f.location, f.owner, (f.eq_alias||f.eq_no), f.serial, f.brand, f.type, f.powertrain]; const normFields = fields.map(s=> normalizeNoSpace(s)); const joined = normalizeNoSpace(fields.map(v=> String(v||'')).join(' | ')); const qNoSpace = normalizeNoSpace(q); if (qNoSpace && joined.includes(qNoSpace)) return true; return tokens.every(tok => { const nt = normalizeNoSpace(tok); return normFields.some(nf => nf.includes(nt)); }); }
+    function filterForkliftList(query){ const s = String(query||''); if (!s.trim()) return fkCache; try { return fkCache.filter(f=> matchesForklift(f, s)); } catch { return fkCache; } }
 
     function fetchAndRenderFk(){
       if (!fkInput || !fkSuggest) return;
       const list = filterForkliftList(fkInput.value);
       if (!Array.isArray(list) || list.length===0){ fkSuggest.style.display='none'; fkSuggest.innerHTML=''; return; }
       fkSuggest.innerHTML = list.map(f=>{
-        const label = [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - ');
+        const eq = (f.eq_alias || f.eq_no);
+        const label = [f.location, eq, f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - ');
         return `<div class="item" data-id="${f.id}">${label}</div>`;
       }).join('');
       fkSuggest.style.display='block';
@@ -949,7 +949,8 @@
           const f = fkCache.find(x=>x.id===id);
           if (!f) return;
           if (!selectedForklifts.some(x=>x.id===f.id)){
-            const label = [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - ');
+            const eq = (f.eq_alias || f.eq_no);
+            const label = [f.location, eq, f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - ');
             selectedForklifts.push({ id:f.id, label });
             renderFkTags();
             load();
@@ -998,13 +999,15 @@ function renderTechTags(){
   });
 }
 
+function matchesTech(t, q){ const tokens = makeTokens(q); if (!tokens.length) return true; const fields = [t.name, t.email]; const normFields = fields.map(s=> normalizeNoSpace(s)); const joined = normalizeNoSpace(fields.map(v=> String(v||'')).join(' | ')); const qNo = normalizeNoSpace(q); if (qNo && joined.includes(qNo)) return true; return tokens.every(tok=> normFields.some(nf=> nf.includes(normalizeNoSpace(tok)))); }
+function filterTechList(list, query){ const s = String(query||''); if (!s.trim()) return list||[]; try { return (list||[]).filter(t=> matchesTech(t, s)); } catch { return list||[]; } }
 const fetchAndRenderTech = async ()=>{
   if (!techInput || !techSuggest) return;
   const q = (techInput.value||'').trim();
   let list = [];
   try{
-    const url = q ? ('/api/technicians?q='+encodeURIComponent(q)) : '/api/technicians';
-    list = await api(url);
+    const all = await api('/api/technicians');
+    list = filterTechList(all, q);
   }catch(e){ list = []; }
   if (!Array.isArray(list) || list.length===0){ techSuggest.style.display='none'; techSuggest.innerHTML=''; return; }
   const esc = (s)=> String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -1095,13 +1098,13 @@ async function load(){
   try{
     const { q, start, end, jenisVals, techTokens, fkIdSet } = getFilters();
     const params = new URLSearchParams();
-    if (q) params.set('q', q);
     if (start) params.set('start', start);
     if (end) params.set('end', end);
     // Ambil semua records lalu filter client-side untuk teknisi & forklift multi-select
     const url = '/api/records' + (params.toString()?('?' + params.toString()):'');
     let rows = await api(url);
     if (!Array.isArray(rows)) rows = [];
+    if (q){ rows = rows.filter(r=> rowMatchesQuery(r, q)); }
     // Filter by jenis (client-side)
     if (Array.isArray(jenisVals) && jenisVals.length && jenisVals.length<3){
       const set = new Set(jenisVals.map(x=>String(x).toLowerCase()));
@@ -1119,7 +1122,7 @@ async function load(){
       });
     }
 
-    if (archiveCache.loaded){ rows = rows.concat(filterArchiveRows(archiveCache.rows, { q, start, end, jenisVals, fkIdSet })); }
+    if (archiveCache.loaded){ const arch = filterArchiveRows(archiveCache.rows, { q:'', start, end, jenisVals, fkIdSet }); rows = rows.concat(q ? arch.filter(r=> rowMatchesQuery(r, q)) : arch); }
     // Apply sorting
     data = sortRows(rows);
     indexRows(data);
@@ -1148,7 +1151,7 @@ function render(){
   }).join('') + '</tr></thead>';
 
   const body = '<tbody>' + currentRows.map(row=>{
-    const cb = row.__arsip ? `<input type="checkbox" disabled />` : `<input type="checkbox" data-id="${row.id}" ${selected.has(row.id)?'checked':''}/>`;
+    const cb = row.__arsip ? `<input type="checkbox" data-arch-id="${row.__arsip_id}" ${selectedArchive.has(row.__arsip_id)?'checked':''} />` : `<input type="checkbox" data-id="${row.id}" ${selected.has(row.id)?'checked':''}/>`;
     let actions;
     if (row.__arsip){
       const src = row.__arsip_source || 'maintenance';
@@ -1242,9 +1245,16 @@ function render(){
   // Select-all per halaman saat klik header "Sel"
   const selHeader = document.querySelector('th.sel-header');
   if (selHeader) selHeader.onclick = ()=>{
-    const actionableRows = currentRows.filter(r=> !r.__arsip);
-    const allSelected = actionableRows.length>0 && actionableRows.every(r=> selected.has(r.id));
-    if (allSelected){ actionableRows.forEach(r=> selected.delete(r.id)); } else { actionableRows.forEach(r=> selected.add(r.id)); }
+    const actRows = currentRows.filter(r=> !r.__arsip);
+    const archRows = currentRows.filter(r=> r.__arsip);
+    const allSelected = currentRows.length>0 && currentRows.every(r=> r.__arsip ? selectedArchive.has(r.__arsip_id) : selected.has(r.id));
+    if (allSelected){
+      actRows.forEach(r=> selected.delete(r.id));
+      archRows.forEach(r=> selectedArchive.delete(r.__arsip_id));
+    } else {
+      actRows.forEach(r=> selected.add(r.id));
+      archRows.forEach(r=> selectedArchive.add(r.__arsip_id));
+    }
     render();
   };
 
@@ -1263,10 +1273,11 @@ function render(){
   if (tableContainer){
     if (!tableContainer.dataset.cbDelegated){
       tableContainer.addEventListener('change', (ev)=>{
-        const cb = ev.target.closest("input[type='checkbox'][data-id]");
-        if (!cb) return;
-        const id = +cb.getAttribute('data-id');
-        if (cb.checked) selected.add(id); else selected.delete(id);
+        const cbActive = ev.target.closest("input[type='checkbox'][data-id]");
+        const cbArch = ev.target.closest("input[type='checkbox'][data-arch-id]");
+        if (!cbActive && !cbArch) return;
+        if (cbActive){ const id = +cbActive.getAttribute('data-id'); if (cbActive.checked) selected.add(id); else selected.delete(id); }
+        if (cbArch){ const aid = +cbArch.getAttribute('data-arch-id'); if (cbArch.checked) selectedArchive.add(aid); else selectedArchive.delete(aid); }
         updateActionsVisibility();
       });
       tableContainer.dataset.cbDelegated = '1';
@@ -1573,7 +1584,7 @@ function setupDropdown(dd){
 setupDropdown(document.getElementById('filterDd'));
 setupDropdown(document.getElementById('actionsDd'));
 
-function updateActionsVisibility(){ const dd = document.getElementById('actionsDd'); if (dd){ dd.style.display = (selected && selected.size>0) ? 'inline-block' : 'none'; if (!(selected && selected.size>0)) dd.classList.remove('open'); } }
+function updateActionsVisibility(){ const dd = document.getElementById('actionsDd'); if (dd){ const hasSel = (selected && selected.size>0) || (selectedArchive && selectedArchive.size>0); dd.style.display = hasSel ? 'inline-block' : 'none'; if (!hasSel) dd.classList.remove('open'); const bulk = document.getElementById('bulkDeleteBtn'); if (bulk){ const hasArch = selectedArchive && selectedArchive.size>0; bulk.style.opacity = hasArch ? '0.5' : ''; bulk.style.cursor = hasArch ? 'not-allowed' : ''; } } }
 updateActionsVisibility();
 
 // Sorting via header klik tetap aktif; kontrol sort radio dihapus untuk memperkecil bubble
@@ -1610,9 +1621,10 @@ if (btnExcel) btnExcel.onclick = async ()=>{
     try{ ws.views = [{ state:'frozen', xSplit:0, ySplit:1 }]; }catch{}
     try{ ws.autoFilter = { from: { row:1, column:1 }, to: { row:1, column:10 } }; }catch{}
 
-    const useSelected = selected && selected.size>0;
+    const useSelected = (selected && selected.size>0) || (selectedArchive && selectedArchive.size>0);
     const idSet = useSelected ? new Set(Array.from(selected)) : null;
-    const rowsSource = useSelected ? (data||[]).filter(r=> idSet.has(r.id)) : (data||[]);
+    const archSet = useSelected ? new Set(Array.from(selectedArchive)) : null;
+    const rowsSource = useSelected ? (data||[]).filter(r=> r.__arsip ? archSet.has(r.__arsip_id) : idSet.has(r.id)) : (data||[]);
     rowsSource.forEach(r=>{
       ws.addRow([
         r.tanggal||'', r.report_no||'', r.forklift||'', r.forklift_location||'', r.pekerjaan||'', r.teknisi||'', r.next_pm||'', r.description||'', r.recommendation||'', r.items_used||''
@@ -1708,9 +1720,10 @@ if (btnPDF) btnPDF.onclick = async ()=>{
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation:'l', unit:'pt', format:'a4' });
     const head = [['Tanggal','Report No','Forklift','Location','Pekerjaan','Teknisi','Next PM','Description','Recommendation','Items Used']];
-    const useSelected = selected && selected.size>0;
+    const useSelected = (selected && selected.size>0) || (selectedArchive && selectedArchive.size>0);
     const idSet = useSelected ? new Set(Array.from(selected)) : null;
-    const rowsSource = useSelected ? (data||[]).filter(r=> idSet.has(r.id)) : (data||[]);
+    const archSet = useSelected ? new Set(Array.from(selectedArchive)) : null;
+    const rowsSource = useSelected ? (data||[]).filter(r=> r.__arsip ? archSet.has(r.__arsip_id) : idSet.has(r.id)) : (data||[]);
     const body = rowsSource.map(r=>[
       r.tanggal||'', r.report_no||'', r.forklift||'', r.forklift_location||'', r.pekerjaan||'', r.teknisi||'', r.next_pm||'', r.description||'', r.recommendation||'', r.items_used||''
     ]);
@@ -1723,9 +1736,10 @@ if (btnPDF) btnPDF.onclick = async ()=>{
 const btnCSV = document.getElementById('exportCSV');
 if (btnCSV) btnCSV.onclick = async ()=>{
   try{
-    const useSelected = selected && selected.size>0;
+    const useSelected = (selected && selected.size>0) || (selectedArchive && selectedArchive.size>0);
     const idSet = useSelected ? new Set(Array.from(selected)) : null;
-    const rowsSource = useSelected ? (data||[]).filter(r=> idSet.has(r.id)) : (data||[]);
+    const archSet = useSelected ? new Set(Array.from(selectedArchive)) : null;
+    const rowsSource = useSelected ? (data||[]).filter(r=> r.__arsip ? archSet.has(r.__arsip_id) : idSet.has(r.id)) : (data||[]);
     const headers = ['Tanggal','Report No','Forklift','Location','Pekerjaan','Teknisi','Next PM','Description','Recommendation','Items Used'];
     const lines = [];
     lines.push(headers.map(h=> '"'+String(h).replace(/"/g,'""')+'"').join(','));
@@ -1746,7 +1760,9 @@ if (btnCSV) btnCSV.onclick = async ()=>{
 // Bulk delete selected
 const bulkBtn = document.getElementById('bulkDeleteBtn');
 if (bulkBtn) bulkBtn.onclick = async ()=>{
-  if (!selected || selected.size===0){ alert('Pilih record terlebih dahulu'); return; }
+  const hasArch = selectedArchive && selectedArchive.size>0;
+  if ((!selected || selected.size===0) && !hasArch){ alert('Pilih record terlebih dahulu'); return; }
+  if (hasArch){ alert('Hapus Terpilih terblokir: ada data arsip terpilih'); return; }
   if (!(await confirmDialog('Hapus semua record terpilih?'))) return;
   try{
     const ids = Array.from(selected);

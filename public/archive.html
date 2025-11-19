@@ -315,19 +315,16 @@
 
       let fkCache = [];
       function fkLabel(f){
-        return [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - ');
+        return [f.location, (f.eq_alias||f.eq_no), f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - ');
       }
+      function normalizeNoSpace(str){ return String(str||'').toLowerCase().replace(/[\s-]+/g,''); }
+      function makeTokens(q){ const base=String(q||'').trim().toLowerCase(); const bySpace=base.split(/\s+/).filter(Boolean); const byGroup=(base.match(/[a-z]+|\d+/g)||[]); const set=new Set([...bySpace,...byGroup]); return Array.from(set); }
+      function matchesForklift(f, q){ const tokens=makeTokens(q); if(!tokens.length) return true; const fields=[f.location, f.owner, (f.eq_alias||f.eq_no), f.serial, f.brand, f.type, f.powertrain]; const normFields=fields.map(s=> normalizeNoSpace(s)); const joined=normalizeNoSpace(fields.map(v=> String(v||'')) .join(' | ')); const qNo=normalizeNoSpace(q); if(qNo && joined.includes(qNo)) return true; return tokens.every(tok=>{ const nt=normalizeNoSpace(tok); return normFields.some(nf=> nf.includes(nt)); }); }
       function filterForkliftList(query){
-        const q = String(query||'').trim().toLowerCase();
-        if (!q) return fkCache;
-        try{
-          return (fkCache||[]).filter(f=>{
-            const fields = [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=> String(v||'').toLowerCase());
-            return fields.some(v=> v.includes(q));
-          });
-        }catch(e){
-          return (fkCache||[]);
-        }
+        const s = String(query||'');
+        if (!s.trim()) return fkCache;
+        try{ return (fkCache||[]).filter(f=> matchesForklift(f, s)); }
+        catch{ return (fkCache||[]); }
       }
       async function populateForklifts(){
         try{
@@ -356,6 +353,7 @@
           const params = new URLSearchParams(paramsObj);
           const res = await api(`/api/archive/jobs?${params.toString()}`);
           let rows = res.rows || [];
+          if (f.q){ rows = rows.filter(r=> rowMatchesQuery(r, f.q)); }
           if (f.fkIdSet && f.fkIdSet.size>0){
             rows = rows.filter(r=> f.fkIdSet.has(r.forklift_id));
           }
@@ -414,6 +412,17 @@
           if (prevBtn) prevBtn.disabled = page <= 1;
           if (nextBtn) nextBtn.disabled = page >= pages;
         }catch(e){ console.error('Gagal memuat arsip', e); alert('Gagal memuat arsip'); }
+      }
+
+      function rowMatchesQuery(row, q){
+        const tokens = makeTokens(q);
+        if (!tokens.length) return true;
+        const fields = [row.job_no, row.forklift, row.forklift_eq_no, row.forklift_serial, row.forklift_location, row.forklift_powertrain, row.description, row.recommendation, row.item_dipakai, row.notes, row.jenis, row.status];
+        const norm = fields.map(s=> normalizeNoSpace(s));
+        const joined = normalizeNoSpace(fields.map(v=> String(v||'')) .join(' | '));
+        const qNo = normalizeNoSpace(q);
+        if (qNo && joined.includes(qNo)) return true;
+        return tokens.every(tok=>{ const nt = normalizeNoSpace(tok); return norm.some(nf=> nf.includes(nt)); });
       }
 
       function bindEvents(){

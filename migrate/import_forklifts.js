@@ -67,6 +67,7 @@ async function run(){
   let inserted = 0, updated = 0; const errors = [];
 
   try{
+    try { await runAsync('ALTER TABLE forklifts ADD COLUMN eq_alias TEXT'); } catch(e) { /* ignore if exists */ }
     await runAsync('BEGIN');
     for (const row of rows){
       try{
@@ -79,22 +80,24 @@ async function run(){
           existing = await getAsync('SELECT id FROM forklifts WHERE eq_no=?', [row.eq_no]);
         }
         if (existing){
-          // Tangani konflik UNIQUE pada eq_no: jika dipakai oleh forklift lain, jangan timpa
+          // Jika eq_no bentrok, gunakan eq_alias agar EQ tetap tampil tanpa melanggar UNIQUE
           let newEq = row.eq_no || null;
+          let aliasEq = null;
           if (newEq){
             const conflict = await getAsync('SELECT id FROM forklifts WHERE eq_no=?', [newEq]);
-            if (conflict && conflict.id !== existing.id){ newEq = null; }
+            if (conflict && conflict.id !== existing.id){ aliasEq = newEq; newEq = null; }
           }
-          await runAsync("UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=?, deleted_at = NULL, updated_at = "+wibNow+" WHERE id=?", [row.brand||null, row.type||null, newEq, row.serial||null, row.location||null, row.powertrain||null, row.owner||null, row.tahun, row.status, existing.id]);
+          await runAsync("UPDATE forklifts SET brand=?, type=?, eq_no=?, eq_alias=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=?, deleted_at = NULL, updated_at = "+wibNow+" WHERE id=?", [row.brand||null, row.type||null, newEq, aliasEq, row.serial||null, row.location||null, row.powertrain||null, row.owner||null, row.tahun, row.status, existing.id]);
           updated++;
         } else {
-          // Insert baru: bila eq_no bentrok, kosongkan agar lolos UNIQUE
+          // Insert baru: bila eq_no bentrok, simpan di eq_alias agar EQ tetap terlihat di UI
           let insEq = row.eq_no || null;
+          let aliasEq = null;
           if (insEq){
             const conflict = await getAsync('SELECT id FROM forklifts WHERE eq_no=?', [insEq]);
-            if (conflict){ insEq = null; }
+            if (conflict){ aliasEq = insEq; insEq = null; }
           }
-          await runAsync("INSERT INTO forklifts (brand,type,eq_no,serial,location,powertrain,owner,tahun,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,"+wibNow+","+wibNow+")", [row.brand||null, row.type||null, insEq, row.serial||null, row.location||null, row.powertrain||null, row.owner||null, row.tahun, row.status]);
+          await runAsync("INSERT INTO forklifts (brand,type,eq_no,eq_alias,serial,location,powertrain,owner,tahun,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,"+wibNow+","+wibNow+")", [row.brand||null, row.type||null, insEq, aliasEq, row.serial||null, row.location||null, row.powertrain||null, row.owner||null, row.tahun, row.status]);
           inserted++;
         }
       } catch(e){ errors.push({ index: row.idx, error: String(e && e.message || 'SQL error') }); }

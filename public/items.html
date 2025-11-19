@@ -151,17 +151,16 @@
         r._q = s;
       }
     }
+    function normalizeNoSpace(str){ return String(str||'').toLowerCase().replace(/[\s-]+/g,''); }
+    function makeTokens(q){ const base=String(q||'').trim().toLowerCase(); const bySpace=base.split(/\s+/).filter(Boolean); const byGroup=(base.match(/[a-z]+|\d+/g)||[]); const set=new Set([...bySpace,...byGroup]); return Array.from(set); }
+    function matchesItem(r,q){ const tokens=makeTokens(q); if(!tokens.length) return true; const fields=[r.code,r.nama,r.unit,r.description,r.status]; const norm=fields.map(s=> normalizeNoSpace(s)); const joined=normalizeNoSpace(fields.map(v=> String(v||'')) .join(' | ')); const qNo=normalizeNoSpace(q); if(qNo && joined.includes(qNo)) return true; return tokens.every(tok=>{ const nt=normalizeNoSpace(tok); return norm.some(nf=> nf.includes(nt)); }); }
 
     // Pencarian cepat berbasis _q (AND untuk setiap kata)
     function fastFilter(rows, q){
-      const query = String(q||'').trim().toLowerCase();
-      if (!query) return rows || [];
-      const parts = query.split(/\s+/);
-      return (rows||[]).filter(r=>{
-        const s = r._q || '';
-        for (const p of parts){ if (s.indexOf(p)===-1) return false; }
-        return true;
-      });
+      const s = String(q||'');
+      if (!s.trim()) return rows || [];
+      try { return (rows||[]).filter(r=> matchesItem(r, s)); }
+      catch { return rows || []; }
     }
 
     // Comparator: urutkan berdasarkan kode item (prefix huruf lalu angka) naik

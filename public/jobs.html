@@ -345,7 +345,7 @@
     function indexFk(rows){
       try {
         (rows||[]).forEach(r=>{
-          const vals=[r.location,r.owner,r.eq_no,r.serial,r.brand,r.type,r.powertrain];
+          const vals=[r.location,r.owner,(r.eq_alias||r.eq_no),r.serial,r.brand,r.type,r.powertrain];
           r._q = vals.map(v=> String(v||'').toLowerCase()).join(' | ');
         });
       } catch {}
@@ -375,7 +375,7 @@
         if (fkSuggest){ fkSuggest.innerHTML=''; fkSuggest.style.display='none'; }
       });
     }
-    function fkLabel(f){ return [f.location, f.eq_no, f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - '); }
+    function fkLabel(f){ return [f.location, (f.eq_alias||f.eq_no), f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - '); }
     // Pencarian forklift yang lebih intuitif: token-based dan mengabaikan spasi/tanda hubung
     function normalizeNoSpace(str){ return String(str||'').toLowerCase().replace(/[\s-]+/g, ''); }
     function makeTokens(q){
@@ -389,7 +389,7 @@
     function matchesForklift(f, q){
       const tokens = makeTokens(q);
       if (!tokens.length) return true;
-      const fields = [f.location, f.owner, f.eq_no, f.serial, f.brand, f.type, f.powertrain];
+      const fields = [f.location, f.owner, (f.eq_alias||f.eq_no), f.serial, f.brand, f.type, f.powertrain];
       const normFields = fields.map(normalizeNoSpace);
       const joined = normalizeNoSpace(fields.map(v=> String(v||'')).join(' | '));
       const qNoSpace = normalizeNoSpace(q);

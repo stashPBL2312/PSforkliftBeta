@@ -170,12 +170,15 @@
     function indexRows(rows){
       try{
         (rows||[]).forEach(r=>{
-          const vals = [r.brand, r.type, r.eq_no, r.serial, r.location, r.powertrain, r.owner, r.tahun, r.status];
+          const vals = [r.brand, r.type, (r.eq_alias||r.eq_no), r.serial, r.location, r.powertrain, r.owner, r.tahun, r.status];
           r._q = vals.map(v=> String(v||'').toLowerCase()).join(' | ');
         });
       }catch{}
       return rows;
     }
+    function normalizeNoSpace(str){ return String(str||'').toLowerCase().replace(/[\s-]+/g,''); }
+    function makeTokens(q){ const base=String(q||'').trim().toLowerCase(); const bySpace=base.split(/\s+/).filter(Boolean); const byGroup=(base.match(/[a-z]+|\d+/g)||[]); const set=new Set([...bySpace,...byGroup]); return Array.from(set); }
+    function matchesForklift(r,q){ const tokens=makeTokens(q); if(!tokens.length) return true; const fields=[r.location,r.owner,(r.eq_alias||r.eq_no),r.serial,r.brand,r.type,r.powertrain]; const normFields=fields.map(s=> normalizeNoSpace(s)); const joined=normalizeNoSpace(fields.map(v=> String(v||'')).join(' | ')); const qNo=normalizeNoSpace(q); if(qNo && joined.includes(qNo)) return true; return tokens.every(tok=>{ const nt=normalizeNoSpace(tok); return normFields.some(nf=> nf.includes(nt)); }); }
     data = indexRows(data);
     let selected = new Set();
 
@@ -276,10 +279,10 @@ function sortRows(rows){
     }
 
     function fastFilter(rows, keyword){
-      if (!keyword) return rows;
-      const q = String(keyword).toLowerCase();
-      try { return (rows||[]).filter(r=> String(r._q||'').includes(q)); }
-      catch { return filterData(rows||[], keyword); }
+      const s = String(keyword||'');
+      if (!s.trim()) return rows;
+      try { return (rows||[]).filter(r=> matchesForklift(r, s)); }
+      catch { return (rows||[]); }
     }
     function render(){
       perfStart && perfStart('forklift.render');
@@ -304,7 +307,7 @@ function sortRows(rows){
           <td>${cb}</td>
           <td>${row.brand||''}</td>
           <td>${row.type||''}</td>
-          <td>${row.eq_no||''}</td>
+          <td>${(row.eq_alias||row.eq_no)||''}</td>
           <td>${row.serial||''}</td>
           <td>${row.location||''}</td>
           <td>${row.powertrain||''}</td>
@@ -323,6 +326,8 @@ function sortRows(rows){
       if (selHeader) selHeader.onclick = ()=>{
         const allSelected = currentRows.length>0 && currentRows.every(r=> selected.has(r.id));
         if (allSelected) { currentRows.forEach(r=> selected.delete(r.id)); } else { currentRows.forEach(r=> selected.add(r.id)); }
+        const dd = document.getElementById('actionsDd');
+        if (dd){ dd.style.display = (selected && selected.size>0) ? '' : 'none'; }
         render();
       };
 
@@ -373,6 +378,8 @@ function sortRows(rows){
           tableContainer.dataset.clickDelegated = '1';
         }
       }
+      const dd = document.getElementById('actionsDd');
+      if (dd){ dd.style.display = (selected && selected.size>0) ? '' : 'none'; }
       // Header sort handlers
       document.querySelectorAll('#table th[data-key]').forEach(th=>{
         th.onclick = ()=>{

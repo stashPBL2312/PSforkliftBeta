@@ -119,7 +119,7 @@
     let fkMeta = {}; // by id
     try {
       const forklifts = await api('/api/forklifts');
-      forklifts.forEach(f=>{ fkMeta[f.id] = { label: `${f.brand} ${f.type} (${f.eq_no})`, powertrain: String(f.powertrain||'') }; });
+      forklifts.forEach(f=>{ const eq = (f.eq_alias||f.eq_no)||''; fkMeta[f.id] = { label: `${f.brand} ${f.type} (${eq})`, powertrain: String(f.powertrain||'') }; });
     } catch(e){ /* abaikan jika gagal, hanya berdampak pada label forklift */ }
 
     // Terapkan hint performa pada kontainer tabel untuk mempercepat paint/layout

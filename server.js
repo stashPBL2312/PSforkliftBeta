@@ -333,6 +333,10 @@ app.get('/api/dashboard/metrics', requireLogin, async (req, res) => {
     db.run("PRAGMA wal_checkpoint(FULL)", ()=>{});
   } catch (e) { /* noop */ }
 })();
+// Tambah kolom eq_alias di forklifts untuk alias EQ yang boleh duplikat secara tampilan
+(function ensureForkliftEqAlias(){
+  try { db.run("ALTER TABLE forklifts ADD COLUMN eq_alias TEXT", ()=>{}); } catch (e) { /* noop */ }
+})();
 // Migration ringan: tambah kolom next_pm di archive_jobs (statis, tidak terkait records/jobs aktif)
 (function ensureArchiveNextPmColumn(){
   try {
@@ -414,7 +418,7 @@ app.get('/api/forklifts', requireLogin, async (req, res) => {
 app.post('/api/forklifts', requireRole('admin','supervisor'), async (req, res) => {
   const { brand, type, eq_no, serial, location, powertrain, owner, tahun, status } = req.body;
   try {
-    const r = await run("INSERT INTO forklifts (brand,type,eq_no,serial,location,powertrain,owner,tahun,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,datetime('now','+7 hours'),datetime('now','+7 hours'))", [brand,type,eq_no,serial,location,powertrain,owner,tahun,status]);
+    const r = await run("INSERT INTO forklifts (brand,type,eq_no,eq_alias,serial,location,powertrain,owner,tahun,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now','+7 hours'),datetime('now','+7 hours'))", [brand,type,eq_no||null,null,serial,location,powertrain,owner,tahun,status]);
     res.json({ id: r.id });
   } catch (e) {
     let msg = 'Forklift create failed';
@@ -430,7 +434,12 @@ app.post('/api/forklifts', requireRole('admin','supervisor'), async (req, res) =
 app.put('/api/forklifts/:id', requireRole('admin','supervisor'), async (req, res) => {
   const { brand, type, eq_no, serial, location, powertrain, owner, tahun, status } = req.body;
   try {
-    await run("UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=?, updated_at = datetime('now','+7 hours') WHERE id=?", [brand,type,eq_no,serial,location,powertrain,owner,tahun,status, req.params.id]);
+    let targetEq = eq_no || null;
+    if (targetEq){
+      const conflict = await get('SELECT id FROM forklifts WHERE eq_no=? AND id<>?', [targetEq, req.params.id]);
+      if (conflict) targetEq = null;
+    }
+    await run("UPDATE forklifts SET brand=?, type=?, eq_no=?, eq_alias=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=?, updated_at = datetime('now','+7 hours') WHERE id=?", [brand,type,targetEq,(targetEq?null:(eq_no||null)),serial,location,powertrain,owner,tahun,status, req.params.id]);
     res.json({ ok: true });
   } catch (e) {
     let msg = 'Forklift update failed';
@@ -501,10 +510,20 @@ app.post('/api/forklifts/import', requireRole('admin','supervisor'), async (req,
         if (!existing && serial){ existing = await get('SELECT id, deleted_at FROM forklifts WHERE serial=?', [serial]); }
 
         if (existing){
-          await run("UPDATE forklifts SET brand=?, type=?, eq_no=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=?, deleted_at = NULL, updated_at = datetime('now','+7 hours') WHERE id=?", [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, tahunVal, status||null, existing.id]);
+          let targetEq = eq_no || null;
+          if (targetEq){
+            const conflict = await get('SELECT id FROM forklifts WHERE eq_no=? AND id<>?', [targetEq, existing.id]);
+            if (conflict) targetEq = null;
+          }
+          await run("UPDATE forklifts SET brand=?, type=?, eq_no=?, eq_alias=?, serial=?, location=?, powertrain=?, owner=?, tahun=?, status=?, deleted_at = NULL, updated_at = datetime('now','+7 hours') WHERE id=?", [brand||null, type||null, targetEq, (targetEq?null:(eq_no||null)), serial||null, location||null, powertrain||null, owner||null, tahunVal, status||null, existing.id]);
           updated++;
         } else {
-          await run("INSERT INTO forklifts (brand,type,eq_no,serial,location,powertrain,owner,tahun,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,datetime('now','+7 hours'),datetime('now','+7 hours'))", [brand||null, type||null, eq_no||null, serial||null, location||null, powertrain||null, owner||null, tahunVal, status||null]);
+          let targetEq = eq_no || null;
+          if (targetEq){
+            const conflict = await get('SELECT id FROM forklifts WHERE eq_no=?', [targetEq]);
+            if (conflict) targetEq = null;
+          }
+          await run("INSERT INTO forklifts (brand,type,eq_no,eq_alias,serial,location,powertrain,owner,tahun,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now','+7 hours'),datetime('now','+7 hours'))", [brand||null, type||null, targetEq, (targetEq?null:(eq_no||null)), serial||null, location||null, powertrain||null, owner||null, tahunVal, status||null]);
           inserted++;
         }
       } catch(e){
@@ -752,7 +771,7 @@ app.get('/api/records', requireLogin, async (req, res) => {
     const { q, forklift_id, start, end } = req.query;
     const params = [];
     let sql = `SELECT r.*, 
-      COALESCE((SELECT COALESCE(brand,'') || CASE WHEN COALESCE(type,'')!='' THEN ' ' || COALESCE(type,'') ELSE '' END || CASE WHEN eq_no IS NOT NULL AND TRIM(eq_no)!='' THEN ' (' || eq_no || ')' ELSE '' END FROM forklifts f WHERE f.id=r.forklift_id), '') AS forklift,
+      COALESCE((SELECT COALESCE(brand,'') || CASE WHEN COALESCE(type,'')!='' THEN ' ' || COALESCE(type,'') ELSE '' END || CASE WHEN COALESCE(eq_alias, eq_no) IS NOT NULL AND TRIM(COALESCE(eq_alias, eq_no))!='' THEN ' (' || COALESCE(eq_alias, eq_no) || ')' ELSE '' END FROM forklifts f WHERE f.id=r.forklift_id), '') AS forklift,
       r.location AS forklift_location,
       COALESCE((SELECT owner FROM forklifts f WHERE f.id=r.forklift_id), '') AS forklift_owner,
       COALESCE((SELECT location FROM forklifts f WHERE f.id=r.forklift_id), '') AS forklift_location_fk,
@@ -766,7 +785,7 @@ app.get('/api/records', requireLogin, async (req, res) => {
     if (start) { sql += ' AND r.tanggal>=?'; params.push(start); }
     if (end) { sql += ' AND r.tanggal<=?'; params.push(end); }
     if (q) {
-      sql += ' AND (r.description LIKE ? OR r.recommendation LIKE ? OR r.items_used LIKE ? OR r.report_no LIKE ? OR r.teknisi LIKE ? OR r.location LIKE ? OR EXISTS (SELECT 1 FROM forklifts f WHERE f.id=r.forklift_id AND (COALESCE(f.eq_no,"") LIKE ? OR COALESCE(f.brand,"") LIKE ? OR COALESCE(f.type,"") LIKE ? OR COALESCE(f.location,"") LIKE ?)))';
+      sql += ' AND (r.description LIKE ? OR r.recommendation LIKE ? OR r.items_used LIKE ? OR r.report_no LIKE ? OR r.teknisi LIKE ? OR r.location LIKE ? OR EXISTS (SELECT 1 FROM forklifts f WHERE f.id=r.forklift_id AND (COALESCE(f.eq_no, f.eq_alias, "") LIKE ? OR COALESCE(f.brand,"") LIKE ? OR COALESCE(f.type,"") LIKE ? OR COALESCE(f.location,"") LIKE ?)))';
       params.push(`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`,`%${q}%`);
     }
     sql += ' ORDER BY r.id DESC';
@@ -1008,9 +1027,9 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
     if (end) { whMaint.push('am.tanggal<=?'); pMaint.push(end); whWork.push('aw.tanggal<=?'); pWork.push(end); }
     if (forklift_eq_no) {
       const likeFk = `%${forklift_eq_no}%`;
-      whMaint.push('EXISTS (SELECT 1 FROM forklifts f WHERE f.id=am.forklift_id AND LOWER(COALESCE(f.eq_no, "")) LIKE LOWER(?))');
+      whMaint.push('EXISTS (SELECT 1 FROM forklifts f WHERE f.id=am.forklift_id AND LOWER(COALESCE(f.eq_no, f.eq_alias, "")) LIKE LOWER(?))');
       pMaint.push(likeFk);
-      whWork.push('EXISTS (SELECT 1 FROM forklifts f WHERE f.id=aw.forklift_id AND LOWER(COALESCE(f.eq_no, "")) LIKE LOWER(?))');
+      whWork.push('EXISTS (SELECT 1 FROM forklifts f WHERE f.id=aw.forklift_id AND LOWER(COALESCE(f.eq_no, f.eq_alias, "")) LIKE LOWER(?))');
       pWork.push(likeFk);
     }
     if (q) {
@@ -1024,7 +1043,7 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
         EXISTS (
           SELECT 1 FROM forklifts f
           WHERE f.id = am.forklift_id AND (
-            LOWER(REPLACE(COALESCE(f.eq_no, ""), ' ', '')) LIKE LOWER(?) OR
+            LOWER(REPLACE(COALESCE(f.eq_no, f.eq_alias, ""), ' ', '')) LIKE LOWER(?) OR
             LOWER(REPLACE(COALESCE(f.brand, ""), ' ', '')) LIKE LOWER(?) OR
             LOWER(REPLACE(COALESCE(f.type, ""), ' ', '')) LIKE LOWER(?) OR
             LOWER(REPLACE(COALESCE(f.serial, ""), ' ', '')) LIKE LOWER(?) OR
@@ -1049,7 +1068,7 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
         EXISTS (
           SELECT 1 FROM forklifts f
           WHERE f.id = aw.forklift_id AND (
-            LOWER(REPLACE(COALESCE(f.eq_no, ""), ' ', '')) LIKE LOWER(?) OR
+            LOWER(REPLACE(COALESCE(f.eq_no, f.eq_alias, ""), ' ', '')) LIKE LOWER(?) OR
             LOWER(REPLACE(COALESCE(f.brand, ""), ' ', '')) LIKE LOWER(?) OR
             LOWER(REPLACE(COALESCE(f.type, ""), ' ', '')) LIKE LOWER(?) OR
             LOWER(REPLACE(COALESCE(f.serial, ""), ' ', '')) LIKE LOWER(?) OR
@@ -1068,7 +1087,7 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
 
     const selMaint = `SELECT am.id AS id, 'maintenance' AS job_source, 'PM' AS jenis,
       am.tanggal AS job_date,
-      COALESCE((SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift,
+      COALESCE((SELECT brand||' '||type||' ('||COALESCE(eq_alias,eq_no)||')' FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift,
       (am.forklift_id) AS forklift_id,
       COALESCE((SELECT owner FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift_owner,
       COALESCE((SELECT location FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift_location,
@@ -1078,7 +1097,7 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
         ''
       ) AS forklift_serial,
       COALESCE(
-        (SELECT eq_no FROM forklifts f WHERE f.id=am.forklift_id),
+        (SELECT COALESCE(eq_alias, eq_no) FROM forklifts f WHERE f.id=am.forklift_id),
         (SELECT aj.forklift_eq_no FROM archive_jobs aj WHERE aj.id=am.id AND aj.job_source='maintenance'),
         ''
       ) AS forklift_eq_no,
@@ -1096,7 +1115,7 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
 
     const selWork = `SELECT aw.id AS id, 'workshop' AS job_source, 'Workshop' AS jenis,
       aw.tanggal AS job_date,
-      COALESCE((SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift,
+      COALESCE((SELECT brand||' '||type||' ('||COALESCE(eq_alias,eq_no)||')' FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift,
       (aw.forklift_id) AS forklift_id,
       COALESCE((SELECT owner FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift_owner,
       COALESCE((SELECT location FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift_location,
@@ -1106,7 +1125,7 @@ app.get('/api/archive/jobs', requireLogin, async (req, res) => {
         ''
       ) AS forklift_serial,
       COALESCE(
-        (SELECT eq_no FROM forklifts f WHERE f.id=aw.forklift_id),
+        (SELECT COALESCE(eq_alias, eq_no) FROM forklifts f WHERE f.id=aw.forklift_id),
         (SELECT aj.forklift_eq_no FROM archive_jobs aj WHERE aj.id=aw.id AND aj.job_source='workshop'),
         ''
       ) AS forklift_eq_no,
@@ -1152,7 +1171,7 @@ app.get('/api/archive/jobs/:id', requireLogin, async (req, res) => {
     const source = req.query.source || req.query.job_source || '';
     const selectMaint = `SELECT am.id AS id, 'maintenance' AS job_source, 'PM' AS jenis,
       am.tanggal AS job_date,
-      COALESCE((SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift,
+      COALESCE((SELECT brand||' '||type||' ('||COALESCE(eq_alias,eq_no)||')' FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift,
       (am.forklift_id) AS forklift_id,
       COALESCE((SELECT owner FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift_owner,
       COALESCE((SELECT location FROM forklifts f WHERE f.id=am.forklift_id), '') AS forklift_location,
@@ -1170,7 +1189,7 @@ app.get('/api/archive/jobs/:id', requireLogin, async (req, res) => {
     FROM archive_maintenance_jobs am WHERE am.id=?`;
     const selectWork = `SELECT aw.id AS id, 'workshop' AS job_source, 'Workshop' AS jenis,
       aw.tanggal AS job_date,
-      COALESCE((SELECT brand||' '||type||' ('||eq_no||')' FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift,
+      COALESCE((SELECT brand||' '||type||' ('||COALESCE(eq_alias,eq_no)||')' FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift,
       (aw.forklift_id) AS forklift_id,
       COALESCE((SELECT owner FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift_owner,
       COALESCE((SELECT location FROM forklifts f WHERE f.id=aw.forklift_id), '') AS forklift_location,
