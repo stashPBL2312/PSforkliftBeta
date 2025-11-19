@@ -42,9 +42,11 @@
       .suggest { position:absolute; z-index:1000; top: calc(100% + 4px); left:0; width:100%; border:1px solid #e0e0e0; border-radius:6px; max-height:140px; overflow:auto; background:#fff; box-shadow:0 6px 16px rgba(0,0,0,0.12); }
       .suggest .item { padding:6px 8px; cursor:pointer; border-bottom:1px solid #f5f5f5; }
       .suggest .item:hover { background:#f6f9ff; }
+      .suggest .item.active { background:#f6f9ff; }
       [data-theme="dark"] .suggest { background:#0f172a; border-color:#334155; box-shadow:0 6px 16px rgba(0,0,0,0.6); }
       [data-theme="dark"] .suggest .item { color:#e5e7eb; border-bottom:1px solid #1f2937; }
       [data-theme="dark"] .suggest .item:hover { background:#1f2937; }
+      [data-theme="dark"] .suggest .item.active { background:#1f2937; }
       /* Subteks pada kolom Forklift */
       .subtext { color:#666; font-size:12px; }
       [data-theme="dark"] .subtext { color:#fff; }
@@ -717,6 +719,7 @@
           return `<div class="item" data-id="${f.id}">${label}</div>`;
         }).join('');
         fkSuggest.style.display='block';
+        fkSuggest._activeIndex = -1;
         if (!fkSuggest._dragGuardAttached){
           let startY=0, dragging=false;
           fkSuggest.addEventListener('pointerdown', e=>{ startY = e.clientY||0; dragging=false; }, {passive:true});
@@ -744,11 +747,32 @@
         fkInput.addEventListener('input', debouncedFk);
         fkInput.addEventListener('focus', ()=> fetchAndRenderFk());
         fkInput.addEventListener('keydown', (e)=>{
-          if (e.key==='Enter'){
-            const first = fkSuggest && fkSuggest.querySelector('.item');
-            if (first){ first.click(); e.preventDefault(); }
+          if (e.key==='ArrowDown' || e.key==='ArrowUp'){
+            if (fkSuggest && fkSuggest.style.display!=='block') fetchAndRenderFk();
+            const items = fkSuggest ? Array.from(fkSuggest.querySelectorAll('.item')) : [];
+            if (!items.length) return;
+            e.preventDefault();
+            let idx = typeof fkSuggest._activeIndex==='number' ? fkSuggest._activeIndex : -1;
+            if (e.key==='ArrowDown') idx = Math.min(idx+1, items.length-1); else idx = Math.max(idx-1, 0);
+            items.forEach(el=> el.classList.remove('active'));
+            const el = items[idx];
+            if (el){ el.classList.add('active'); el.scrollIntoView({ block:'nearest' }); fkSuggest._activeIndex = idx; }
+          } else if (e.key==='Enter'){
+            const el = (fkSuggest && fkSuggest.querySelector('.item.active')) || (fkSuggest && fkSuggest.querySelector('.item'));
+            if (el){
+              e.preventDefault();
+              const id = +el.getAttribute('data-id');
+              const f = (fkCache||[]).find(x=>x.id===id); if (!f) return;
+              if (!selectedForklifts.some(x=>x.id===f.id)){
+                const label = fkLabel(f);
+                selectedForklifts.push({ id:f.id, label });
+                renderFkTags(); offset=0; fetchAndRender();
+              }
+              fkInput.value=''; fkSuggest.style.display='none'; fkInput.focus();
+            }
+          } else if (e.key==='Escape'){
+            if (fkSuggest) fkSuggest.style.display='none';
           }
-          if (e.key==='Escape'){ if (fkSuggest) fkSuggest.style.display='none'; }
         });
         document.addEventListener('click', (e)=>{ if (fkSuggest && !fkSuggest.contains(e.target) && e.target!==fkInput){ fkSuggest.style.display='none'; } });
       }

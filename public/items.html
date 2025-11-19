@@ -41,6 +41,31 @@
     th { background:#fafafa; }
     input, select, button { padding:6px 8px; }
     .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+    .btn{ padding:8px 12px; background:#1e88e5; color:#fff; border:0; border-radius:6px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+    .btn-green{ background:#16a34a; }
+    .btn-blue{ background:#0ea5e9; }
+    .btn-red{ background:#b91c1c; }
+    .btn-gray{ background:#374151; }
+    .btn:disabled{ opacity:.6; cursor:not-allowed; }
+    [data-theme="dark"] .btn { color:#fff; }
+    [data-theme="dark"] .btn-green{ background:#16a34a; }
+    [data-theme="dark"] .btn-blue{ background:#0ea5e9; }
+    [data-theme="dark"] .btn-red{ background:#b91c1c; }
+    
+    /* Footer bar: info left, rows & pagination right */
+    .footer-bar{ display:grid; grid-template-columns: 1fr auto; align-items:center; gap:8px; }
+    .footer-bar .result-info{ justify-self:start; font-size:12px; color:#666; }
+    [data-theme="dark"] .footer-bar .result-info{ color:#e5e7eb; }
+    .pager-bar{ display:flex; align-items:center; gap:16px; justify-content:flex-end; }
+    /* Dropdown actions parent (seragam dengan forklift) */
+    .dd { position:relative; display:inline-block; }
+    .dd .dd-btn { height:36px; min-height:36px; padding:8px 12px; border:1px solid #ddd; background:#f7f7f7; border-radius:6px; cursor:pointer; font-size:13px; }
+    .dd .dd-btn:hover { background:#eee; }
+    .dd .dd-menu { display:none; position:absolute; z-index:1000; top:calc(100% + 6px); left:0; min-width:280px; max-width:480px; background:#fff; border:1px solid #e0e0e0; border-radius:6px; padding:10px; box-shadow:0 10px 30px rgba(0,0,0,.12); }
+    .dd.open .dd-menu { display:block; }
+    [data-theme="dark"] .dd .dd-btn { background:#1f2937; border-color:#334155; color:#e5e7eb; }
+    [data-theme="dark"] .dd .dd-btn:hover { background:#334155; }
+    [data-theme="dark"] .dd .dd-menu { background:#0f172a; border-color:#334155; color:#e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.6); }
     /* Dark mode: modal */
     [data-theme="dark"] #modal > div { background:#0f172a !important; color:#e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.6); }
     [data-theme="dark"] #modal h3 { color:#e5e7eb; }
@@ -78,6 +103,10 @@
       .page-items .toolbar input#search, .page-items .toolbar select, .page-items .toolbar button { height:34px; font-size:13px; }
     }
   </style>
+  <style>
+    /* Border putih di dark mode untuk table container */
+    [data-theme="dark"] #table { border-color:#fff !important; }
+  </style>
 </head>
 <body class="page-items">
   <div id="header"></div>
@@ -85,15 +114,30 @@
     <h2>Items</h2>
     <div class="toolbar">
       <input id="search" placeholder="Cari..." />
-      <select id="rowsPerPage"><option>25</option><option>50</option><option>100</option><option value="all">All</option></select>
-      <button id="addBtn">Tambah</button>
-      <button id="bulkDeleteBtn">Hapus Terpilih</button>
-      <button id="importExcel">Import Excel</button>
-      <button id="exportExcel">Export Excel</button>
-      <button id="exportPDF">Export PDF</button>
+      <button id="addBtn" class="btn btn-green">Tambah</button>
+      <div class="dd" id="actionsDd">
+        <button type="button" class="dd-btn">Tindakkan</button>
+        <div class="dd-menu">
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+            <button id="importExcel" class="btn btn-green">Import Excel</button>
+            <button id="exportExcel" class="btn">Export Excel</button>
+            <button id="exportPDF" class="btn">Export PDF</button>
+            <button id="bulkDeleteBtn" class="btn btn-red">Hapus Terpilih</button>
+          </div>
+        </div>
+      </div>
     </div>
-    <div id="table"></div>
-    <div id="pagination" style="margin-top:8px;"></div>
+    <div id="table" style="border:1px solid #ddd; border-radius:8px;"></div>
+    <div id="footerBar" class="footer-bar" style="margin-top:8px;">
+      <div id="resultInfo" class="result-info"></div>
+      <div class="pager-bar">
+        <div id="pagination"></div>
+        <div id="rowsControl" class="rows-control" style="display:flex; align-items:center; gap:8px;">
+          <label for="rowsPerPage" style="margin:0;">Rows</label>
+          <select id="rowsPerPage"><option>25</option><option>50</option><option>100</option><option value="all">All</option></select>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.3); align-items:center; justify-content:center;">
@@ -340,7 +384,9 @@
        const sortCodeHeader = document.querySelector('th.sort-code');
        if (sortCodeHeader){ sortCodeHeader.onclick = ()=>{ sortMode = (sortMode==='recent' ? 'codeAsc' : (sortMode==='codeAsc' ? 'codeDesc' : 'recent')); page=1; render(); }; }
   perfEnd && perfEnd('items.render', `q="${q}" n=${data?.length||0} filtered=${filtered.length} pageRows=${rowsData.length}`);
-  const pages = Math.max(1, Math.ceil(sorted.length/rows));
+      const pages = Math.max(1, Math.ceil(sorted.length/rows));
+      const ri = document.getElementById('resultInfo');
+      if (ri){ ri.textContent = `Menampilkan ${rowsData.length} dari ${sorted.length} hasil`; }
        document.getElementById('pagination').innerHTML = `
          <div style="display:flex; gap:8px; align-items:center;">
            <button id="prevBtn">Prev</button>
@@ -470,6 +516,15 @@
 
     document.getElementById('search').oninput = debounce(render, 200);
     document.getElementById('rowsPerPage').onchange = (e)=>{ const val = String(e.target.value||''); rows = (val==='all') ? Number.MAX_SAFE_INTEGER : parseInt(val); page=1; render(); };
+    function setupDropdown(dd){
+      if(!dd) return;
+      const btn = dd.querySelector('.dd-btn');
+      const menu = dd.querySelector('.dd-menu');
+      if(!btn||!menu) return;
+      btn.onclick = (ev)=>{ ev.stopPropagation(); dd.classList.toggle('open'); };
+      document.addEventListener('click',(ev)=>{ if(!dd.contains(ev.target)) dd.classList.remove('open'); });
+    }
+    setupDropdown(document.getElementById('actionsDd'));
     // ... existing code ...
     const addBtn = document.getElementById('addBtn');
     if (addBtn){

@@ -66,28 +66,38 @@
     /* Next PM fit konten (nowrap), Description & Recommendation sama lebar, Items Used cukup lega */
     /* Indeks kolom disesuaikan setelah menghapus kolom Location */
     /* Lebarkan kolom Forklift agar tidak dempet */
-    #table table th:nth-child(4), #table table td:nth-child(4) { /* Forklift */
-      width: 26%;
+    #table table th:nth-child(2), #table table td:nth-child(2) {
+      width: 24%;
       white-space: normal;
     }
-    #table table th:nth-child(6), #table table td:nth-child(6) { /* Next PM */
+    #table table th:nth-child(3), #table table td:nth-child(3) {
+      width: 14%;
+      min-width: 160px;
+      white-space: normal;
+    }
+    #table table th:nth-child(7), #table table td:nth-child(7) { /* Next PM */
       width: 1%;
       min-width: 0;
       white-space: nowrap;
     }
-    #table table th:nth-child(7), #table table td:nth-child(7) { /* Description */
-      width: 26%;
+    #table table th:nth-child(4), #table table td:nth-child(4) {
+      width: 24%;
       white-space: normal;
     }
-    #table table th:nth-child(8), #table table td:nth-child(8) { /* Recommendation */
-      width: 26%;
+    #table table th:nth-child(6), #table table td:nth-child(6) {
+      width: 18%;
       white-space: normal;
     }
-    #table table th:nth-child(9), #table table td:nth-child(9) { /* Items Used */
-      width: 20%;
-      min-width: 180px;
+    #table table th:nth-child(5), #table table td:nth-child(5) {
+      width: 18%;
+      min-width: 160px;
       white-space: normal;
       word-break: break-word;
+    }
+    #table table th:nth-child(8), #table table td:nth-child(8) { /* Report No */
+      width: 1%;
+      min-width: 0;
+      white-space: nowrap;
     }
     .parts-list{ margin:0; padding-left:18px; }
     .parts-list li{ margin:0 0 4px; }
@@ -100,10 +110,12 @@
     .suggest { position:absolute; z-index:1000; top: calc(100% + 4px); left:0; width:100%; border:1px solid #e0e0e0; border-radius:6px; max-height:96px; overflow:auto; background:#fff; box-shadow:0 6px 16px rgba(0,0,0,0.12); }
     .suggest .item { padding:6px 8px; cursor:pointer; border-bottom:1px solid #f5f5f5; }
     .suggest .item:hover { background:#f6f9ff; }
+    .suggest .item.active { background:#f6f9ff; }
     /* Dark mode: tone down suggest + modal edit */
     [data-theme="dark"] .suggest { background:#0f172a; border-color:#334155; box-shadow:0 6px 16px rgba(0,0,0,0.6); }
     [data-theme="dark"] .suggest .item { color:#e5e7eb; border-bottom:1px solid #1f2937; }
     [data-theme="dark"] .suggest .item:hover { background:#1f2937; }
+    [data-theme="dark"] .suggest .item.active { background:#1f2937; }
     [data-theme="dark"] #editModal > div { background:#0f172a !important; color:#e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.6); }
     [data-theme="dark"] #editModal h3 { color:#e5e7eb; }
     [data-theme="dark"] #editModal .muted,
@@ -205,11 +217,11 @@
     .date-input-wrap::after { content: ""; position:absolute; right:4px; top:50%; transform:translateY(-50%); width:18px; height:18px; pointer-events:none; background-color: currentColor; -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='4' width='18' height='17' rx='2' ry='2' fill='none' stroke='%23fff' stroke-width='2'/><line x1='16' y1='2' x2='16' y2='6' stroke='%23fff' stroke-width='2'/><line x1='8' y1='2' x2='8' y2='6' stroke='%23fff' stroke-width='2'/><line x1='3' y1='10' x2='21' y2='10' stroke='%23fff' stroke-width='2'/></svg>") no-repeat center / contain; mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='4' width='18' height='17' rx='2' ry='2' fill='none' stroke='%23fff' stroke-width='2'/><line x1='16' y1='2' x2='16' y2='6' stroke='%23fff' stroke-width='2'/><line x1='8' y1='2' x2='8' y2='6' stroke='%23fff' stroke-width='2'/><line x1='3' y1='10' x2='21' y2='10' stroke='%23fff' stroke-width='2'/></svg>") no-repeat center / contain; }
 
     /* Uniform action buttons size in table */
-    #table table th:last-child, #table table td:last-child { white-space: nowrap; width: 1%; }
+    #table table th:last-child, #table table td:last-child { white-space: nowrap; width: 1%; min-width: 0; }
     #table td:last-child button + button { margin-top: 6px; }
-    #table button { height: 32px; min-height: 32px; padding: 0 10px; box-sizing: border-box; display:flex; align-items:center; gap:6px; line-height:1; white-space: nowrap; }
+    #table button { height: 30px; min-height: 30px; padding: 0 8px; box-sizing: border-box; display:flex; align-items:center; gap:4px; line-height:1; white-space: nowrap; }
     #table button.btn-ico svg { width:16px; height:16px; display:block; }
-    #table td:last-child .action-btn { width:100%; }
+    #table td:last-child .action-btn { width:auto; min-width: 78px; }
     /* Subteks pada kolom Forklift */
     .subtext { color:#666; font-size:12px; }
     [data-theme="dark"] .subtext { color:#fff; }
@@ -485,6 +497,7 @@
       if (!Array.isArray(list) || list.length===0){ edFkSuggest.style.display='none'; edFkSuggest.innerHTML=''; return; }
       edFkSuggest.innerHTML = list.map(f=>`<div class="item" data-id="${f.id}">${fkLabel(f)}</div>`).join('');
       edFkSuggest.style.display='block';
+      edFkSuggest._activeIndex = -1;
       // Drag guard untuk mencegah accidental tap saat scrolling (lebih ketat di modal edit)
       if (!edFkSuggest._dragGuardAttached){
         let startY = 0, dragging = false;
@@ -515,6 +528,33 @@
       edFkInput.addEventListener('input', (e)=>{ debouncedFkEd(); syncEdFkClear(); });
       edFkInput.addEventListener('focus', ()=> { renderEdFkSuggest(); syncEdFkClear(); });
       edFkInput.addEventListener('click', ()=> { renderEdFkSuggest(); syncEdFkClear(); });
+      edFkInput.addEventListener('keydown', (e)=>{
+        if (e.key==='ArrowDown' || e.key==='ArrowUp'){
+          const items = edFkSuggest ? Array.from(edFkSuggest.querySelectorAll('.item')) : [];
+          if (!items.length) return;
+          e.preventDefault();
+          let idx = typeof edFkSuggest._activeIndex==='number' ? edFkSuggest._activeIndex : -1;
+          if (e.key==='ArrowDown') idx = Math.min(idx+1, items.length-1); else idx = Math.max(idx-1, 0);
+          items.forEach(el=> el.classList.remove('active'));
+          const el = items[idx];
+          if (el){ el.classList.add('active'); el.scrollIntoView({ block:'nearest' }); edFkSuggest._activeIndex = idx; }
+        } else if (e.key==='Enter'){
+          const el = (edFkSuggest && edFkSuggest.querySelector('.item.active')) || (edFkSuggest && edFkSuggest.querySelector('.item'));
+          if (el){
+            e.preventDefault();
+            const id = +el.getAttribute('data-id');
+            const f = fkCache.find(x=>x.id===id); if (!f) return;
+            edForkliftId = f.id;
+            edFkInput.value = fkLabel(f);
+            const loc = document.getElementById('ed_location');
+            if (loc && !loc.value){ loc.value = String(f.location||''); }
+            edFkSuggest.style.display='none';
+            syncEdFkClear();
+          }
+        } else if (e.key==='Escape'){
+          if (edFkSuggest) edFkSuggest.style.display='none';
+        }
+      });
     }
     // Tap outside handler untuk menutup dropdown di modal edit
     const editModal = document.getElementById('editModal');
@@ -767,6 +807,7 @@
         return `<div class="item" data-id="${t.id}">${esc(label)}</div>`;
       }).join('');
       edTechSuggest.style.display='block';
+      edTechSuggest._activeIndex = -1;
       if (!edTechSuggest._dragGuardAttached){
         let startY=0, dragging=false;
         edTechSuggest.addEventListener('pointerdown', e=>{ startY = e.clientY||0; dragging=false; }, {passive:true});
@@ -838,7 +879,8 @@
     let archiveCache = { rows: [], loaded: false, loading: false };
 
     function setArchiveStatus(t){ const el = document.getElementById('archiveStatus'); if (el){ el.textContent = t||''; el.style.display = t ? '' : 'none'; } }
-    function mapArchiveRow(ar, src){ const isMaint = src==='maintenance'; const tag = isMaint ? 'Arsip PM/Lapangan' : 'Arsip Workshop'; return {
+    function splitDescRecommendation(raw){ const s = String(raw||'').trim(); if(!s) return { desc:'', recom:'' }; const lower = s.toLowerCase(); const m = lower.match(/\b(rekomendasi|recommendation|recomend|rekomend|recom)\b/); if(!m) return { desc:s, recom:'' }; const idx = lower.indexOf(m[0]); const desc = s.slice(0, idx).trim(); const tail = s.slice(idx).replace(/^(rekomendasi|recommendation|recomend|rekomend|recom)[:\s-]*/i,'').trim(); return { desc, recom: tail }; }
+    function mapArchiveRow(ar, src){ const isMaint = src==='maintenance'; const tag = isMaint ? 'Arsip PM/Lapangan' : 'Arsip Workshop'; const baseDesc = (ar.pekerjaan || ar.description || ''); const split = splitDescRecommendation(baseDesc); return {
       id: -(100000 + (parseInt(ar.id,10)||0)),
       tanggal: ar.job_date || '',
       report_no: ar.job_no || '',
@@ -848,8 +890,8 @@
       pekerjaan: isMaint ? 'PM/Lapangan' : 'Workshop',
       teknisi: '',
       next_pm: ar.next_pm || '',
-      description: (ar.pekerjaan || ar.description || ''),
-      recommendation: (ar.recommendation || ''),
+      description: (split.desc || baseDesc),
+      recommendation: (ar.recommendation || split.recom || ''),
       items_used: (ar.item_dipakai || ''),
       __arsip: true,
       __arsip_source: src,
@@ -877,34 +919,35 @@
     function escHtml(s){ return String(s||'').replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
     function formatTanggalDisplay(str){ const s = String(str||'').trim(); if(!s) return ''; const d = new Date(s); if(!Number.isNaN(d.getTime())){ const day = String(d.getDate()).padStart(2,'0'); const month = d.toLocaleString('id-ID',{ month:'short' }); const year = d.getFullYear(); return `${day} ${month} ${year}`; } return s; }
     function normalizeParts(raw){ const s = String(raw||'').trim(); if(!s) return []; const looksHtml = /<\s*(ul|ol|li)\b/i.test(s); if(looksHtml){ const t = s.replace(/<br\s*\/?\s*>/gi,'\n'); const cleaned = t.replace(/<(?!\/?(ul|ol|li)\b)[^>]*>/gi,'').replace(/<\/?(ul|ol)\b[^>]*>/gi,'').replace(/<li[^>]*>/gi,'\n').replace(/<\/li>/gi,'\n').replace(/\r?\n+/g,'\n'); return cleaned.split('\n').map(x=>x.trim()).filter(Boolean); } else { return s.split(/\r?\n|,/).map(x=>x.trim()).filter(Boolean); } }
-    function renderPartsCell(row){ const items = normalizeParts(row.items_used); if(items.length===0) return ''; return '<ul class="parts-list">'+ items.map(i=> '<li>'+ escHtml(i) +'</li>').join('') +'</ul>'; }
+    function normalizeRichLines(raw){ const s = String(raw||'').trim(); if(!s) return []; let t = s.replace(/<br\s*\/\?\s*>/gi,'\n').replace(/<\/(p|div|li)\s*>/gi,'\n').replace(/<\s*(p|div|ul|ol|li)[^>]*>/gi,''); t = t.replace(/&nbsp;/gi,' ').replace(/&amp;/gi,'&').replace(/&lt;/gi,'<').replace(/&gt;/gi,'>'); const cleaned = t.replace(/<[^>]*>/g,'').replace(/\r?\n+/g,'\n'); return cleaned.split(/\n|,/).map(x=>x.trim()).filter(Boolean); }
+    function renderPartsCell(row){ const items = normalizeRichLines(row.items_used); if(items.length===0) return ''; return '<ul class="parts-list">'+ items.map(i=> '<li>'+ escHtml(i) +'</li>').join('') +'</ul>'; }
+    function renderDescriptionCell(row){ const items = normalizeRichLines(row.description); if(items.length===0) return escHtml(row.description||''); return '<ul class="parts-list">'+ items.map(i=> '<li>'+ escHtml(i) +'</li>').join('') +'</ul>'; }
+    function renderRecommendationCell(row){ const items = normalizeRichLines(row.recommendation); if(items.length===0) return escHtml(row.recommendation||''); return '<ul class="parts-list">'+ items.map(i=> '<li>'+ escHtml(i) +'</li>').join('') +'</ul>'; }
     function normalizeNoSpace(str){ return String(str||'').toLowerCase().replace(/[\s-]+/g,''); }
     function makeTokens(q){ const base = String(q||'').trim().toLowerCase(); const bySpace = base.split(/\s+/).filter(Boolean); const byGroup = (base.match(/[a-z]+|\d+/g) || []); const set = new Set([...bySpace, ...byGroup]); return Array.from(set); }
     function extractEqNo(label){ const m = /\(([^)]+)\)\s*$/.exec(String(label||'')); return m ? m[1] : ''; }
     function rowMatchesQuery(row, q){ const tokens = makeTokens(q); if (!tokens.length) return true; const fields = []; try{ fields.push(String(row.forklift||'')); fields.push(String(row.forklift_owner||'')); fields.push(String(row.forklift_location||row.forklift_location_fk||'')); fields.push(String(row.forklift_serial||'')); fields.push(String(row.forklift_powertrain||'')); fields.push(String(row.report_no||'')); fields.push(String(row.pekerjaan||'')); fields.push(String(row.teknisi||'')); fields.push(String(row.description||'')); fields.push(String(row.recommendation||'')); fields.push(String(row.items_used||'')); fields.push(String(row.forklift_eq_no||'')); fields.push(extractEqNo(row.forklift||'')); }catch{} const normFields = fields.map(s=> ({ plain: String(s||'').toLowerCase(), norm: normalizeNoSpace(s) })); return tokens.every(tok => { const p = tok.toLowerCase(); const n = normalizeNoSpace(tok); return normFields.some(f => f.plain.includes(p) || (n && f.norm.includes(n))); }); }
     const columns = [
       { key: '__sel', label: '' },
-      { key: 'tanggal', label: 'Tanggal' },
-      { key: 'report_no', label: 'Report No' },
       { key: 'forklift', label: 'Forklift' },
-      { key: 'pekerjaan', label: 'Jenis' },
-      { key: 'next_pm', label: 'Next PM' },
+      { key: 'tanggal', label: 'Tanggal' },
       { key: 'description', label: 'Pekerjaan' },
-      { key: 'recommendation', label: 'Recommendation' },
       { key: 'items_used', label: 'Parts', render: renderPartsCell },
+      { key: 'recommendation', label: 'Recommendation' },
+      { key: 'next_pm', label: 'Next PM' },
+      { key: 'report_no', label: 'Report No' },
       { key: 'actions', label: '' },
     ];
     // Khusus mobile: urutan kolom diubah menjadi Sel, Tanggal, Forklift, Pekerjaan, Report No, dst
     const columnsMobile = [
       { key: '__sel', label: '' },
-      { key: 'tanggal', label: 'Tanggal' },
       { key: 'forklift', label: 'Forklift' },
-      { key: 'pekerjaan', label: 'Jenis' },
-      { key: 'report_no', label: 'Report No' },
-      { key: 'next_pm', label: 'Next PM' },
+      { key: 'tanggal', label: 'Tanggal' },
       { key: 'description', label: 'Pekerjaan' },
-      { key: 'recommendation', label: 'Recommendation' },
       { key: 'items_used', label: 'Parts', render: renderPartsCell },
+      { key: 'recommendation', label: 'Recommendation' },
+      { key: 'next_pm', label: 'Next PM' },
+      { key: 'report_no', label: 'Report No' },
       { key: 'actions', label: '' },
     ];
 
@@ -935,6 +978,7 @@
         return `<div class="item" data-id="${f.id}">${label}</div>`;
       }).join('');
       fkSuggest.style.display='block';
+      fkSuggest._activeIndex = -1;
       if (!fkSuggest._dragGuardAttached){
         let startY=0, dragging=false;
         fkSuggest.addEventListener('pointerdown', e=>{ startY = e.clientY||0; dragging=false; }, {passive:true});
@@ -966,11 +1010,35 @@
       fkInput.addEventListener('input', debouncedFk);
       fkInput.addEventListener('focus', ()=> fetchAndRenderFk());
       fkInput.addEventListener('keydown', (e)=>{
-        if (e.key==='Enter'){
-          const first = fkSuggest && fkSuggest.querySelector('.item');
-          if (first){ first.click(); e.preventDefault(); }
+        if (e.key==='ArrowDown' || e.key==='ArrowUp'){
+          if (fkSuggest && fkSuggest.style.display!=='block') fetchAndRenderFk();
+          const items = fkSuggest ? Array.from(fkSuggest.querySelectorAll('.item')) : [];
+          if (!items.length) return;
+          e.preventDefault();
+          let idx = typeof fkSuggest._activeIndex==='number' ? fkSuggest._activeIndex : -1;
+          if (e.key==='ArrowDown') idx = Math.min(idx+1, items.length-1); else idx = Math.max(idx-1, 0);
+          items.forEach(el=> el.classList.remove('active'));
+          const el = items[idx];
+          if (el){ el.classList.add('active'); el.scrollIntoView({ block:'nearest' }); fkSuggest._activeIndex = idx; }
+        } else if (e.key==='Enter'){
+          const el = (fkSuggest && fkSuggest.querySelector('.item.active')) || (fkSuggest && fkSuggest.querySelector('.item'));
+          if (el){
+            e.preventDefault();
+            const id = +el.getAttribute('data-id');
+            const f = fkCache.find(x=>x.id===id);
+            if (!f) return;
+            if (!selectedForklifts.some(x=>x.id===f.id)){
+              const eq = (f.eq_alias || f.eq_no);
+              const label = [f.location, eq, f.brand, f.type, f.powertrain].map(v=>String(v||'').trim()).filter(Boolean).join(' - ');
+              selectedForklifts.push({ id:f.id, label });
+              renderFkTags();
+              load();
+            }
+            fkInput.value=''; fkSuggest.style.display='none'; fkInput.focus();
+          }
+        } else if (e.key==='Escape'){
+          if (fkSuggest) fkSuggest.style.display='none';
         }
-        if (e.key==='Escape'){ if (fkSuggest) fkSuggest.style.display='none'; }
       });
       document.addEventListener('click', (e)=>{ if (fkSuggest && !fkSuggest.contains(e.target) && e.target!==fkInput){ fkSuggest.style.display='none'; } });
     }
@@ -1016,6 +1084,7 @@ const fetchAndRenderTech = async ()=>{
     return `<div class="item" data-id="${t.id}">${esc(label)}</div>`;
   }).join('');
   techSuggest.style.display='block';
+  techSuggest._activeIndex = -1;
   if (!techSuggest._dragGuardAttached){
     let startY=0, dragging=false;
     techSuggest.addEventListener('pointerdown', e=>{ startY = e.clientY||0; dragging=false; }, {passive:true});
@@ -1053,11 +1122,35 @@ if (techInput){
   techInput.addEventListener('focus', ()=>{ fetchAndRenderTech(); });
   techInput.addEventListener('click', ()=>{ fetchAndRenderTech(); });
   techInput.addEventListener('keydown', (e)=>{
-    if (e.key==='Enter'){
-      const first = techSuggest && techSuggest.querySelector('.item');
-      if (first){ first.click(); e.preventDefault(); }
+    if (e.key==='ArrowDown' || e.key==='ArrowUp'){
+      const items = techSuggest ? Array.from(techSuggest.querySelectorAll('.item')) : [];
+      if (!items.length) return;
+      e.preventDefault();
+      let idx = typeof techSuggest._activeIndex==='number' ? techSuggest._activeIndex : -1;
+      if (e.key==='ArrowDown') idx = Math.min(idx+1, items.length-1); else idx = Math.max(idx-1, 0);
+      items.forEach(el=> el.classList.remove('active'));
+      const el = items[idx];
+      if (el){ el.classList.add('active'); el.scrollIntoView({ block:'nearest' }); techSuggest._activeIndex = idx; }
+    } else if (e.key==='Enter'){
+      const el = (techSuggest && techSuggest.querySelector('.item.active')) || (techSuggest && techSuggest.querySelector('.item'));
+      if (el){
+        e.preventDefault();
+        const id = +el.getAttribute('data-id');
+        const label = String(el.textContent||'').trim();
+        const exists = (selectedTech||[]).some(x=> String(x.label||'').toLowerCase()===label.toLowerCase() || (x.id!=null && id!=null && String(x.id)===String(id)) );
+        if (!exists){
+          if (!Array.isArray(selectedTech)) selectedTech = [];
+          selectedTech.push({ id, label });
+          renderTechTags();
+          load();
+        }
+        techInput.value='';
+        techSuggest.style.display='none';
+        techInput.focus();
+      }
+    } else if (e.key==='Escape'){
+      if (techSuggest) techSuggest.style.display='none';
     }
-    if (e.key==='Escape'){ if (techSuggest) techSuggest.style.display='none'; }
   });
   document.addEventListener('click', (e)=>{
     if (techSuggest && !techSuggest.contains(e.target) && e.target!==techInput){ techSuggest.style.display='none'; }
@@ -1226,8 +1319,8 @@ function render(){
         case 'forklift': return `<td>${forkliftCell}</td>`;
         case 'pekerjaan': return `<td>${pekerjaanCell}</td>`;
         case 'next_pm': return `<td>${nextPmCell}</td>`;
-        case 'description': return `<td>${row.description||''}</td>`;
-        case 'recommendation': return `<td>${row.recommendation||''}</td>`;
+        case 'description': return `<td>${renderDescriptionCell(row)}</td>`;
+        case 'recommendation': return `<td>${renderRecommendationCell(row)}</td>`;
         case 'items_used': return `<td>${renderPartsCell(row)}</td>`;
         case 'actions': return `<td>${actions}</td>`;
         default: return '<td></td>';

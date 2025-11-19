@@ -97,10 +97,12 @@
     .suggest { position:absolute; z-index:1000; top: calc(100% + 4px); left:0; width:100%; border:1px solid #e0e0e0; border-radius:6px; max-height:96px; overflow:auto; background:#fff; box-shadow:0 6px 16px rgba(0,0,0,0.12); }
     .suggest .item { padding:6px 8px; cursor:pointer; border-bottom:1px solid #f5f5f5; }
     .suggest .item:hover { background:#f6f9ff; }
+    .suggest .item.active { background:#f6f9ff; }
     /* Dark mode: tone down suggest dropdown contrast */
     [data-theme="dark"] .suggest { background:#0f172a; border-color:#334155; box-shadow:0 6px 16px rgba(0,0,0,0.6); }
     [data-theme="dark"] .suggest .item { color:#e5e7eb; border-bottom:1px solid #1f2937; }
     [data-theme="dark"] .suggest .item:hover { background:#1f2937; }
+    [data-theme="dark"] .suggest .item.active { background:#1f2937; }
     
     .muted { font-size:11px; color:#777; }
      [data-theme="dark"] .muted { color:#fff; }
@@ -194,10 +196,12 @@
      .suggest { position:absolute; z-index:1000; top: calc(100% + 4px); left:0; width:100%; border:1px solid #e0e0e0; border-radius:6px; max-height:320px; min-height:120px; overflow:auto; background:#fff; box-shadow:0 6px 16px rgba(0,0,0,0.12); }
      .suggest .item { padding:6px 8px; cursor:pointer; border-bottom:1px solid #f5f5f5; }
      .suggest .item:hover { background:#f6f9ff; }
+     .suggest .item.active { background:#f6f9ff; }
      /* Dark mode: tone down suggest dropdown contrast */
      [data-theme="dark"] .suggest { background:#0f172a; border-color:#334155; box-shadow:0 6px 16px rgba(0,0,0,0.6); }
      [data-theme="dark"] .suggest .item { color:#e5e7eb; border-bottom:1px solid #1f2937; }
      [data-theme="dark"] .suggest .item:hover { background:#1f2937; }
+     [data-theme="dark"] .suggest .item.active { background:#1f2937; }
      
      .muted { font-size:11px; color:#777; }
       [data-theme="dark"] .muted { color:#fff; }
@@ -412,6 +416,7 @@
       if (!Array.isArray(list) || list.length===0){ fkSuggest.style.display='none'; fkSuggest.innerHTML=''; return; }
       fkSuggest.innerHTML = list.map(f=>`<div class="item" data-id="${f.id}">${fkLabel(f)}</div>`).join('');
       fkSuggest.style.display='block';
+      fkSuggest._activeIndex = -1;
       // drag guard: cegah tap saat pengguna sedang scroll di dalam suggest
       if (!fkSuggest._dragGuardAttached){
         let startY = 0, dragging = false;
@@ -440,11 +445,31 @@
       fkInput.addEventListener('focus', ()=> renderFkSuggest());
       fkInput.addEventListener('click', ()=> renderFkSuggest());
       fkInput.addEventListener('keydown', (e)=>{
-        if (e.key==='Enter'){
-          const first = fkSuggest && fkSuggest.querySelector('.item');
-          if (first){ first.click(); e.preventDefault(); }
+        if (e.key==='ArrowDown' || e.key==='ArrowUp'){
+          if (fkSuggest && fkSuggest.style.display!=='block') renderFkSuggest();
+          const items = fkSuggest ? Array.from(fkSuggest.querySelectorAll('.item')) : [];
+          if (!items.length) return;
+          e.preventDefault();
+          let idx = typeof fkSuggest._activeIndex==='number' ? fkSuggest._activeIndex : -1;
+          if (e.key==='ArrowDown') idx = Math.min(idx+1, items.length-1); else idx = Math.max(idx-1, 0);
+          items.forEach(el=> el.classList.remove('active'));
+          const el = items[idx];
+          if (el){ el.classList.add('active'); el.scrollIntoView({ block:'nearest' }); fkSuggest._activeIndex = idx; }
+        } else if (e.key==='Enter'){
+          const el = (fkSuggest && fkSuggest.querySelector('.item.active')) || (fkSuggest && fkSuggest.querySelector('.item'));
+          if (el){
+            e.preventDefault();
+            const id = +el.getAttribute('data-id');
+            const f = fkCache.find(x=>x.id===id); if (!f) return;
+            jobForkliftId = f.id;
+            fkInput.value = fkLabel(f);
+            fkSuggest.style.display='none';
+            reportDirty = false; try { if (typeof autofillReport === 'function') { autofillReport(); } } catch(e) {}
+            try { if (typeof saveDraft === 'function') saveDraft(); } catch {}
+          }
+        } else if (e.key==='Escape'){
+          if (fkSuggest) fkSuggest.style.display='none';
         }
-        if (e.key==='Escape'){ if (fkSuggest) fkSuggest.style.display='none'; }
       });
       document.addEventListener('click', (e)=>{ if (fkSuggest && !fkSuggest.contains(e.target) && e.target!==fkInput){ fkSuggest.style.display='none'; } });
       // Hapus default auto-select: wajib pilih forklift secara eksplisit
@@ -469,22 +494,23 @@
     }
 
     // fetch & render suggest teknisi via AJAX (show list even when query is empty)
-    const fetchAndRenderTech = async ()=>{
-      const q = (techInput.value||'').trim();
-      const seq = ++techReqSeq;
-      let list = [];
-      try {
-        const url = q ? ('/api/technicians?q='+encodeURIComponent(q)) : '/api/technicians';
-        list = await api(url);
-      } catch(e) { list = []; }
-      if (seq !== techReqSeq) return; // abaikan respon lama
-      lastTechResults = list;
-      if (!Array.isArray(list) || list.length===0){ techSuggest.style.display='none'; techSuggest.innerHTML=''; return; }
-      techSuggest.innerHTML = list.map(t=>{
-        const label = (t.name && t.name.trim()) ? `${t.name} <${t.email}>` : t.email;
-        return `<div class="item" data-id="${t.id}">${label}</div>`;
-      }).join('');
-      techSuggest.style.display='block';
+      const fetchAndRenderTech = async ()=>{
+        const q = (techInput.value||'').trim();
+        const seq = ++techReqSeq;
+        let list = [];
+        try {
+          const url = q ? ('/api/technicians?q='+encodeURIComponent(q)) : '/api/technicians';
+          list = await api(url);
+        } catch(e) { list = []; }
+        if (seq !== techReqSeq) return; // abaikan respon lama
+        lastTechResults = list;
+        if (!Array.isArray(list) || list.length===0){ techSuggest.style.display='none'; techSuggest.innerHTML=''; return; }
+        techSuggest.innerHTML = list.map(t=>{
+          const label = (t.name && t.name.trim()) ? `${t.name} <${t.email}>` : t.email;
+          return `<div class="item" data-id="${t.id}">${label}</div>`;
+        }).join('');
+        techSuggest.style.display='block';
+        techSuggest._activeIndex = -1;
       if (!techSuggest._dragGuardAttached){
         let startY = 0, dragging = false;
         techSuggest.addEventListener('pointerdown', (e)=>{ startY = e.clientY||0; dragging = false; }, {passive:true});
@@ -512,9 +538,31 @@
 
     // input handlers teknisi
     techInput.addEventListener('keydown', (e)=>{
-      if (e.key==='Enter'){
-        const first = techSuggest.querySelector('.item');
-        if (first){ first.click(); e.preventDefault(); }
+      if (e.key==='ArrowDown' || e.key==='ArrowUp'){
+        const items = techSuggest ? Array.from(techSuggest.querySelectorAll('.item')) : [];
+        if (!items.length) return;
+        e.preventDefault();
+        let idx = typeof techSuggest._activeIndex==='number' ? techSuggest._activeIndex : -1;
+        if (e.key==='ArrowDown') idx = Math.min(idx+1, items.length-1); else idx = Math.max(idx-1, 0);
+        items.forEach(el=> el.classList.remove('active'));
+        const el = items[idx];
+        if (el){ el.classList.add('active'); el.scrollIntoView({ block:'nearest' }); techSuggest._activeIndex = idx; }
+      } else if (e.key==='Enter'){
+        const el = (techSuggest && techSuggest.querySelector('.item.active')) || (techSuggest && techSuggest.querySelector('.item'));
+        if (el){
+          e.preventDefault();
+          const id = +el.getAttribute('data-id');
+          const t = lastTechResults.find(x=>x.id===id);
+          if (!t) return;
+          if (!selectedTech.some(x=>x.id===t.id)){
+            const label = (t.name && t.name.trim()) ? `${t.name} <${t.email}>` : t.email;
+            const value = (t.name && t.name.trim()) ? t.name : t.email;
+            selectedTech.push({ id:t.id, label, value });
+            renderTechTags();
+          }
+          techInput.value = '';
+          techSuggest.style.display='none';
+        }
       }
     });
 

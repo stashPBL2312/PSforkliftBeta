@@ -49,7 +49,8 @@
     .toolbar .btn, .toolbar .dd .dd-btn { width:auto; }
     .toolbar input#search, .toolbar select { height:36px; min-height:36px; box-sizing:border-box; }
     /* Only table area may scroll horizontally when content is wider */
-    #table { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+    #table { overflow-x:auto; -webkit-overflow-scrolling:touch; border:1px solid #ddd; border-radius:8px; }
+    [data-theme="dark"] #table { border-color:#fff; }
     /* Dropdown (actions parent) */
     .dd { position:relative; display:inline-block; }
     .dd .dd-btn { height:36px; min-height:36px; padding:8px 12px; border:1px solid #ddd; background:#f7f7f7; border-radius:6px; cursor:pointer; font-size:13px; }
@@ -318,6 +319,8 @@ function sortRows(rows){
         </tr>`;
       }).join('') + '</tbody>';
       document.getElementById('table').innerHTML = `<table>${header}${body}</table>`;
+      const ri = document.getElementById('resultInfo');
+      if (ri){ ri.textContent = `Menampilkan ${rowsData.length} dari ${sorted.length} hasil`; }
       applyTablePerformanceHints('table');
       perfEnd && perfEnd('forklift.render', `q="${q}" n=${data?.length||0} filtered=${filtered.length} pageRows=${rowsData.length}`);
       
