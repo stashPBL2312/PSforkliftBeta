@@ -457,16 +457,17 @@
           </label>
           <div id="ed_itemsChoiceWrap" style="grid-column: 1 / -1; display:none;">
             <div style="font-size:12px; color:#666; margin-bottom:4px;">Item dipakai (pilih dari katalog)</div>
-            <div style="display:flex; gap:8px; align-items:center;">
-              <div class="input-suggest-wrap" style="position:relative; flex:1;">
-                <input id="ed_itemSearch" placeholder="Cari item..." autocomplete="off" />
-                <div id="edItemSuggest" class="suggest" style="display:none; content-visibility:auto; contain-intrinsic-size: 120px;"></div>
-              </div>
-              <div style="display:flex; gap:6px; align-items:center;">
-                <label for="ed_itemQty" style="font-size:12px; color:#555;">Qty</label>
-                <input id="ed_itemQty" type="number" min="1" value="1" />
-              </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <div class="input-suggest-wrap" style="position:relative; flex:1;">
+              <input id="ed_itemSearch" placeholder="Cari item..." autocomplete="off" />
+              <div id="edItemSuggest" class="suggest" style="display:none; content-visibility:auto; contain-intrinsic-size: 120px;"></div>
+              <div id="edItemAddPrompt" class="muted" style="display:none; margin-top:4px; color:#0d47a1; cursor:pointer;">Item tidak ditemukan, tambahkan item baru?</div>
             </div>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <label for="ed_itemQty" style="font-size:12px; color:#555;">Qty</label>
+              <input id="ed_itemQty" type="number" min="1" value="1" />
+            </div>
+          </div>
             <div id="ed_chosenItems" style="margin-top:8px; max-height:240px; overflow:auto; border:1px solid #eee; padding:8px; border-radius:6px;"></div>
             <div class="muted" style="font-size:11px; color:#777; margin-top:6px;">Ketik untuk mencari item, pilih untuk menambahkan. Anda bisa menghapus item terpilih.</div>
           </div>
@@ -662,11 +663,19 @@
 
     function renderEdItemSuggest(){
       if (!edItemInput || !edItemSuggest) return;
-      const q = String(edItemInput.value||'').trim().toLowerCase();
+      const qRaw = String(edItemInput.value||'').trim();
+      const q = qRaw.toLowerCase();
       const list = (Array.isArray(items)?items:[])
         .filter(i=> !q || `${i.code} ${i.nama}`.toLowerCase().includes(q))
         .sort(sortItemsTmiFirst);
-      if (!list.length){ edItemSuggest.style.display='none'; edItemSuggest.innerHTML=''; return; }
+      if (!list.length){
+        edItemSuggest.style.display='none';
+        edItemSuggest.innerHTML='';
+        const p = document.getElementById('edItemAddPrompt');
+        if (p){ p.style.display = qRaw.length>0 ? 'block' : 'none'; p.textContent = 'Item tidak ditemukan, tambahkan item baru?'; }
+        return;
+      }
+      const p = document.getElementById('edItemAddPrompt'); if (p) p.style.display='none';
       edItemSuggest.innerHTML = list.map(i=>{
         const unavailable = String(i.status||'').toLowerCase()==='unavailable';
         const rowStyle = unavailable ? 'opacity:0.5;' : '';
@@ -703,6 +712,32 @@
       inp.addEventListener('focus', ()=>{ try { renderEdItemSuggest(); } catch {} });
     })();
 
+    function addNewItemFromPrompt(){
+      try{
+        const name = String(edItemInput && edItemInput.value ? edItemInput.value : '').trim();
+        if (!name) return;
+        let qty = 1; if (edItemQtyEl){ qty = parseInt(edItemQtyEl.value||'1',10); if (!qty || qty<1) qty = 1; }
+        edChosen.push({ id: null, code: '', nama: name, qty, isNew: true });
+        (function(){
+          try{
+            const used = new Set();
+            for (const r of (Array.isArray(items)?items:[])){
+              const m = /^TMI-(\d+)$/i.exec(String(r.code||''));
+              if (m){ const n = parseInt(m[1],10); if (!isNaN(n)) used.add(n); }
+            }
+            let i = 1; while (used.has(i)) i++;
+            const code = 'TMI-'+i;
+            const newRow = { id: null, code, nama: name, status: 'available' };
+            items.push(newRow);
+            try { const vals=[newRow.code,newRow.nama,newRow.status]; newRow._q = vals.map(v=> String(v||'').toLowerCase()).join(' | '); } catch {}
+          } catch {}
+        })();
+        edRenderChosen();
+        if (edItemInput) edItemInput.value='';
+        const p = document.getElementById('edItemAddPrompt'); if (p) p.style.display='none';
+      } catch {}
+    }
+
     // Backward-compat wrapper to keep function name used elsewhere
     function edRenderItems(){ renderEdItemSuggest(); }
     function edRenderChosen(){
@@ -710,7 +745,7 @@
       chosenEl.innerHTML = (edChosen||[]).map((c,idx)=>`
         <div class="chosen-row">
           <div style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;">${c.code ? (c.code+' - '+c.nama) : (c.nama||'')}</div>
-          <input class="qty" type="number" min="1" value="${c.qty}" data-row="${idx}" />
+          <input class="qty" type="number" value="${c.qty}" data-row="${idx}" />
           <button class="xbtn" aria-label="Hapus item" title="Hapus" data-row="${idx}">&times;</button>
         </div>
       `).join('');
@@ -718,7 +753,16 @@
       chosenEl.querySelectorAll('input[data-row]').forEach(inp=>{
         inp.oninput = ()=>{
           const rid = +inp.getAttribute('data-row');
-          let v = parseInt(inp.value||'1',10); if (!v || v<1) v = 1; inp.value = String(v);
+          const s = String(inp.value||'');
+          if (s==='') return;
+          let v = parseInt(s,10);
+          if (!Number.isFinite(v)) return;
+          if (v<1) v = 1;
+          const row = (edChosen||[])[rid]; if (row) row.qty = v;
+        };
+        inp.onblur = ()=>{
+          const rid = +inp.getAttribute('data-row');
+          let v = parseInt((inp.value||'1'),10); if (!v || v<1) v = 1; inp.value = String(v);
           const row = (edChosen||[])[rid]; if (row) row.qty = v;
         };
       });
@@ -733,6 +777,19 @@
       if (choice) choice.style.display = (mode==='choice') ? 'block' : 'none';
       if (free) free.style.display = (mode==='free') ? 'block' : 'none';
       if (nextPmWrap) nextPmWrap.style.display = (j==='PM') ? 'block' : 'none';
+      const descEl = document.getElementById('ed_description_rich');
+      if (descEl){
+        const pmDefault = 'Preventative Maintenance';
+        const cur = getRteValue('ed_description_rich');
+        const norm = String(cur||'').trim();
+        const isDefaultText = norm === pmDefault;
+        const isDefaultBullet = norm.toLowerCase() === '<ul><li>preventative maintenance</li></ul>';
+        if (j==='PM'){
+          if (!norm || isDefaultText){ descEl.innerHTML = '<ul><li>Preventative Maintenance</li></ul>'; }
+        } else {
+          if (isDefaultText || isDefaultBullet){ descEl.innerHTML = ''; }
+        }
+      }
     }
     if (edJenisSel){ edJenisSel.addEventListener('change', ()=>{ edUpdateJenisUI(); }); }
     const edSearch = document.getElementById('ed_itemSearch');
@@ -744,11 +801,20 @@
       edSearch.addEventListener('keydown', (e)=>{
         if (e.key==='Enter'){
           const first = edItemSuggest && edItemSuggest.querySelector('.item[data-unavail="0"]');
-          if (first){ first.click(); e.preventDefault(); }
+          const name = String(edItemInput && edItemInput.value || '').trim();
+          if (first){ first.click(); e.preventDefault(); return; }
+          if (name){ addNewItemFromPrompt(); e.preventDefault(); return; }
         }
         if (e.key==='Escape'){ if (edItemSuggest) edItemSuggest.style.display='none'; }
       });
       document.addEventListener('click', (e)=>{ if (edItemSuggest && !edItemSuggest.contains(e.target) && e.target!==edSearch){ edItemSuggest.style.display='none'; } });
+      const p = document.getElementById('edItemAddPrompt');
+      if (p && !p.dataset.hook){
+        p.addEventListener('click', ()=> addNewItemFromPrompt(), { passive: true });
+        p.addEventListener('keydown', (e)=>{ if (e.key==='Enter' || e.key===' ') { e.preventDefault(); addNewItemFromPrompt(); } }, { passive: false });
+        p.addEventListener('pointerdown', (e)=>{ if (e.pointerType==='touch'){ e.preventDefault(); addNewItemFromPrompt(); } }, { passive: false });
+        p.dataset.hook='1';
+      }
     }
     // (fix) remove erroneous block that referenced techInput/fetchAndRenderTech for modal edit
     const edTechInput = document.getElementById('ed_teknisi_input');

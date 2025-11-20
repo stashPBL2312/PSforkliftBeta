@@ -868,10 +868,11 @@
     const descEl = document.getElementById('description');
     const current = getRteValue('description');
     const pmDefault = 'Preventative Maintenance';
+    const isDefaultBullet = String(current||'').trim().toLowerCase() === '<ul><li>preventative maintenance</li></ul>';
     if (j==='PM'){
-    if (!current || current === pmDefault){ descEl.textContent = pmDefault; }
+    if (!current || current === pmDefault){ descEl.innerHTML = '<ul><li>Preventative Maintenance</li></ul>'; }
     } else {
-    if (current === pmDefault){ descEl.textContent = ''; }
+    if (current === pmDefault || isDefaultBullet){ descEl.innerHTML = ''; }
     }
     }
     const reportInput = document.getElementById('report_no');
