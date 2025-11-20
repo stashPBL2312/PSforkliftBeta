@@ -75,26 +75,32 @@
       min-width: 160px;
       white-space: normal;
     }
-    #table table th:nth-child(7), #table table td:nth-child(7) { /* Next PM */
-      width: 1%;
-      min-width: 0;
-      white-space: nowrap;
-    }
     #table table th:nth-child(4), #table table td:nth-child(4) {
       width: 24%;
       white-space: normal;
     }
-    #table table th:nth-child(6), #table table td:nth-child(6) {
-      width: 18%;
-      white-space: normal;
-    }
+    /* Jenis (serapat mungkin) */
     #table table th:nth-child(5), #table table td:nth-child(5) {
+      width: 1%;
+      min-width: 0;
+      white-space: nowrap;
+    }
+    #table table th:nth-child(6), #table table td:nth-child(6) {
       width: 18%;
       min-width: 160px;
       white-space: normal;
       word-break: break-word;
     }
-    #table table th:nth-child(8), #table table td:nth-child(8) { /* Report No */
+    #table table th:nth-child(7), #table table td:nth-child(7) {
+      width: 18%;
+      white-space: normal;
+    }
+    #table table th:nth-child(8), #table table td:nth-child(8) { /* Next PM */
+      width: 1%;
+      min-width: 0;
+      white-space: nowrap;
+    }
+    #table table th:nth-child(9), #table table td:nth-child(9) { /* Report No */
       width: 1%;
       min-width: 0;
       white-space: nowrap;
@@ -1041,6 +1047,7 @@
       { key: 'forklift', label: 'Forklift' },
       { key: 'tanggal', label: 'Tanggal' },
       { key: 'description', label: 'Pekerjaan' },
+      { key: 'pekerjaan', label: 'Jenis' },
       { key: 'items_used', label: 'Parts', render: renderPartsCell },
       { key: 'recommendation', label: 'Recommendation' },
       { key: 'next_pm', label: 'Next PM' },
@@ -1053,6 +1060,7 @@
       { key: 'forklift', label: 'Forklift' },
       { key: 'tanggal', label: 'Tanggal' },
       { key: 'description', label: 'Pekerjaan' },
+      { key: 'pekerjaan', label: 'Jenis' },
       { key: 'items_used', label: 'Parts', render: renderPartsCell },
       { key: 'recommendation', label: 'Recommendation' },
       { key: 'next_pm', label: 'Next PM' },
@@ -1373,8 +1381,9 @@ function render(){
     }
     // Highlight Next PM yang terlambat (sebelum hari ini)
     const nextPmRaw = row.next_pm || '';
-    let nextPmCell = nextPmRaw || '';
-    if (nextPmRaw) {
+    let nextPmCell = '';
+    const jenisNow = String(row.pekerjaan||'').trim().toUpperCase();
+    if (jenisNow === 'PM' && nextPmRaw) {
       const d = new Date(nextPmRaw);
       if (!Number.isNaN(d.getTime())){
         const today = new Date(); today.setHours(0,0,0,0);

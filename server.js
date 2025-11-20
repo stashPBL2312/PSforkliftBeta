@@ -777,7 +777,10 @@ app.get('/api/records', requireLogin, async (req, res) => {
       COALESCE((SELECT location FROM forklifts f WHERE f.id=r.forklift_id), '') AS forklift_location_fk,
       COALESCE((SELECT serial FROM forklifts f WHERE f.id=r.forklift_id), '') AS forklift_serial,
       COALESCE((SELECT powertrain FROM forklifts f WHERE f.id=r.forklift_id), '') AS forklift_powertrain,
-      COALESCE((SELECT j.next_pm FROM jobs j WHERE j.report_no=r.report_no AND j.forklift_id=r.forklift_id AND j.jenis='PM' AND j.deleted_at IS NULL ORDER BY j.id DESC LIMIT 1), (SELECT j.next_pm FROM jobs j WHERE j.jenis='PM' AND j.forklift_id=r.forklift_id AND j.deleted_at IS NULL ORDER BY j.id DESC LIMIT 1)) AS next_pm
+      CASE WHEN r.pekerjaan='PM' THEN 
+        COALESCE((SELECT j.next_pm FROM jobs j WHERE j.report_no=r.report_no AND j.forklift_id=r.forklift_id AND j.jenis='PM' AND j.deleted_at IS NULL ORDER BY j.id DESC LIMIT 1),
+                 (SELECT j.next_pm FROM jobs j WHERE j.jenis='PM' AND j.forklift_id=r.forklift_id AND j.deleted_at IS NULL ORDER BY j.id DESC LIMIT 1))
+      ELSE NULL END AS next_pm
       FROM records r WHERE r.deleted_at IS NULL`;
     // Filter by forklift
     if (forklift_id) { sql += ' AND r.forklift_id=?'; params.push(forklift_id); }
