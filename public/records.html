@@ -863,7 +863,10 @@
         }
       }
       toRemove.forEach(n=> n.replaceWith(document.createTextNode(n.textContent || '')));
-      return div.innerHTML.replace(/\u00A0/g, ' ').trim();
+      const cleaned = div.innerHTML.replace(/\u00A0/g, ' ').trim();
+      const textOnly = (div.textContent||'').replace(/\u00A0/g,' ').trim();
+      if (!textOnly) return '';
+      return cleaned;
     }
 
     function getRteValue(id){
@@ -1034,14 +1037,47 @@
     function escHtml(s){ return String(s||'').replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
     function formatTanggalDisplay(str){ const s = String(str||'').trim(); if(!s) return ''; const d = new Date(s); if(!Number.isNaN(d.getTime())){ const day = String(d.getDate()).padStart(2,'0'); const month = d.toLocaleString('id-ID',{ month:'short' }); const year = d.getFullYear(); return `${day} ${month} ${year}`; } return s; }
     function normalizeParts(raw){ const s = String(raw||'').trim(); if(!s) return []; const looksHtml = /<\s*(ul|ol|li)\b/i.test(s); if(looksHtml){ const t = s.replace(/<br\s*\/?\s*>/gi,'\n'); const cleaned = t.replace(/<(?!\/?(ul|ol|li)\b)[^>]*>/gi,'').replace(/<\/?(ul|ol)\b[^>]*>/gi,'').replace(/<li[^>]*>/gi,'\n').replace(/<\/li>/gi,'\n').replace(/\r?\n+/g,'\n'); return cleaned.split('\n').map(x=>x.trim()).filter(Boolean); } else { return s.split(/\r?\n|,/).map(x=>x.trim()).filter(Boolean); } }
-    function normalizeRichLines(raw){ const s = String(raw||'').trim(); if(!s) return []; let t = s.replace(/<br\s*\/\?\s*>/gi,'\n').replace(/<\/(p|div|li)\s*>/gi,'\n').replace(/<\s*(p|div|ul|ol|li)[^>]*>/gi,''); t = t.replace(/&nbsp;/gi,' ').replace(/&amp;/gi,'&').replace(/&lt;/gi,'<').replace(/&gt;/gi,'>'); const cleaned = t.replace(/<[^>]*>/g,'').replace(/\r?\n+/g,'\n'); return cleaned.split(/\n|,/).map(x=>x.trim()).filter(Boolean); }
-    function renderPartsCell(row){ const items = normalizeRichLines(row.items_used); if(items.length===0) return ''; return '<ul class="parts-list">'+ items.map(i=> '<li>'+ escHtml(i) +'</li>').join('') +'</ul>'; }
-    function renderDescriptionCell(row){ const items = normalizeRichLines(row.description); if(items.length===0) return escHtml(row.description||''); return '<ul class="parts-list">'+ items.map(i=> '<li>'+ escHtml(i) +'</li>').join('') +'</ul>'; }
-    function renderRecommendationCell(row){ const items = normalizeRichLines(row.recommendation); if(items.length===0) return escHtml(row.recommendation||''); return '<ul class="parts-list">'+ items.map(i=> '<li>'+ escHtml(i) +'</li>').join('') +'</ul>'; }
+    function normalizeRichLines(raw){ const s = String(raw||'').trim(); if(!s) return []; let t = s.replace(/<br\s*\/?\s*>/gi,'\n').replace(/<\/(p|div|li)\s*>/gi,'\n').replace(/<\s*(p|div|ul|ol|li)[^>]*>/gi,''); t = t.replace(/&nbsp;/gi,' ').replace(/&amp;/gi,'&').replace(/&lt;/gi,'<').replace(/&gt;/gi,'>'); const cleaned = t.replace(/<[^>]*>/g,'').replace(/\r?\n+/g,'\n'); return cleaned.split(/\n|,/).map(x=>x.trim()).filter(Boolean); }
+    function hasListMarkup(raw){ return /<\s*(ul|ol|li)\b/i.test(String(raw||'')); }
+    function isRichEmpty(raw){ const s = String(raw||'').trim(); if(!s) return true; const tmp = document.createElement('div'); tmp.innerHTML = s; const text = (tmp.textContent||'').replace(/\u00A0/g,' ').trim(); if (!text) return true; const stripped = s.replace(/&nbsp;/gi,' ').replace(/&amp;/gi,'&').replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/<br\s*\/?\s*>/gi,' ').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim(); return stripped.length===0; }
+    function renderPartsCell(row){ const raw = row.items_used; if (isRichEmpty(raw)) return ''; const items = normalizeRichLines(raw); if(items.length===0) return escHtml(raw||''); return '<ul class="parts-list">'+ items.map(i=> '<li>'+ escHtml(i) +'</li>').join('') +'</ul>'; }
+    function renderDescriptionCell(row){ const raw = row.description; if (isRichEmpty(raw)) return ''; if (hasListMarkup(raw)){ const items = normalizeRichLines(raw); return items.length ? '<ul class="parts-list">'+ items.map(i=> '<li>'+ escHtml(i) +'</li>').join('') +'</ul>' : ''; } return sanitizeHTML(raw||''); }
+    function renderRecommendationCell(row){ const raw = row.recommendation; if (isRichEmpty(raw)) return ''; if (hasListMarkup(raw)){ const items = normalizeRichLines(raw); return items.length ? '<ul class="parts-list">'+ items.map(i=> '<li>'+ escHtml(i) +'</li>').join('') +'</ul>' : ''; } return sanitizeHTML(raw||''); }
     function normalizeNoSpace(str){ return String(str||'').toLowerCase().replace(/[\s-]+/g,''); }
     function makeTokens(q){ const base = String(q||'').trim().toLowerCase(); const bySpace = base.split(/\s+/).filter(Boolean); const byGroup = (base.match(/[a-z]+|\d+/g) || []); const set = new Set([...bySpace, ...byGroup]); return Array.from(set); }
     function extractEqNo(label){ const m = /\(([^)]+)\)\s*$/.exec(String(label||'')); return m ? m[1] : ''; }
-    function rowMatchesQuery(row, q){ const tokens = makeTokens(q); if (!tokens.length) return true; const fields = []; try{ fields.push(String(row.forklift||'')); fields.push(String(row.forklift_owner||'')); fields.push(String(row.forklift_location||row.forklift_location_fk||'')); fields.push(String(row.forklift_serial||'')); fields.push(String(row.forklift_powertrain||'')); fields.push(String(row.report_no||'')); fields.push(String(row.pekerjaan||'')); fields.push(String(row.teknisi||'')); fields.push(String(row.description||'')); fields.push(String(row.recommendation||'')); fields.push(String(row.items_used||'')); fields.push(String(row.forklift_eq_no||'')); fields.push(extractEqNo(row.forklift||'')); }catch{} const normFields = fields.map(s=> ({ plain: String(s||'').toLowerCase(), norm: normalizeNoSpace(s) })); return tokens.every(tok => { const p = tok.toLowerCase(); const n = normalizeNoSpace(tok); return normFields.some(f => f.plain.includes(p) || (n && f.norm.includes(n))); }); }
+    function rowMatchesQuery(row, q){
+      const tokens = makeTokens(q); if (!tokens.length) return true;
+      const fields = [];
+      try{
+        fields.push(String(row.forklift||''));
+        fields.push(String(row.forklift_owner||''));
+        fields.push(String(row.forklift_location||row.forklift_location_fk||''));
+        fields.push(String(row.forklift_serial||''));
+        fields.push(String(row.forklift_powertrain||''));
+        fields.push(String(row.report_no||''));
+        fields.push(String(row.pekerjaan||''));
+        fields.push(String(row.teknisi||''));
+        fields.push(String(row.description||''));
+        fields.push(String(row.recommendation||''));
+        fields.push(String(row.items_used||''));
+        fields.push(String(row.forklift_eq_no||''));
+        fields.push(extractEqNo(row.forklift||''));
+        // Tambahkan brand/type dari cache forklift untuk meningkatkan kecocokan arsip
+        const fkById = (fkCache||[]).find(x=> String(x.id)===String(row.forklift_id||''));
+        const eqNorm = String(row.forklift_eq_no||'').trim().toLowerCase();
+        const snNorm = String(row.forklift_serial||'').trim().toLowerCase();
+        const fkByEq = !fkById && eqNorm ? (fkCache||[]).find(x=> String(x.eq_no||'').trim().toLowerCase()===eqNorm || String(x.eq_alias||'').trim().toLowerCase()===eqNorm) : null;
+        const fkBySn = (!fkById && !fkByEq && snNorm) ? (fkCache||[]).find(x=> String(x.serial||'').trim().toLowerCase()===snNorm) : null;
+        const fk = fkById || fkByEq || fkBySn || null;
+        if (fk){ fields.push(String(fk.brand||'')); fields.push(String(fk.type||'')); fields.push(String(fk.location||'')); fields.push(String(fk.eq_alias||'')); }
+      }catch{}
+      const normFields = fields.map(s=> ({ plain: String(s||'').toLowerCase(), norm: normalizeNoSpace(s) }));
+      return tokens.every(tok => {
+        const p = tok.toLowerCase(); const n = normalizeNoSpace(tok);
+        return normFields.some(f => f.plain.includes(p) || (n && f.norm.includes(n)));
+      });
+    }
     const columns = [
       { key: '__sel', label: '' },
       { key: 'forklift', label: 'Forklift' },
@@ -1304,7 +1340,8 @@ function sortRows(rows){
   return arr;
 }
 
-async function load(){
+async function load(opts){
+  const keepPage = !!(opts && opts.keepPage);
   try{
     const { q, start, end, jenisVals, techTokens, fkIdSet } = getFilters();
     const params = new URLSearchParams();
@@ -1336,7 +1373,7 @@ async function load(){
     // Apply sorting
     data = sortRows(rows);
     indexRows(data);
-    page = 1;
+    if (!keepPage) page = 1;
     render();
     ensureArchiveLoaded();
   } catch(e){
@@ -1472,10 +1509,12 @@ function render(){
   // Header sort handlers
   document.querySelectorAll('#table th[data-key]').forEach(th=>{
     th.onclick = ()=>{
+      const pb=document.getElementById('pagerBar'); const y=pb?pb.getBoundingClientRect().top:0;
       const key = th.getAttribute('data-key');
       if (sortKey===key){ sortDir = (sortDir==='asc'?'desc':'asc'); } else { sortKey = key; sortDir = 'asc'; }
       data = sortRows(data);
       render();
+      const ny=pb?pb.getBoundingClientRect().top:0; window.scrollBy({ top: ny - y });
     };
   });
 
@@ -1551,15 +1590,17 @@ function render(){
     const pageInput = document.getElementById('pageInput');
     if (prevBtn) prevBtn.disabled = page <= 1 || allMode;
     if (nextBtn) nextBtn.disabled = page >= pages || allMode;
-    if (prevBtn) prevBtn.onclick = ()=>{ if (page>1){ page = page-1; render(); } };
-    if (nextBtn) nextBtn.onclick = ()=>{ if (page<pages){ page = page+1; render(); } };
+    if (prevBtn) prevBtn.onclick = ()=>{ if (page>1){ const pb=document.getElementById('pagerBar'); const y=pb?pb.getBoundingClientRect().top:0; page = page-1; render(); const ny=pb?pb.getBoundingClientRect().top:0; window.scrollBy({ top: ny - y }); } };
+    if (nextBtn) nextBtn.onclick = ()=>{ if (page<pages){ const pb=document.getElementById('pagerBar'); const y=pb?pb.getBoundingClientRect().top:0; page = page+1; render(); const ny=pb?pb.getBoundingClientRect().top:0; window.scrollBy({ top: ny - y }); } };
     if (pageInput){
       pageInput.onchange = ()=>{
         let p = parseInt(pageInput.value, 10);
         if (isNaN(p) || p<1) p = 1;
         if (p>pages) p = pages;
+        const pb=document.getElementById('pagerBar'); const y=pb?pb.getBoundingClientRect().top:0;
         page = p;
         render();
+        const ny=pb?pb.getBoundingClientRect().top:0; window.scrollBy({ top: ny - y });
       };
       pageInput.onkeydown = (e)=>{ if (e.key==='Enter'){ e.preventDefault(); pageInput.onchange(); } };
     }
@@ -1747,7 +1788,9 @@ function openEditModal(item, readOnly=false){
       }
       alert('Record berhasil diperbarui');
       modal.style.display='none';
-      await load();
+      const pb=document.getElementById('pagerBar'); const y=pb?pb.getBoundingClientRect().top:0;
+      await load({ keepPage: true });
+      const ny=pb?pb.getBoundingClientRect().top:0; window.scrollBy({ top: ny - y });
     } catch(e){
       alert(e && e.error ? e.error : 'Gagal menyimpan perubahan');
     }
@@ -1775,7 +1818,9 @@ if (endEl) endEl.onchange = load;
       const val = String(it.getAttribute('data-val'));
       rowsPerPage = (val==='All' ? 'All' : (parseInt(val,10)||25));
       rowsLabel.textContent = (rowsPerPage==='All' ? 'All' : String(rowsPerPage));
+      const pb=document.getElementById('pagerBar'); const y=pb?pb.getBoundingClientRect().top:0;
       page=1; rowsDd.classList.remove('open'); render();
+      const ny=pb?pb.getBoundingClientRect().top:0; window.scrollBy({ top: ny - y });
     });
     document.addEventListener('click', (ev)=>{ if (!rowsDd.contains(ev.target)) rowsDd.classList.remove('open'); });
   }
@@ -1795,7 +1840,7 @@ if (endEl) endEl.onchange = load;
   sortDir = 'desc';
   page = 1; rowsPerPage = 25; if (rowsLabel) rowsLabel.textContent = '25';
   // Muat ulang data dengan parameter default
-  load();
+  load({ keepPage: false });
 };
 
 function setupDropdown(dd){
