@@ -360,6 +360,13 @@
       return rows;
     }
     indexFk(forklifts); indexItems(items);
+    async function refreshItemsCache(){
+      try{
+        const latest = await api('/api/items');
+        indexItems(latest);
+        items.splice(0, items.length, ...latest);
+      }catch{}
+    }
     // Hasil pencarian teknisi via AJAX
     let lastTechResults = [];
     let techReqSeq = 0;
@@ -1011,6 +1018,7 @@
       try {
         const r = await api('/api/jobs', { method:'POST', body: payload });
         alert('Tersimpan. Report No: '+r.report_no);
+        await refreshItemsCache();
         resetJobForm();
       } catch (e) {
         alert(e.error || 'Gagal simpan');
